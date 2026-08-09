@@ -17,6 +17,7 @@ from blueprints.services_bp import services_bp
 
 def create_app():
     app = Flask(__name__)
+    app.url_map.strict_slashes = False
     app.config.from_object(Config)
 
     # Inicialização do Banco de Dados SQLAlchemy

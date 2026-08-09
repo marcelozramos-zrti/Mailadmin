@@ -36,7 +36,7 @@ def run_cmd(cmd_list):
     except Exception as e:
         return {'returncode': -1, 'stdout': '', 'stderr': str(e)}
 
-@services_bp.route('/system-metrics', methods=['GET'])
+@services_bp.route('/system-metrics', methods=['GET', 'POST'])
 @login_required
 def get_system_metrics():
     global cpu_history_buffer
@@ -182,7 +182,7 @@ def get_system_metrics():
         }
     })
 
-@services_bp.route('/status', methods=['GET'])
+@services_bp.route('/status', methods=['GET', 'POST'])
 @login_required
 def get_status():
     svcs = ['postfix', 'amavis', 'clamav-daemon', 'spamassassin']
@@ -198,11 +198,11 @@ def get_status():
 
     return jsonify({'success': True, 'services': result_data})
 
-@services_bp.route('/restart', methods=['POST'])
+@services_bp.route('/restart', methods=['GET', 'POST'])
 @login_required
 def restart_service():
-    data = request.get_json() or {}
-    service = data.get('service')
+    data = request.get_json(silent=True) or request.form or {}
+    service = data.get('service') or request.args.get('service')
     allowed = ['postfix', 'amavis', 'clamav-daemon', 'spamassassin']
 
     if service not in allowed:
@@ -214,49 +214,47 @@ def restart_service():
     else:
         return jsonify({'success': False, 'message': f'Erro ao reiniciar: {res["stderr"] or res["stdout"]}'}), 500
 
-@services_bp.route('/spamassassin/rules', methods=['GET'])
+@services_bp.route('/spamassassin/rules', methods=['GET', 'POST'])
 @login_required
-def get_rules():
-    try:
-        if not os.path.exists(LOCAL_CF_PATH):
-            return jsonify({'success': False, 'message': f'Arquivo {LOCAL_CF_PATH} não encontrado.'}), 404
-        with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
-            content = f.read()
-        return jsonify({'success': True, 'content': content})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+def handle_rules():
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or request.form or {}
+        content = data.get('content', '')
 
-@services_bp.route('/spamassassin/rules', methods=['POST'])
-@login_required
-def save_rules():
-    data = request.get_json() or {}
-    content = data.get('content', '')
+        try:
+            tmp_file = '/tmp/local.cf.tmp'
+            with open(tmp_file, 'w', encoding='utf-8') as f:
+                f.write(content)
 
-    try:
-        tmp_file = '/tmp/local.cf.tmp'
-        with open(tmp_file, 'w', encoding='utf-8') as f:
-            f.write(content)
+            cp_res = run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
+            if cp_res['returncode'] != 0:
+                return jsonify({'success': False, 'message': f'Erro de cópia sudo: {cp_res["stderr"]}'}), 500
 
-        cp_res = run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
-        if cp_res['returncode'] != 0:
-            return jsonify({'success': False, 'message': f'Erro de cópia sudo: {cp_res["stderr"]}'}), 500
+            if os.path.exists(tmp_file):
+                os.remove(tmp_file)
 
-        if os.path.exists(tmp_file):
-            os.remove(tmp_file)
+            restart_res = run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
+            return jsonify({
+                'success': True,
+                'message': 'Regras salvas no local.cf e Amavis reiniciado com sucesso!'
+            })
+        except Exception as e:
+            return jsonify({'success': False, 'message': str(e)}), 500
+    else:
+        try:
+            if not os.path.exists(LOCAL_CF_PATH):
+                return jsonify({'success': False, 'message': f'Arquivo {LOCAL_CF_PATH} não encontrado.'}), 404
+            with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
+                content = f.read()
+            return jsonify({'success': True, 'content': content})
+        except Exception as e:
+            return jsonify({'success': False, 'message': str(e)}), 500
 
-        restart_res = run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
-        return jsonify({
-            'success': True,
-            'message': 'Regras salvas no local.cf e Amavis reiniciado com sucesso!'
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-@services_bp.route('/spamassassin/lint', methods=['POST'])
+@services_bp.route('/spamassassin/lint', methods=['GET', 'POST'])
 @login_required
 def lint_rules():
-    data = request.get_json() or {}
-    content = data.get('content')
+    data = request.get_json(silent=True) or request.form or {}
+    content = data.get('content') or request.args.get('content')
 
     if content:
         tmp_file = '/tmp/test_spamassassin.cf'
@@ -276,10 +274,16 @@ def lint_rules():
     else:
         return jsonify({'success': False, 'message': res['stderr'] or res['stdout']})
 
-@services_bp.route('/logs', methods=['GET'])
+@services_bp.route('/logs', methods=['GET', 'POST'])
 @login_required
 def get_logs():
-    lines_count = request.args.get('lines', default=100, type=int)
+    data = request.get_json(silent=True) or request.form or {}
+    lines_arg = data.get('lines') or request.args.get('lines', 100)
+    try:
+        lines_count = int(lines_arg)
+    except (ValueError, TypeError):
+        lines_count = 100
+
     if os.path.exists(MAIL_LOG_PATH):
         res = run_cmd(['sudo', 'tail', '-n', str(lines_count), MAIL_LOG_PATH])
         if res['returncode'] == 0:

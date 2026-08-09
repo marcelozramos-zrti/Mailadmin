@@ -151,7 +151,7 @@ def get_queue():
     except Exception as e:
         return jsonify({'success': False, 'message': f'Erro ao obter fila Postfix: {str(e)}'}), 500
 
-@troubleshooting_bp.route('/queue/delete', methods=['POST'])
+@troubleshooting_bp.route('/queue/delete', methods=['GET', 'POST', 'DELETE'])
 @login_required
 def delete_queue_message():
     """Deleta uma mensagem específica da fila usando 'postsuper -d <queue_id>'."""
@@ -170,7 +170,7 @@ def delete_queue_message():
     except Exception as e:
         return jsonify({'success': False, 'message': f'Exceção ao executar postsuper: {str(e)}'}), 500
 
-@troubleshooting_bp.route('/queue/flush', methods=['POST'])
+@troubleshooting_bp.route('/queue/flush', methods=['GET', 'POST'])
 @login_required
 def flush_queue():
     """Força o envio das mensagens retidas na fila executando 'postqueue -f'."""

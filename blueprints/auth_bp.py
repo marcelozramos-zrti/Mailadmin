@@ -8,12 +8,12 @@ from models import db, AdminUser
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
-@auth_bp.route('/login', methods=['POST'])
+@auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
-    data = request.get_json() or {}
-    username = data.get('username')
-    password = data.get('password')
-    token = data.get('token') # Código TOTP de 6 dígitos
+    data = request.get_json(silent=True) or request.form or {}
+    username = data.get('username') or request.args.get('username')
+    password = data.get('password') or request.args.get('password')
+    token = data.get('token') or request.args.get('token') # Código TOTP de 6 dígitos
 
     if not username or not password:
         return jsonify({'success': False, 'message': 'Usuário e senha são obrigatórios.'}), 400
@@ -44,14 +44,14 @@ def login():
         'user': {'id': admin.id, 'username': admin.username, 'mfa_enabled': admin.otp_enabled}
     })
 
-@auth_bp.route('/logout', methods=['POST'])
+@auth_bp.route('/logout', methods=['GET', 'POST'])
 @login_required
 def logout():
     logout_user()
     session.clear()
     return jsonify({'success': True, 'message': 'Sessão encerrada com sucesso.'})
 
-@auth_bp.route('/mfa/setup', methods=['GET'])
+@auth_bp.route('/mfa/setup', methods=['GET', 'POST'])
 @login_required
 def mfa_setup():
     """Gera chave TOTP e imagem QR Code base64 para configuração no Google Authenticator."""
@@ -78,12 +78,12 @@ def mfa_setup():
         'provision_url': provision_url
     })
 
-@auth_bp.route('/mfa/enable', methods=['POST'])
+@auth_bp.route('/mfa/enable', methods=['GET', 'POST'])
 @login_required
 def mfa_enable():
     """Valida o primeiro código TOTP de 6 dígitos e habilita o MFA para a conta admin."""
-    data = request.get_json() or {}
-    token = data.get('token')
+    data = request.get_json(silent=True) or request.form or {}
+    token = data.get('token') or request.args.get('token')
 
     if not token or not current_user.otp_secret:
         return jsonify({'success': False, 'message': 'Código TOTP de 6 dígitos é obrigatório.'}), 400
@@ -96,7 +96,7 @@ def mfa_enable():
     else:
         return jsonify({'success': False, 'message': 'Código inválido. Verifique o horário do celular.'}), 400
 
-@auth_bp.route('/me', methods=['GET'])
+@auth_bp.route('/me', methods=['GET', 'POST'])
 def get_current_user_info():
     if current_user.is_authenticated:
         return jsonify({
