@@ -1006,80 +1006,150 @@
                 <!-- 6. CONFIGURAÇÕES DO SISTEMA TAB -->
                 <div class="tab-section d-none" id="tab-settings">
                     <div class="card p-4">
+                        <!-- Header Geral da Aba Configurações -->
                         <div class="d-flex align-items-center justify-content-between mb-4 pb-3 border-bottom">
                             <div class="d-flex align-items-center gap-3">
-                                <div class="p-3 rounded-3 bg-primary bg-opacity-10 text-primary">
+                                <div class="p-2.5 rounded-3 bg-primary bg-opacity-10 text-primary">
                                     <i class="bi bi-sliders fs-3"></i>
                                 </div>
                                 <div>
-                                    <h2 class="h5 mb-1 fw-bold text-dark">Configurações do Banco de Dados vmail</h2>
-                                    <p class="text-muted small mb-0">Gerencie as credenciais de conexão ao MariaDB/MySQL gravadas no arquivo <code>.env</code> do servidor.</p>
+                                    <h2 class="h5 mb-1 fw-bold text-dark">Configurações e Segurança do Sistema</h2>
+                                    <p class="text-muted small mb-0">Gerencie a conexão do banco de dados <code>.env</code> e os Administradores com acesso ao painel (<code>vmail_admins</code>).</p>
                                 </div>
                             </div>
-                            <span class="badge bg-secondary-subtle text-secondary border font-monospace">.env Manager</span>
+                            <span class="badge bg-secondary-subtle text-secondary border font-monospace">System Admin</span>
                         </div>
 
-                        <form id="db-settings-form" onsubmit="saveDatabaseSettings(event)">
-                            <div id="settings-alert-container"></div>
-                            
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label class="form-label fw-semibold text-dark small">Usuário do Banco (DB_USER)</label>
-                                    <div class="input-group">
-                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-person text-muted"></i></span>
-                                        <input type="text" id="cfg-db-user" class="form-control font-monospace" placeholder="vmailadmin" required>
-                                    </div>
-                                </div>
-
-                                <div class="col-md-6">
-                                    <label class="form-label fw-semibold text-dark small">Senha do Banco (DB_PASS)</label>
-                                    <div class="input-group">
-                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-key text-muted"></i></span>
-                                        <input type="password" id="cfg-db-pass" class="form-control font-monospace" placeholder="senha_vmail_123" required>
-                                    </div>
-                                </div>
-
-                                <div class="col-md-6">
-                                    <label class="form-label fw-semibold text-dark small">Host / IP do Banco (DB_HOST)</label>
-                                    <div class="input-group">
-                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-hdd-network text-muted"></i></span>
-                                        <input type="text" id="cfg-db-host" class="form-control font-monospace" placeholder="127.0.0.1" required>
-                                    </div>
-                                </div>
-
-                                <div class="col-md-6">
-                                    <label class="form-label fw-semibold text-dark small">Nome da Base de Dados (DB_NAME)</label>
-                                    <div class="input-group">
-                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-database text-muted"></i></span>
-                                        <input type="text" id="cfg-db-name" class="form-control font-monospace" placeholder="vmail" required>
-                                    </div>
-                                </div>
-
-                                <div class="col-md-6">
-                                    <label class="form-label fw-semibold text-dark small">Porta MySQL/MariaDB (DB_PORT)</label>
-                                    <div class="input-group">
-                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-ethernet text-muted"></i></span>
-                                        <input type="text" id="cfg-db-port" class="form-control font-monospace" placeholder="3306" required>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="alert alert-info border-0 bg-info bg-opacity-10 text-info-emphasis mt-4 d-flex align-items-center gap-2 small rounded-3">
-                                <i class="bi bi-info-circle-fill fs-5 flex-shrink-0"></i>
-                                <div>
-                                    Ao salvar, as variáveis serão gravadas fisicamente no arquivo <code>.env</code> no servidor Linux. Para aplicar as alterações de conexão no MailAdmin Suite, reinicie o serviço no Linux.
-                                </div>
-                            </div>
-
-                            <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
-                                <button type="button" class="btn btn-outline-secondary btn-sm rounded-3" onclick="loadDatabaseSettings()">
-                                    <i class="bi bi-arrow-clockwise me-1"></i> Recarregar
+                        <!-- Sub-abas do Bootstrap -->
+                        <ul class="nav nav-tabs mb-4" id="settingsTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active fw-bold small text-dark d-flex align-items-center gap-2" id="settings-db-tab" data-bs-toggle="tab" data-bs-target="#settings-tab-db" type="button" role="tab">
+                                    <i class="bi bi-database-gear text-primary"></i> Conexão Banco de Dados (.env)
                                 </button>
-                                <button type="submit" class="btn btn-primary btn-sm fw-bold px-4 rounded-3">
-                                    <i class="bi bi-floppy-fill me-1"></i> Salvar no .env
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link fw-bold small text-muted d-flex align-items-center gap-2" id="settings-admins-tab" data-bs-toggle="tab" data-bs-target="#settings-tab-admins" type="button" role="tab" onclick="loadAdmins()">
+                                    <i class="bi bi-people-fill text-success"></i> Administradores do Painel
                                 </button>
+                            </li>
+                        </ul>
+
+                        <div class="tab-content" id="settingsTabsContent">
+                            <!-- SUB-TAB 1: BANCO DE DADOS (.env) -->
+                            <div class="tab-pane fade show active" id="settings-tab-db" role="tabpanel">
+                                <form id="db-settings-form" onsubmit="saveDatabaseSettings(event)">
+                                    <div id="settings-alert-container"></div>
+                                    
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-semibold text-dark small">Usuário do Banco (DB_USER)</label>
+                                            <div class="input-group">
+                                                <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-person text-muted"></i></span>
+                                                <input type="text" id="cfg-db-user" class="form-control font-monospace" placeholder="vmailadmin" required>
+                                            </div>
+                                        </div>
+
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-semibold text-dark small">Senha do Banco (DB_PASS)</label>
+                                            <div class="input-group">
+                                                <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-key text-muted"></i></span>
+                                                <input type="password" id="cfg-db-pass" class="form-control font-monospace" placeholder="senha_vmail_123" required>
+                                            </div>
+                                        </div>
+
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-semibold text-dark small">Host / IP do Banco (DB_HOST)</label>
+                                            <div class="input-group">
+                                                <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-hdd-network text-muted"></i></span>
+                                                <input type="text" id="cfg-db-host" class="form-control font-monospace" placeholder="127.0.0.1" required>
+                                            </div>
+                                        </div>
+
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-semibold text-dark small">Nome da Base de Dados (DB_NAME)</label>
+                                            <div class="input-group">
+                                                <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-database text-muted"></i></span>
+                                                <input type="text" id="cfg-db-name" class="form-control font-monospace" placeholder="vmail" required>
+                                            </div>
+                                        </div>
+
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-semibold text-dark small">Porta MySQL/MariaDB (DB_PORT)</label>
+                                            <div class="input-group">
+                                                <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-ethernet text-muted"></i></span>
+                                                <input type="text" id="cfg-db-port" class="form-control font-monospace" placeholder="3306" required>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="alert alert-info border-0 bg-info bg-opacity-10 text-info-emphasis mt-4 d-flex align-items-center gap-2 small rounded-3">
+                                        <i class="bi bi-info-circle-fill fs-5 flex-shrink-0"></i>
+                                        <div>
+                                            Ao salvar, as variáveis serão gravadas fisicamente no arquivo <code>.env</code> no servidor Linux. Para aplicar as alterações de conexão no MailAdmin Suite, reinicie o serviço no Linux.
+                                        </div>
+                                    </div>
+
+                                    <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+                                        <button type="button" class="btn btn-outline-secondary btn-sm rounded-3" onclick="loadDatabaseSettings()">
+                                            <i class="bi bi-arrow-clockwise me-1"></i> Recarregar
+                                        </button>
+                                        <button type="submit" class="btn btn-primary btn-sm fw-bold px-4 rounded-3">
+                                            <i class="bi bi-floppy-fill me-1"></i> Salvar no .env
+                                        </button>
+                                    </div>
+                                </form>
                             </div>
-                        </form>
+
+                            <!-- SUB-TAB 2: ADMINISTRADORES DO PAINEL (vmail_admins) -->
+                            <div class="tab-pane fade" id="settings-tab-admins" role="tabpanel">
+                                <div id="admin-alert-container"></div>
+
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <div>
+                                        <h6 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
+                                            <i class="bi bi-shield-lock-fill text-success"></i> Gestão de Contas de Administrador
+                                        </h6>
+                                        <small class="text-muted">Usuários analistas cadastrados na tabela <code>vmail_admins</code> com permissão de login ao painel.</small>
+                                    </div>
+                                    <button class="btn btn-success btn-sm fw-bold px-3 rounded-3" onclick="showCreateAdminModal()">
+                                        <i class="bi bi-person-plus-fill me-1"></i> Novo Administrador
+                                    </button>
+                                </div>
+
+                                <!-- Barra de Busca de Administradores -->
+                                <div class="row g-2 mb-3 align-items-center justify-content-between">
+                                    <div class="col-md-6 col-lg-4">
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light border-light-subtle text-muted">
+                                                <i class="bi bi-search"></i>
+                                            </span>
+                                            <input type="text" id="search-admins-input" class="form-control" placeholder="Buscar administrador..." onkeyup="filterTableRows('search-admins-input', 'admins-table-body')">
+                                        </div>
+                                    </div>
+                                    <div class="col-auto">
+                                        <small class="text-muted">Total de administradores: <span id="admins-count" class="badge bg-secondary font-monospace">0</span></small>
+                                    </div>
+                                </div>
+
+                                <!-- Tabela de Administradores -->
+                                <div class="table-responsive">
+                                    <table class="table table-custom align-middle">
+                                        <thead>
+                                            <tr>
+                                                <th>ID</th>
+                                                <th>Usuário Administrador</th>
+                                                <th>Status Autenticador (MFA/TOTP)</th>
+                                                <th>Data de Cadastro</th>
+                                                <th>Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="admins-table-body">
+                                            <tr><td colspan="5" class="text-center text-muted py-3">Carregando administradores...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -1207,6 +1277,97 @@
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-warning text-dark btn-sm fw-semibold" onclick="submitCreateAlias()">Criar Alias</button>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- CREATE ADMIN MODAL -->
+<div class="modal fade" id="createAdminModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-dark d-flex align-items-center gap-2">
+                    <i class="bi bi-person-plus-fill text-success"></i> Novo Administrador do Painel
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form onsubmit="submitCreateAdmin(event)">
+                <div class="modal-body">
+                    <div id="create-admin-alert"></div>
+                    <div class="mb-3">
+                        <label class="form-label text-muted small fw-semibold">Nome de Usuário (login)</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-person text-muted"></i></span>
+                            <input type="text" id="create-admin-username" class="form-control font-monospace" placeholder="ex: analista_suporte" required>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-muted small fw-semibold">Senha (mínimo 6 caracteres)</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-key text-muted"></i></span>
+                            <input type="password" id="create-admin-password" class="form-control font-monospace" placeholder="••••••••" required minlength="6">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-muted small fw-semibold">Confirme a Senha</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-shield-check text-muted"></i></span>
+                            <input type="password" id="create-admin-password-confirm" class="form-control font-monospace" placeholder="••••••••" required minlength="6">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-success btn-sm fw-bold rounded-3">
+                        <i class="bi bi-check-lg me-1"></i> Criar Administrador
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- CHANGE ADMIN PASSWORD MODAL -->
+<div class="modal fade" id="changeAdminPasswordModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-dark d-flex align-items-center gap-2">
+                    <i class="bi bi-key-fill text-warning"></i> Alterar Senha de Administrador
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form onsubmit="submitChangeAdminPassword(event)">
+                <div class="modal-body">
+                    <div id="change-admin-password-alert"></div>
+                    <input type="hidden" id="change-admin-id">
+                    
+                    <div class="mb-3">
+                        <label class="form-label text-muted small fw-semibold">Usuário</label>
+                        <input type="text" id="change-admin-username-display" class="form-control bg-light font-monospace" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-muted small fw-semibold">Nova Senha (mínimo 6 caracteres)</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-key text-muted"></i></span>
+                            <input type="password" id="change-admin-password" class="form-control font-monospace" placeholder="••••••••" required minlength="6">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-muted small fw-semibold">Confirme a Nova Senha</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-shield-check text-muted"></i></span>
+                            <input type="password" id="change-admin-password-confirm" class="form-control font-monospace" placeholder="••••••••" required minlength="6">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-warning text-dark btn-sm fw-bold rounded-3">
+                        <i class="bi bi-check-lg me-1"></i> Salvar Nova Senha
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
@@ -1440,7 +1601,7 @@
         else if (tabName === 'troubleshooting') loadQueue();
         else if (tabName === 'spam') loadSpamRules();
         else if (tabName === 'logs') loadLogs();
-        else if (tabName === 'settings') loadDatabaseSettings();
+        else if (tabName === 'settings') { loadDatabaseSettings(); loadAdmins(); }
     }
 
     function refreshCurrentTab() {
@@ -2257,6 +2418,139 @@
             showAlert(data.message, 'success');
         } catch (e) {
             showSettingsAlert(`Erro ao salvar configurações: ${e.message}`, 'danger');
+        }
+    }
+
+    // 9. GESTÃO DE ADMINISTRADORES DO PAINEL (vmail_admins)
+    async function loadAdmins() {
+        const tbody = document.getElementById('admins-table-body');
+        const countSpan = document.getElementById('admins-count');
+        if (!tbody) return;
+
+        try {
+            const data = await fetchJson('/api/auth/admins');
+            if (data.admins) {
+                if (countSpan) countSpan.textContent = data.admins.length;
+
+                if (data.admins.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Nenhum administrador cadastrado no banco.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = data.admins.map(a => `
+                    <tr>
+                        <td class="font-monospace text-muted small">#${a.id}</td>
+                        <td class="fw-bold text-dark font-monospace"><i class="bi bi-person-fill text-primary me-1"></i> ${a.username}</td>
+                        <td>
+                            ${a.otp_enabled
+                                ? `<span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1 font-monospace"><i class="bi bi-shield-lock-fill me-1"></i> MFA Ativado</span>`
+                                : `<span class="badge bg-secondary-subtle text-secondary border px-2.5 py-1 font-monospace"><i class="bi bi-shield-slash me-1"></i> MFA Desativado</span>`
+                            }
+                        </td>
+                        <td class="font-monospace text-secondary small">${a.created_at || '-'}</td>
+                        <td>
+                            <div class="d-flex gap-1">
+                                <button class="btn btn-sm btn-outline-warning text-dark border-0 p-1.5" onclick="showChangeAdminPasswordModal(${a.id}, '${a.username}')" title="Trocar Senha">
+                                    <i class="bi bi-key-fill"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger border-0 p-1.5" onclick="deleteAdminUser(${a.id}, '${a.username}')" title="Excluir Administrador">
+                                    <i class="bi bi-trash-fill"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `).join('');
+
+                filterTableRows('search-admins-input', 'admins-table-body');
+            }
+        } catch (e) {
+            console.error("Erro ao carregar administradores:", e);
+            tbody.innerHTML = `<tr><td colspan="5" class="text-danger font-monospace text-center py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar administradores: ${e.message}</td></tr>`;
+        }
+    }
+
+    function showCreateAdminModal() {
+        const alertBox = document.getElementById('create-admin-alert');
+        if (alertBox) alertBox.innerHTML = '';
+        document.getElementById('create-admin-username').value = '';
+        document.getElementById('create-admin-password').value = '';
+        document.getElementById('create-admin-password-confirm').value = '';
+        new bootstrap.Modal(document.getElementById('createAdminModal')).show();
+    }
+
+    async function submitCreateAdmin(event) {
+        event.preventDefault();
+        const username = document.getElementById('create-admin-username').value.trim();
+        const password = document.getElementById('create-admin-password').value.trim();
+        const confirmPass = document.getElementById('create-admin-password-confirm').value.trim();
+        const alertBox = document.getElementById('create-admin-alert');
+
+        if (password !== confirmPass) {
+            alertBox.innerHTML = `<div class="alert alert-danger py-2 px-3 small border-0 mb-3"><i class="bi bi-exclamation-circle me-1"></i> As senhas informadas não coincidem.</div>`;
+            return;
+        }
+
+        try {
+            const data = await fetchJson('/api/auth/admins', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+
+            showAlert(data.message, 'success');
+            bootstrap.Modal.getInstance(document.getElementById('createAdminModal')).hide();
+            loadAdmins();
+        } catch (e) {
+            alertBox.innerHTML = `<div class="alert alert-danger py-2 px-3 small border-0 mb-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> ${e.message}</div>`;
+        }
+    }
+
+    function showChangeAdminPasswordModal(id, username) {
+        const alertBox = document.getElementById('change-admin-password-alert');
+        if (alertBox) alertBox.innerHTML = '';
+        document.getElementById('change-admin-id').value = id;
+        document.getElementById('change-admin-username-display').value = username;
+        document.getElementById('change-admin-password').value = '';
+        document.getElementById('change-admin-password-confirm').value = '';
+        new bootstrap.Modal(document.getElementById('changeAdminPasswordModal')).show();
+    }
+
+    async function submitChangeAdminPassword(event) {
+        event.preventDefault();
+        const id = document.getElementById('change-admin-id').value;
+        const password = document.getElementById('change-admin-password').value.trim();
+        const confirmPass = document.getElementById('change-admin-password-confirm').value.trim();
+        const alertBox = document.getElementById('change-admin-password-alert');
+
+        if (password !== confirmPass) {
+            alertBox.innerHTML = `<div class="alert alert-danger py-2 px-3 small border-0 mb-3"><i class="bi bi-exclamation-circle me-1"></i> As senhas informadas não coincidem.</div>`;
+            return;
+        }
+
+        try {
+            const data = await fetchJson(`/api/auth/admins/${id}/password`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password })
+            });
+
+            showAlert(data.message, 'success');
+            bootstrap.Modal.getInstance(document.getElementById('changeAdminPasswordModal')).hide();
+            loadAdmins();
+        } catch (e) {
+            alertBox.innerHTML = `<div class="alert alert-danger py-2 px-3 small border-0 mb-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> ${e.message}</div>`;
+        }
+    }
+
+    async function deleteAdminUser(id, username) {
+        if (!confirm(`Tem certeza de que deseja excluir o administrador "${username}"?`)) return;
+
+        try {
+            const data = await fetchJson(`/api/auth/admins/${id}`, { method: 'DELETE' });
+            showAlert(data.message, 'success');
+            loadAdmins();
+        } catch (e) {
+            showAlert(`Erro ao excluir administrador: ${e.message}`, 'danger');
         }
     }
 </script>

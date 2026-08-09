@@ -18,6 +18,11 @@ async function startServer() {
     otp_enabled: false
   };
 
+  let virtualAdminsList = [
+    { id: 1, username: "admin", otp_enabled: false, created_at: "2026-01-15 10:00:00" },
+    { id: 2, username: "analista_suporte", otp_enabled: true, created_at: "2026-02-10 14:30:00" }
+  ];
+
   let virtualDomains = [
     { domain: "empresa.com.br", description: "Domínio Principal da Empresa", aliases: 3, mailboxes: 12, maxquota: 51200, transport: "virtual", active: true, created: "2026-01-15 10:00:00" },
     { domain: "parceiro.com.br", description: "Domínio de Parceiro Comercial", aliases: 1, mailboxes: 4, maxquota: 20480, transport: "virtual", active: true, created: "2026-02-01 14:30:00" },
@@ -134,6 +139,77 @@ blacklist_from *@spammerdomain.net
   app.get("/api/auth/me", (req, res) => {
     res.json({ authenticated: true, username: virtualAdmin.username, mfa_enabled: virtualAdmin.otp_enabled });
   });
+
+  // Gestão de Administradores (vmail_admins)
+  app.get("/api/auth/admins", (req, res) => {
+    res.json({ success: true, admins: virtualAdminsList });
+  });
+
+  app.post("/api/auth/admins", (req, res) => {
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).json({ success: false, message: "Nome de usuário e senha são obrigatórios." });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ success: false, message: "A senha deve conter no mínimo 6 caracteres." });
+    }
+    if (virtualAdminsList.some(a => a.username.toLowerCase() === username.trim().toLowerCase())) {
+      return res.status(400).json({ success: false, message: `O administrador "${username}" já está cadastrado.` });
+    }
+
+    const nextId = virtualAdminsList.length > 0 ? Math.max(...virtualAdminsList.map(a => a.id)) + 1 : 1;
+    const newAdmin = {
+      id: nextId,
+      username: username.trim(),
+      otp_enabled: false,
+      created_at: new Date().toISOString().replace("T", " ").substring(0, 19)
+    };
+    virtualAdminsList.push(newAdmin);
+    res.json({ success: true, message: `Administrador "${username}" criado com sucesso!`, admin: newAdmin });
+  });
+
+  app.post("/api/auth/admins/:id/password", (req, res) => {
+    const adminId = parseInt(req.params.id);
+    const { password } = req.body || {};
+    if (!password || password.length < 6) {
+      return res.status(400).json({ success: false, message: "A senha deve conter no mínimo 6 caracteres." });
+    }
+    const admin = virtualAdminsList.find(a => a.id === adminId);
+    if (!admin) return res.status(404).json({ success: false, message: "Administrador não encontrado." });
+
+    res.json({ success: true, message: `Senha do administrador "${admin.username}" alterada com sucesso!` });
+  });
+
+  app.put("/api/auth/admins/:id/password", (req, res) => {
+    const adminId = parseInt(req.params.id);
+    const { password } = req.body || {};
+    if (!password || password.length < 6) {
+      return res.status(400).json({ success: false, message: "A senha deve conter no mínimo 6 caracteres." });
+    }
+    const admin = virtualAdminsList.find(a => a.id === adminId);
+    if (!admin) return res.status(404).json({ success: false, message: "Administrador não encontrado." });
+
+    res.json({ success: true, message: `Senha do administrador "${admin.username}" alterada com sucesso!` });
+  });
+
+  const deleteAdminHandler = (req: express.Request, res: express.Response) => {
+    const adminId = parseInt(req.params.id);
+    const adminIndex = virtualAdminsList.findIndex(a => a.id === adminId);
+    if (adminIndex === -1) {
+      return res.status(404).json({ success: false, message: "Administrador não encontrado." });
+    }
+
+    if (virtualAdminsList.length <= 1) {
+      return res.status(400).json({ success: false, message: "Trava de Segurança: Não é possível excluir o único administrador restante no painel." });
+    }
+
+    const removedUsername = virtualAdminsList[adminIndex].username;
+    virtualAdminsList.splice(adminIndex, 1);
+    res.json({ success: true, message: `Administrador "${removedUsername}" excluído com sucesso!` });
+  };
+
+  app.delete("/api/auth/admins/:id", deleteAdminHandler);
+  app.post("/api/auth/admins/:id/delete", deleteAdminHandler);
 
   // ===============================================
   // 2. DOMÍNIOS E MAILBOXES (CRUD MariaDB vmail)

@@ -26,6 +26,14 @@ class AdminUser(UserMixin, db.Model):
             return False
         return sha512_crypt.verify(password, self.password_hash)
 
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'username': self.username,
+            'otp_enabled': self.otp_enabled,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None
+        }
+
 
 class Domain(db.Model):
     __tablename__ = 'domain'
