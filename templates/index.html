@@ -263,24 +263,24 @@
         </div>
 
         <!-- Navigation Links -->
-        <nav class="sidebar-nav">
-            <a href="#dashboard" class="nav-link active" data-bs-toggle="pill" data-bs-target="#tab-dashboard" onclick="setActiveTab('dashboard')">
+        <nav class="sidebar-nav" id="sidebar-nav">
+            <a href="#dashboard" class="nav-link active" data-target="tab-dashboard" data-tab="dashboard">
                 <i class="bi bi-speedometer2 fs-5"></i>
                 <span class="sidebar-text">Dashboard & Telemetria</span>
             </a>
-            <a href="#vmail" class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-vmail" onclick="setActiveTab('vmail')">
+            <a href="#vmail" class="nav-link" data-target="tab-vmail" data-tab="vmail">
                 <i class="bi bi-globe fs-5"></i>
                 <span class="sidebar-text">Domínios & Contas (vmail)</span>
             </a>
-            <a href="#troubleshooting" class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-troubleshooting" onclick="setActiveTab('troubleshooting')">
+            <a href="#troubleshooting" class="nav-link" data-target="tab-troubleshooting" data-tab="troubleshooting">
                 <i class="bi bi-tools fs-5"></i>
                 <span class="sidebar-text">Troubleshooting & DNS</span>
             </a>
-            <a href="#spam" class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-spam" onclick="setActiveTab('spam')">
+            <a href="#spam" class="nav-link" data-target="tab-spam" data-tab="spam">
                 <i class="bi bi-shield-lock fs-5"></i>
                 <span class="sidebar-text">Regras SpamAssassin</span>
             </a>
-            <a href="#logs" class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-logs" onclick="setActiveTab('logs')">
+            <a href="#logs" class="nav-link" data-target="tab-logs" data-tab="logs">
                 <i class="bi bi-terminal fs-5"></i>
                 <span class="sidebar-text">Logs em Tempo Real</span>
             </a>
@@ -336,7 +336,7 @@
             <div class="tab-content" id="v-pills-tabContent">
                 
                 <!-- 1. DASHBOARD & TELEMETRIA TAB -->
-                <div class="tab-pane fade show active" id="tab-dashboard" role="tabpanel">
+                <div class="tab-section" id="tab-dashboard">
                     
                     <!-- Hardware Telemetry Header Banner -->
                     <div class="card p-4 mb-4">
@@ -563,7 +563,7 @@
                 </div>
 
                 <!-- 2. DOMÍNIOS & CONTAS (vmail MariaDB) TAB -->
-                <div class="tab-pane fade" id="tab-vmail" role="tabpanel">
+                <div class="tab-section d-none" id="tab-vmail">
                     
                     <!-- DOMÍNIOS -->
                     <div class="card p-4 mb-4">
@@ -653,7 +653,7 @@
                 </div>
 
                 <!-- 3. TROUBLESHOOTING & DNS TAB -->
-                <div class="tab-pane fade" id="tab-troubleshooting" role="tabpanel">
+                <div class="tab-section d-none" id="tab-troubleshooting">
                     <div class="row g-4 mb-4">
                         <!-- Tracking -->
                         <div class="col-lg-6">
@@ -741,7 +741,7 @@
                 </div>
 
                 <!-- 4. REGRAS SPAMASSASSIN TAB -->
-                <div class="tab-pane fade" id="tab-spam" role="tabpanel">
+                <div class="tab-section d-none" id="tab-spam">
                     <div class="card p-4">
                         <div class="d-flex align-items-center justify-content-between mb-3">
                             <div>
@@ -765,7 +765,7 @@
                 </div>
 
                 <!-- 5. LOGS AUDIT TAB -->
-                <div class="tab-pane fade" id="tab-logs" role="tabpanel">
+                <div class="tab-section d-none" id="tab-logs">
                     <div class="card p-4">
                         <div class="d-flex align-items-center justify-content-between mb-3">
                             <div>
@@ -899,6 +899,7 @@
     let isAutoRefreshOn = true;
 
     document.addEventListener('DOMContentLoaded', () => {
+        initNavigation();
         initCharts();
         loadTelemetry();
         loadServiceStatus();
@@ -911,6 +912,43 @@
             }
         }, 5000);
     });
+
+    function initNavigation() {
+        const navLinks = document.querySelectorAll('.sidebar-nav .nav-link');
+        const sections = document.querySelectorAll('.tab-section');
+
+        navLinks.forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+
+                // 1. Atualizar classe active nos botões do menu
+                navLinks.forEach(item => item.classList.remove('active'));
+                link.classList.add('active');
+
+                // 2. Identificar a seção alvo
+                const targetId = link.getAttribute('data-target');
+                const tabName = link.getAttribute('data-tab');
+
+                // 3. Esconder todas as seções (adicionando d-none)
+                sections.forEach(sec => sec.classList.add('d-none'));
+
+                // 4. Exibir apenas a seção correspondente (removendo d-none)
+                const targetSection = document.getElementById(targetId);
+                if (targetSection) {
+                    targetSection.classList.remove('d-none');
+                }
+
+                // Fechar menu no mobile ao selecionar
+                const sidebar = document.getElementById('sidebar');
+                if (sidebar) sidebar.classList.remove('mobile-open');
+
+                // 5. Carregar dados da aba selecionada
+                if (tabName) {
+                    setActiveTab(tabName);
+                }
+            });
+        });
+    }
 
     function toggleSidebar() {
         const sidebar = document.getElementById('sidebar');
@@ -957,8 +995,8 @@
     function refreshCurrentTab() {
         const activeTab = document.querySelector('.sidebar-nav .nav-link.active');
         if (activeTab) {
-            const target = activeTab.getAttribute('onclick');
-            if (target) eval(target);
+            const tabName = activeTab.getAttribute('data-tab');
+            if (tabName) setActiveTab(tabName);
         }
         loadServiceStatus();
     }
