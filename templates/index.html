@@ -1520,7 +1520,11 @@
             return;
         }
         try {
-            const data = await fetchJson(`/api/troubleshooting/email-tracking?email=${encodeURIComponent(email)}`);
+            const data = await fetchJson('/api/troubleshooting/email-tracking', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: email })
+            });
             if (data.events && data.events.length > 0) {
                 container.innerHTML = data.events.map(ev => `<div>${ev.raw}</div>`).join('');
             } else {

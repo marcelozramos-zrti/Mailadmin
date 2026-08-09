@@ -258,8 +258,8 @@ blacklist_from *@spammerdomain.net
   // ===============================================
 
   // Tracking de E-mail (/var/log/mail.log)
-  app.get("/api/troubleshooting/email-tracking", (req, res) => {
-    const email = (req.query.email as string || "").toLowerCase();
+  app.all("/api/troubleshooting/email-tracking", (req, res) => {
+    const email = (req.body?.email || req.query?.email as string || "").toLowerCase();
     const mockEvents = [
       { raw: `Aug 09 10:14:02 mailserver postfix/smtpd[14201]: connect from mail-out.parceiro.com.br[198.51.100.12]`, type: "SMTP_CONNECT" },
       { raw: `Aug 09 10:14:03 mailserver postfix/qmgr[1820]: 4YtZ8b3K: from=<${email || 'contato@parceiro.com.br'}>, size=2849, nrcpt=1`, type: "INFO" },
@@ -277,7 +277,7 @@ blacklist_from *@spammerdomain.net
   });
 
   // Fila Postfix (postqueue -p)
-  app.get("/api/troubleshooting/queue", (req, res) => {
+  app.all("/api/troubleshooting/queue", (req, res) => {
     res.json({
       success: true,
       queue_empty: virtualQueue.length === 0,
@@ -298,9 +298,9 @@ blacklist_from *@spammerdomain.net
   });
 
   // Validador DNS (dnspython)
-  app.get("/api/troubleshooting/dns-check", (req, res) => {
-    const domain = (req.query.domain as string || "empresa.com.br").toLowerCase();
-    const selector = (req.query.selector as string || "dkim").toLowerCase();
+  app.all("/api/troubleshooting/dns-check", (req, res) => {
+    const domain = (req.body?.domain || req.query?.domain as string || "empresa.com.br").toLowerCase();
+    const selector = (req.body?.selector || req.query?.selector as string || "dkim").toLowerCase();
 
     res.json({
       success: true,

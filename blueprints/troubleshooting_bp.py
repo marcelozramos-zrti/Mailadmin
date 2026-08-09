@@ -31,10 +31,15 @@ def run_cmd(cmd_list):
 # 1. TRACKING DE E-MAIL (JORNADA NO MAIL.LOG)
 # ==========================================
 
-@troubleshooting_bp.route('/email-tracking', methods=['GET'])
+@troubleshooting_bp.route('/email-tracking', methods=['GET', 'POST'])
 @login_required
 def track_email():
-    email_query = request.args.get('email', '').strip()
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or request.form or {}
+        email_query = data.get('email', '').strip()
+    else:
+        email_query = request.args.get('email', '').strip()
+
     if not email_query:
         return jsonify({'success': False, 'message': 'E-mail de origem ou destino é necessário.'}), 400
 
@@ -87,7 +92,7 @@ def track_email():
 # 2. GESTÃO DE FILA POSTFIX (POSTQUEUE / POSTSUPER)
 # ==========================================
 
-@troubleshooting_bp.route('/queue', methods=['GET'])
+@troubleshooting_bp.route('/queue', methods=['GET', 'POST'])
 @login_required
 def get_queue():
     """Executa 'postqueue -p' e parseia o resultado em JSON estruturado."""
@@ -183,12 +188,17 @@ def flush_queue():
 # 3. VALIDAÇÃO DE REGISTROS DNS (DNSPYTHON)
 # ==========================================
 
-@troubleshooting_bp.route('/dns-check', methods=['GET'])
+@troubleshooting_bp.route('/dns-check', methods=['GET', 'POST'])
 @login_required
 def check_domain_dns():
     """Valida registros MX, SPF (TXT), DKIM e DMARC usando a biblioteca dnspython."""
-    domain = request.args.get('domain', '').strip().lower()
-    dkim_selector = request.args.get('selector', 'dkim').strip().lower()
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or request.form or {}
+        domain = data.get('domain', '').strip().lower()
+        dkim_selector = data.get('selector', 'dkim').strip().lower()
+    else:
+        domain = request.args.get('domain', '').strip().lower()
+        dkim_selector = request.args.get('selector', 'dkim').strip().lower()
 
     if not domain:
         return jsonify({'success': False, 'message': 'O domínio é obrigatório para validação DNS.'}), 400
