@@ -476,6 +476,76 @@ blacklist_from *@spammerdomain.net
     res.json({ success: true, message: "Regras salvas no local.cf e Amavis reiniciado!" });
   });
 
+  app.get("/api/services/spamassassin/visual-rules", (req, res) => {
+    const lines = virtualLocalCf.split("\n");
+    const rules: any[] = [];
+    const pattern = /^\s*(blacklist_from|whitelist_from)\s+(.+)$/i;
+
+    let id = 0;
+    for (const line of lines) {
+      const match = line.trim().match(pattern);
+      if (match) {
+        const action_type = match[1].toLowerCase();
+        const val = match[2].trim();
+        rules.push({
+          id: id++,
+          type: action_type,
+          action_label: action_type === "blacklist_from" ? "Bloquear (Blacklist)" : "Liberar (Whitelist)",
+          value: val,
+          raw: line.trim()
+        });
+      }
+    }
+    res.json({ success: true, rules });
+  });
+
+  app.post("/api/services/spamassassin/visual-rules", (req, res) => {
+    const { action, value } = req.body || {};
+    if (!action || !["blacklist_from", "whitelist_from"].includes(action)) {
+      return res.status(400).json({ success: false, message: "Ação inválida." });
+    }
+    if (!value || !value.trim()) {
+      return res.status(400).json({ success: false, message: "Valor inválido." });
+    }
+
+    const newRuleLine = `${action} ${value.trim()}`;
+    const lines = virtualLocalCf.split("\n").map(l => l.trim());
+
+    if (!lines.includes(newRuleLine)) {
+      if (virtualLocalCf && !virtualLocalCf.endsWith("\n")) {
+        virtualLocalCf += "\n";
+      }
+      virtualLocalCf += newRuleLine + "\n";
+    }
+
+    res.json({
+      success: true,
+      message: `Regra '${newRuleLine}' adicionada com sucesso! Serviço SpamAssassin reiniciado.`
+    });
+  });
+
+  const deleteVisualRule = (req: express.Request, res: express.Response) => {
+    const { raw, action, value } = req.body || {};
+    const targetLine = raw || (action && value ? `${action} ${value}` : req.query.raw as string || req.query.value as string);
+
+    if (!targetLine) {
+      return res.status(400).json({ success: false, message: "Especificação da regra não fornecida." });
+    }
+
+    const targetClean = targetLine.trim().toLowerCase();
+    const lines = virtualLocalCf.split("\n");
+    const filtered = lines.filter(l => l.trim().toLowerCase() !== targetClean);
+    virtualLocalCf = filtered.join("\n");
+
+    res.json({
+      success: true,
+      message: "Regra removida com sucesso! Serviço SpamAssassin reiniciado."
+    });
+  };
+
+  app.delete("/api/services/spamassassin/visual-rules", deleteVisualRule);
+  app.post("/api/services/spamassassin/visual-rules/delete", deleteVisualRule);
+
   app.post("/api/services/spamassassin/lint", (req, res) => {
     res.json({ success: true, message: "Sintaxe OK! O arquivo de regras local.cf é válido." });
   });

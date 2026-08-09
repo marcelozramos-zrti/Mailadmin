@@ -853,24 +853,132 @@
                 <!-- 4. REGRAS SPAMASSASSIN TAB -->
                 <div class="tab-section d-none" id="tab-spam">
                     <div class="card p-4">
-                        <div class="d-flex align-items-center justify-content-between mb-3">
-                            <div>
-                                <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
-                                    <i class="bi bi-file-earmark-code text-info"></i> Editor de Configuração local.cf
-                                </h3>
-                                <small class="text-muted">Edição direta do arquivo <code>/etc/spamassassin/local.cf</code></small>
+                        <!-- Header da Aba com Badge de Status do SpamAssassin -->
+                        <div class="d-flex align-items-center justify-content-between mb-4 pb-3 border-bottom">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="p-2.5 rounded-3 bg-info bg-opacity-10 text-info">
+                                    <i class="bi bi-shield-slash-fill fs-3"></i>
+                                </div>
+                                <div>
+                                    <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                        Regras e Filtros SpamAssassin
+                                    </h3>
+                                    <small class="text-muted">Gerenciamento de listas de bloqueio (Blacklist), liberação (Whitelist) e editor do <code>local.cf</code></small>
+                                </div>
                             </div>
-                            <div class="d-flex gap-2">
-                                <button class="btn btn-outline-info btn-sm rounded-3" onclick="lintRules()">
-                                    <i class="bi bi-check-all me-1"></i> Testar Sintaxe (--lint)
-                                </button>
-                                <button class="btn btn-success btn-sm rounded-3" onclick="saveRules()">
-                                    <i class="bi bi-save me-1"></i> Salvar & Aplicar
+                            <div class="d-flex align-items-center gap-2">
+                                <span id="spam-status-badge" class="badge bg-secondary-subtle text-secondary border px-3 py-2 font-monospace">
+                                    <i class="bi bi-circle-fill me-1" style="font-size: 8px;"></i> Carregando status...
+                                </span>
+                                <button class="btn btn-outline-secondary btn-sm rounded-3" onclick="loadSpamRules()" title="Atualizar">
+                                    <i class="bi bi-arrow-clockwise"></i>
                                 </button>
                             </div>
                         </div>
 
-                        <textarea id="rules-textarea" class="form-control code-editor p-3" spellcheck="false"></textarea>
+                        <!-- Sub-abas (Bootstrap Nav-Tabs) -->
+                        <ul class="nav nav-tabs mb-4" id="spamTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active fw-bold small text-dark d-flex align-items-center gap-2" id="spam-visual-tab" data-bs-toggle="tab" data-bs-target="#spam-tab-visual" type="button" role="tab">
+                                    <i class="bi bi-list-check text-primary"></i> Gestão Visual (Listas de Acesso)
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link fw-bold small text-muted d-flex align-items-center gap-2" id="spam-raw-tab" data-bs-toggle="tab" data-bs-target="#spam-tab-raw" type="button" role="tab">
+                                    <i class="bi bi-code-slash text-info"></i> Modo Avançado (Editor raw)
+                                </button>
+                            </li>
+                        </ul>
+
+                        <div class="tab-content" id="spamTabsContent">
+                            <!-- TAB 1: GESTÃO VISUAL DE REGRAS -->
+                            <div class="tab-pane fade show active" id="spam-tab-visual" role="tabpanel">
+                                <!-- Alert Container para mensagens visuais -->
+                                <div id="visual-spam-alert-container"></div>
+
+                                <!-- Formulário Inline para Adicionar Regra -->
+                                <div class="card bg-light border-light-subtle p-3 mb-4 rounded-3">
+                                    <h6 class="fw-bold text-dark mb-2 small d-flex align-items-center gap-2">
+                                        <i class="bi bi-plus-circle-fill text-primary"></i> Adicionar Nova Regra Antispam
+                                    </h6>
+                                    <form id="add-visual-rule-form" onsubmit="addVisualSpamRule(event)">
+                                        <div class="row g-2 align-items-center">
+                                            <div class="col-md-4 col-lg-3">
+                                                <label class="form-label text-muted small fw-semibold mb-1">Ação / Tipo de Regra</label>
+                                                <select id="visual-rule-action" class="form-select form-select-sm fw-semibold" required>
+                                                    <option value="blacklist_from">Bloquear (blacklist_from)</option>
+                                                    <option value="whitelist_from">Liberar (whitelist_from)</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-5 col-lg-6">
+                                                <label class="form-label text-muted small fw-semibold mb-1">Valor / Endereço / Domínio</label>
+                                                <div class="input-group input-group-sm">
+                                                    <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-at"></i></span>
+                                                    <input type="text" id="visual-rule-value" class="form-control font-monospace border-start-0" placeholder="Ex: *@spammer.com, baduser@domain.com ou IP" required>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-3 col-lg-3 d-flex align-items-end mt-2 mt-md-0">
+                                                <button type="submit" id="btn-add-visual-rule" class="btn btn-primary btn-sm w-100 fw-bold py-1.5 rounded-3">
+                                                    <i class="bi bi-plus-lg me-1"></i> Adicionar Regra
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </form>
+                                </div>
+
+                                <!-- Barra de Pesquisa em Tempo Real -->
+                                <div class="row g-2 mb-3 align-items-center justify-content-between">
+                                    <div class="col-md-6 col-lg-4">
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light border-light-subtle text-muted">
+                                                <i class="bi bi-search"></i>
+                                            </span>
+                                            <input type="text" id="search-visual-rules-input" class="form-control" placeholder="Filtrar regra (ex: *@dominio.com)..." onkeyup="filterTableRows('search-visual-rules-input', 'visual-rules-table-body')">
+                                        </div>
+                                    </div>
+                                    <div class="col-auto">
+                                        <small class="text-muted">Total de regras ativas: <span id="visual-rules-count" class="badge bg-secondary font-monospace">0</span></small>
+                                    </div>
+                                </div>
+
+                                <!-- Tabela de Regras Visuais -->
+                                <div class="table-responsive">
+                                    <table class="table table-custom align-middle">
+                                        <thead>
+                                            <tr>
+                                                <th>Tipo / Ação</th>
+                                                <th>Endereço ou Domínio Alvo</th>
+                                                <th>Sintaxe no local.cf</th>
+                                                <th>Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="visual-rules-table-body">
+                                            <tr><td colspan="4" class="text-center text-muted py-3">Carregando regras antispam...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- TAB 2: MODO AVANÇADO (RAW EDITOR) -->
+                            <div class="tab-pane fade" id="spam-tab-raw" role="tabpanel">
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <div>
+                                        <h6 class="fw-bold text-dark mb-1">Conteúdo Raw do Arquivo local.cf</h6>
+                                        <small class="text-muted">Edição direta do arquivo <code>/etc/spamassassin/local.cf</code></small>
+                                    </div>
+                                    <div class="d-flex gap-2">
+                                        <button class="btn btn-outline-info btn-sm rounded-3" onclick="lintRules()">
+                                            <i class="bi bi-check-all me-1"></i> Testar Sintaxe (--lint)
+                                        </button>
+                                        <button class="btn btn-success btn-sm rounded-3" onclick="saveRules()">
+                                            <i class="bi bi-save me-1"></i> Salvar & Aplicar
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <textarea id="rules-textarea" class="form-control code-editor p-3" spellcheck="false" rows="16"></textarea>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -1914,14 +2022,118 @@
 
     // 6. SPAMASSASSIN & LOGS
     async function loadSpamRules() {
+        // 1. Atualizar Badge de Status do SpamAssassin
+        const badge = document.getElementById('spam-status-badge');
+        if (badge) {
+            try {
+                const statusData = await fetchJson('/api/services/status');
+                if (statusData && statusData.services && statusData.services.spamassassin) {
+                    const sa = statusData.services.spamassassin;
+                    if (sa.active || sa.state === 'active') {
+                        badge.className = 'badge bg-success-subtle text-success border border-success-subtle px-3 py-2 font-monospace';
+                        badge.innerHTML = '<i class="bi bi-circle-fill me-1" style="font-size: 8px;"></i> SpamAssassin: Ativo';
+                    } else {
+                        badge.className = 'badge bg-danger-subtle text-danger border border-danger-subtle px-3 py-2 font-monospace';
+                        badge.innerHTML = '<i class="bi bi-circle-fill me-1" style="font-size: 8px;"></i> SpamAssassin: Parado';
+                    }
+                }
+            } catch (err) {
+                console.warn("Não foi possível obter o status do SpamAssassin:", err);
+            }
+        }
+
+        // 2. Carregar Regras Visuais (Visual List)
+        const tbody = document.getElementById('visual-rules-table-body');
+        const countSpan = document.getElementById('visual-rules-count');
         try {
-            const data = await fetchJson('/api/services/spamassassin/rules');
-            if (data.content !== undefined) {
-                document.getElementById('rules-textarea').value = data.content;
+            const data = await fetchJson('/api/services/spamassassin/visual-rules');
+            if (data.rules) {
+                if (countSpan) countSpan.textContent = data.rules.length;
+
+                if (data.rules.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Nenhuma regra visual (blacklist/whitelist) cadastrada no local.cf.</td></tr>';
+                } else {
+                    tbody.innerHTML = data.rules.map(r => {
+                        const isBlacklist = r.type === 'blacklist_from';
+                        const badgeHtml = isBlacklist
+                            ? `<span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2.5 py-1 font-monospace"><i class="bi bi-shield-x me-1"></i> Bloquear (Blacklist)</span>`
+                            : `<span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1 font-monospace"><i class="bi bi-shield-check me-1"></i> Liberar (Whitelist)</span>`;
+
+                        return `
+                            <tr>
+                                <td>${badgeHtml}</td>
+                                <td><code class="fw-bold text-dark fs-6">${r.value}</code></td>
+                                <td><span class="font-monospace text-secondary small">${r.raw}</span></td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-danger p-1 border-0" onclick="deleteVisualSpamRule('${encodeURIComponent(r.raw)}')" title="Remover Regra">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        `;
+                    }).join('');
+
+                    filterTableRows('search-visual-rules-input', 'visual-rules-table-body');
+                }
             }
         } catch (e) {
-            console.error("Erro ao carregar regras do SpamAssassin:", e);
+            console.error("Erro ao carregar regras visuais:", e);
+            if (tbody) {
+                tbody.innerHTML = `<tr><td colspan="4" class="text-danger text-center font-monospace py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar regras visuais: ${e.message}</td></tr>`;
+            }
+        }
+
+        // 3. Carregar Conteúdo Raw do local.cf
+        try {
+            const rawData = await fetchJson('/api/services/spamassassin/rules');
+            if (rawData.content !== undefined) {
+                document.getElementById('rules-textarea').value = rawData.content;
+            }
+        } catch (e) {
+            console.error("Erro ao carregar regras raw do SpamAssassin:", e);
             document.getElementById('rules-textarea').value = `# ERRO AO CARREGAR REGRAS (/etc/spamassassin/local.cf):\n# ${e.message}`;
+        }
+    }
+
+    async function addVisualSpamRule(event) {
+        event.preventDefault();
+        const actionSelect = document.getElementById('visual-rule-action');
+        const valueInput = document.getElementById('visual-rule-value');
+        const action = actionSelect.value;
+        const value = valueInput.value.trim();
+
+        if (!value) return;
+
+        try {
+            const data = await fetchJson('/api/services/spamassassin/visual-rules', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action, value })
+            });
+
+            showAlert(data.message, 'success');
+            valueInput.value = '';
+            loadSpamRules();
+        } catch (e) {
+            showAlert(`Erro ao adicionar regra: ${e.message}`, 'danger');
+        }
+    }
+
+    async function deleteVisualSpamRule(escapedRaw) {
+        const rawRule = decodeURIComponent(escapedRaw);
+        if (!confirm(`Tem certeza que deseja remover a regra "${rawRule}"?`)) return;
+
+        try {
+            const data = await fetchJson('/api/services/spamassassin/visual-rules/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ raw: rawRule })
+            });
+
+            showAlert(data.message, 'success');
+            loadSpamRules();
+        } catch (e) {
+            showAlert(`Erro ao remover regra: ${e.message}`, 'danger');
         }
     }
 

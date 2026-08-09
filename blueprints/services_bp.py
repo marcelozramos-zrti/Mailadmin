@@ -4,6 +4,7 @@ import subprocess
 import os
 import platform
 import time
+import re
 
 try:
     import psutil
@@ -249,6 +250,148 @@ def handle_rules():
             return jsonify({'success': True, 'content': content})
         except Exception as e:
             return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@services_bp.route('/spamassassin/visual-rules', methods=['GET', 'POST', 'DELETE'])
+@login_required
+def handle_visual_rules():
+    if request.method == 'GET':
+        try:
+            if not os.path.exists(LOCAL_CF_PATH):
+                return jsonify({'success': True, 'rules': []})
+
+            with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+
+            rules = []
+            rule_id = 0
+            pattern = re.compile(r'^\s*(blacklist_from|whitelist_from)\s+(.+)$', re.IGNORECASE)
+
+            for line in lines:
+                clean_line = line.strip()
+                match = pattern.match(clean_line)
+                if match:
+                    action_type = match.group(1).lower()
+                    val = match.group(2).strip()
+                    rules.append({
+                        'id': rule_id,
+                        'type': action_type,
+                        'action_label': 'Bloquear (Blacklist)' if action_type == 'blacklist_from' else 'Liberar (Whitelist)',
+                        'value': val,
+                        'raw': clean_line
+                    })
+                    rule_id += 1
+
+            return jsonify({'success': True, 'rules': rules})
+        except Exception as e:
+            return jsonify({'success': False, 'message': str(e)}), 500
+
+    elif request.method == 'POST':
+        data = request.get_json(silent=True) or request.form or {}
+        action = data.get('action')
+        value = (data.get('value') or '').strip()
+
+        if not action or action not in ['blacklist_from', 'whitelist_from']:
+            return jsonify({'success': False, 'message': 'Ação inválida. Escolha Bloquear (blacklist_from) ou Liberar (whitelist_from).'}), 400
+
+        if not value:
+            return jsonify({'success': False, 'message': 'Forneça um endereço ou padrão válido (ex: *@dominio.com).'}), 400
+
+        new_rule_line = f"{action} {value}"
+
+        try:
+            content = ""
+            if os.path.exists(LOCAL_CF_PATH):
+                with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
+                    content = f.read()
+
+            lines = [l.strip() for l in content.splitlines()]
+            if new_rule_line not in lines:
+                if content and not content.endswith('\n'):
+                    content += '\n'
+                content += new_rule_line + '\n'
+
+                tmp_file = '/tmp/local.cf.tmp'
+                with open(tmp_file, 'w', encoding='utf-8') as f:
+                    f.write(content)
+
+                cp_res = run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
+                if os.path.exists(tmp_file):
+                    os.remove(tmp_file)
+
+                if cp_res['returncode'] != 0:
+                    return jsonify({'success': False, 'message': f'Erro ao atualizar local.cf: {cp_res["stderr"]}'}), 500
+
+            run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
+            run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
+
+            return jsonify({
+                'success': True,
+                'message': f'Regra "{new_rule_line}" adicionada com sucesso! Serviço SpamAssassin reiniciado.'
+            })
+        except Exception as e:
+            return jsonify({'success': False, 'message': str(e)}), 500
+
+    elif request.method == 'DELETE':
+        return delete_visual_rule_logic()
+
+
+@services_bp.route('/spamassassin/visual-rules/delete', methods=['POST'])
+@login_required
+def delete_visual_rule_endpoint():
+    return delete_visual_rule_logic()
+
+
+def delete_visual_rule_logic():
+    data = request.get_json(silent=True) or request.form or {}
+    raw = data.get('raw')
+    action = data.get('action')
+    value = data.get('value')
+
+    target_line = raw or (f"{action} {value}" if action and value else None)
+    if not target_line:
+        target_line = request.args.get('raw') or request.args.get('value')
+
+    if not target_line:
+        return jsonify({'success': False, 'message': 'Especificação da regra para exclusão não fornecida.'}), 400
+
+    try:
+        if not os.path.exists(LOCAL_CF_PATH):
+            return jsonify({'success': False, 'message': 'Arquivo de regras local.cf não encontrado.'}), 404
+
+        with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        new_lines = []
+        target_clean = target_line.strip().lower()
+
+        for line in lines:
+            if line.strip().lower() == target_clean:
+                continue
+            new_lines.append(line)
+
+        content = "".join(new_lines)
+        tmp_file = '/tmp/local.cf.tmp'
+        with open(tmp_file, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        cp_res = run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
+        if os.path.exists(tmp_file):
+            os.remove(tmp_file)
+
+        if cp_res['returncode'] != 0:
+            return jsonify({'success': False, 'message': f'Erro ao atualizar local.cf: {cp_res["stderr"]}'}), 500
+
+        run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
+        run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
+
+        return jsonify({
+            'success': True,
+            'message': 'Regra removida com sucesso! Serviço SpamAssassin reiniciado.'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 
 @services_bp.route('/spamassassin/lint', methods=['GET', 'POST'])
 @login_required
