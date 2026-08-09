@@ -1,6 +1,6 @@
 {
-  "name": "Painel de Administração de Servidor de E-mail",
-  "description": "Painel Web interno para administração de Postfix, Amavis e SpamAssassin em Debian/Ubuntu com monitoramento de serviços, edição de local.cf, teste de sintaxe e auditoria de logs.",
+  "name": "Suíte de Administração de E-mail (Postfix, MariaDB, Amavis, SpamAssassin)",
+  "description": "Suíte completa em Python Flask para gestão de Mail Server Linux (substituto do iRedAdmin): MFA TOTP, CRUD vmail (Domínios, Mailboxes, Aliases), Postfix Queue Manager, Mail Tracking e Validador DNS.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

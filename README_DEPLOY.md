@@ -1,109 +1,88 @@
-# Guia de Implantação: Painel de Administração de Servidor de E-mail
+# Guia de Implantação: MailAdmin Suite v2.0 (Substituto iRedAdmin)
 
-Este painel web foi desenvolvido para permitir o gerenciamento simplificado do Postfix, Amavis e SpamAssassin em servidores Debian e Ubuntu Linux.
+Este repositório contém a suíte completa de administração em **Python Flask**, **Bootstrap 5** e **SQLAlchemy** conectando-se ao **MariaDB (schema `vmail`)** para gerenciamento do **Postfix, Amavis, SpamAssassin e ClamAV**.
 
-## 1. Pré-requisitos no Servidor Debian/Ubuntu
+---
 
-No servidor de e-mail, certifique-se de que o Python 3 e o pip estão instalados:
+## 📋 Pré-requisitos no Servidor Linux (Debian 11/12 ou Ubuntu 22.04/24.04)
 
+1. Servidor com Postfix, Amavisd-new, SpamAssassin, ClamAV e MariaDB instalados.
+2. Python 3.10+ e `pip`.
+3. Acesso root para criar o usuário e serviço systemd.
+
+---
+
+## 🚀 Passo a Passo de Instalação
+
+### 1. Criar Usuário do Sistema e Diretório
 ```bash
-sudo apt update
-sudo apt install -y python3 python3-pip python3-venv spamassassin
-```
-
-## 2. Instalação da Aplicação
-
-1. Crie o diretório da aplicação e defina o usuário `suporte`:
-```bash
-sudo useradd -m -s /bin/bash suporte
+sudo useradd -r -s /bin/false suporte
 sudo mkdir -p /opt/mailadmin
 sudo chown -R suporte:suporte /opt/mailadmin
 ```
 
-2. Copie os arquivos do projeto para `/opt/mailadmin`:
-```text
-/opt/mailadmin/
-├── app.py
-├── templates/
-│   └── index.html
-```
-
-3. Crie e ative um ambiente virtual Python:
+### 2. Copiar o Código Fonte e Criar Virtualenv Python
 ```bash
 cd /opt/mailadmin
-sudo -u suporte python3 -m venv venv
-sudo -u suporte /opt/mailadmin/venv/bin/pip install flask
+sudo tar -xvf mailadmin_suite.tar.gz .
+sudo python3 -m venv venv
+sudo /opt/mailadmin/venv/bin/pip install -r requirements.txt
 ```
 
-## 3. Configuração das Permissões do Sudoers (`/etc/sudoers.d/mailadmin`)
+### 3. Configurar Permissões Sudoers (`sudoers_mailadmin`)
+Para permitir que a aplicação Python gerencie os serviços Linux sem senha:
 
-Para permitir que o usuário `suporte` execute comandos de checagem, reinicialização e leitura de logs sem solicitar senha:
-
-1. Crie o arquivo `/etc/sudoers.d/mailadmin`:
 ```bash
-sudo nano /etc/sudoers.d/mailadmin
+sudo cp /opt/mailadmin/sudoers_mailadmin /etc/sudoers.d/mailadmin
+sudo chmod 0440 /etc/sudoers.d/mailadmin
 ```
 
-2. Cole o conteúdo abaixo:
-```sudoers
-suporte ALL=(ALL) NOPASSWD: /bin/systemctl is-active postfix
-suporte ALL=(ALL) NOPASSWD: /bin/systemctl is-active amavis
-suporte ALL=(ALL) NOPASSWD: /bin/systemctl is-active clamav-daemon
-suporte ALL=(ALL) NOPASSWD: /bin/systemctl restart postfix
-suporte ALL=(ALL) NOPASSWD: /bin/systemctl restart amavis
-suporte ALL=(ALL) NOPASSWD: /bin/systemctl restart clamav-daemon
-suporte ALL=(ALL) NOPASSWD: /bin/systemctl restart spamassassin
-suporte ALL=(ALL) NOPASSWD: /bin/cp /tmp/local.cf.tmp /etc/spamassassin/local.cf
-suporte ALL=(ALL) NOPASSWD: /usr/bin/tail -n * /var/log/mail.log
-suporte ALL=(ALL) NOPASSWD: /bin/journalctl -u postfix -u amavis *
+### 4. Configurar Conexão do MariaDB / MySQL (`vmail`)
+Defina as variáveis de ambiente em `/opt/mailadmin/.env` ou no arquivo `config.py`:
+
+```env
+DB_USER=vmailadmin
+DB_PASS=SuaSenhaSeguraMariaDB
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_NAME=vmail
+SECRET_KEY=ChaveSecretaSuperSegura2026
 ```
 
-3. Defina as permissões corretas no arquivo (OBRIGATÓRIO):
+### 5. Instalar e Ativar o Serviço Systemd (`mailadmin.service`)
+
 ```bash
-sudo chmod 440 /etc/sudoers.d/mailadmin
-```
-
-## 4. Configuração do Serviço Systemd
-
-Para que a aplicação rode em segundo plano e inicie com o sistema na porta 5000:
-
-1. Crie o arquivo `/etc/systemd/system/mailadmin.service`:
-```bash
-sudo nano /etc/systemd/system/mailadmin.service
-```
-
-2. Conteúdo do serviço:
-```ini
-[Unit]
-Description=Painel Web MailServer Admin
-After=network.target postfix.service amavis.service
-
-[Service]
-Type=simple
-User=suporte
-Group=suporte
-WorkingDirectory=/opt/mailadmin
-Environment="ADMIN_USER=admin"
-Environment="ADMIN_PASS=sua_senha_segura_aqui"
-ExecStart=/opt/mailadmin/venv/bin/python3 /opt/mailadmin/app.py
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-3. Inicie e ative o serviço:
-```bash
+sudo cp /opt/mailadmin/mailadmin.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable mailadmin
 sudo systemctl start mailadmin
 ```
 
-4. Verifique o status:
+---
+
+## 🔍 Verificação da Aplicação
+
+Verifique se o serviço está ativo rodando na porta 5000:
 ```bash
 sudo systemctl status mailadmin
+curl -I http://127.0.0.1:5000
 ```
 
-Acesse via navegador no IP da sua VPN: `http://192.168.x.x:5000`
-Login padrão: `admin` / `sua_senha_segura_aqui`
+---
+
+## 🛡️ Autenticação e MFA (Google Authenticator)
+- **Usuário Padrão Inicial:** `admin`
+- **Senha Padrão Inicial:** `senha_segura_123`
+- Ao realizar o primeiro login, abra a opção **Configurar MFA** no menu superior para vincular o Google Authenticator via QR Code TOTP.
+
+---
+
+## 📊 Módulos Disponíveis
+1. **Dashboard:** Visão geral e reinício rápido de `postfix`, `amavis`, `clamav-daemon` e `spamassassin`.
+2. **Domínios & Mailboxes (vmail):** CRUD completo com hash de senha nativo Dovecot (`SSHA512` / `BCRYPT`) e limite de cota em MB.
+3. **Aliases:** Redirecionamento de e-mails virtuais.
+4. **Troubleshooting:**
+   - **Rastreio de E-mail:** Leitura estruturada de `/var/log/mail.log`.
+   - **Gestão de Fila Postfix:** Leitura de `postqueue -p`, deleção com `postsuper -d` e liberação com `postqueue -f`.
+   - **Validador DNS:** Checagem de registros `MX`, `SPF` (`v=spf1`), `DKIM` e `DMARC` via `dnspython`.
+5. **Regras SpamAssassin:** Edição ao vivo do `/etc/spamassassin/local.cf` com validação de sintaxe (`spamassassin --lint`).

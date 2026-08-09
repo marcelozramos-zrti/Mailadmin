@@ -1,0 +1,11 @@
+Flask>=3.0.0
+Flask-SQLAlchemy>=3.1.1
+Flask-Login>=0.6.3
+PyMySQL>=1.1.0
+pyotp>=2.9.0
+qrcode>=7.4.2
+dnspython>=2.6.1
+passlib>=1.7.4
+bcrypt>=4.1.2
+requests>=2.31.0
+gunicorn>=21.2.0

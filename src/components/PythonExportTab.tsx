@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Code, Copy, Check, Download, FileCode, ShieldCheck, Terminal, Server, HelpCircle } from 'lucide-react';
+import { Code, Copy, Check, Download, FileCode, ShieldCheck, Terminal, Server, HelpCircle, Layers, Database } from 'lucide-react';
 import { PythonFiles } from '../types';
 
 export const PythonExportTab: React.FC = () => {
@@ -22,7 +22,7 @@ export const PythonExportTab: React.FC = () => {
 
   const handleCopy = () => {
     if (!files || !files[selectedFile]) return;
-    navigator.clipboard.writeText(files[selectedFile]);
+    navigator.clipboard.writeText(files[selectedFile] || '');
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };
@@ -30,9 +30,9 @@ export const PythonExportTab: React.FC = () => {
   const handleDownload = () => {
     if (!files || !files[selectedFile]) return;
     const element = document.createElement("a");
-    const file = new Blob([files[selectedFile]], { type: 'text/plain' });
+    const file = new Blob([files[selectedFile] || ''], { type: 'text/plain' });
     element.href = URL.createObjectURL(file);
-    element.download = selectedFile === 'templates/index.html' ? 'index.html' : selectedFile;
+    element.download = selectedFile.includes('/') ? selectedFile.split('/').pop()! : selectedFile;
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
@@ -40,13 +40,36 @@ export const PythonExportTab: React.FC = () => {
 
   const getFileBadge = (key: keyof PythonFiles) => {
     switch (key) {
-      case 'app.py': return 'Python Backend (Flask)';
-      case 'templates/index.html': return 'Bootstrap 5 Template';
+      case 'app.py': return 'Main Flask Application';
+      case 'requirements.txt': return 'Pip Dependencies';
+      case 'config.py': return 'DB & System Config';
+      case 'models.py': return 'SQLAlchemy vmail Schema';
+      case 'blueprints/auth_bp.py': return 'MFA TOTP Blueprint';
+      case 'blueprints/vmail_bp.py': return 'Domains & Mailboxes CRUD';
+      case 'blueprints/troubleshooting_bp.py': return 'Log Tracking & DNS Validator';
+      case 'blueprints/services_bp.py': return 'Services & SpamAssassin Editor';
+      case 'templates/index.html': return 'Bootstrap 5 SPA';
       case 'sudoers_mailadmin': return 'Sudoers Security Config';
-      case 'mailadmin.service': return 'Systemd Service Unit';
-      case 'README_DEPLOY.md': return 'Guia de Instalação Debian';
+      case 'mailadmin.service': return 'Systemd Unit File';
+      case 'README_DEPLOY.md': return 'Debian/Ubuntu Deploy Guide';
+      default: return 'Source Code';
     }
   };
+
+  const fileList = [
+    { key: 'app.py', label: 'app.py', icon: <FileCode className="w-4 h-4 text-blue-500" /> },
+    { key: 'requirements.txt', label: 'requirements.txt', icon: <Layers className="w-4 h-4 text-indigo-500" /> },
+    { key: 'config.py', label: 'config.py', icon: <FileCode className="w-4 h-4 text-cyan-500" /> },
+    { key: 'models.py', label: 'models.py', icon: <Database className="w-4 h-4 text-teal-500" /> },
+    { key: 'blueprints/auth_bp.py', label: 'blueprints/auth_bp.py', icon: <ShieldCheck className="w-4 h-4 text-emerald-500" /> },
+    { key: 'blueprints/vmail_bp.py', label: 'blueprints/vmail_bp.py', icon: <Database className="w-4 h-4 text-blue-500" /> },
+    { key: 'blueprints/troubleshooting_bp.py', label: 'blueprints/troubleshooting_bp.py', icon: <Terminal className="w-4 h-4 text-amber-500" /> },
+    { key: 'blueprints/services_bp.py', label: 'blueprints/services_bp.py', icon: <Server className="w-4 h-4 text-purple-500" /> },
+    { key: 'templates/index.html', label: 'templates/index.html', icon: <Code className="w-4 h-4 text-amber-500" /> },
+    { key: 'sudoers_mailadmin', label: 'sudoers_mailadmin', icon: <ShieldCheck className="w-4 h-4 text-rose-500" /> },
+    { key: 'mailadmin.service', label: 'mailadmin.service', icon: <Server className="w-4 h-4 text-emerald-500" /> },
+    { key: 'README_DEPLOY.md', label: 'README_DEPLOY.md', icon: <Terminal className="w-4 h-4 text-purple-500" /> }
+  ];
 
   return (
     <div className="space-y-6">
@@ -56,10 +79,10 @@ export const PythonExportTab: React.FC = () => {
         <div>
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
             <Code className="w-6 h-6 text-amber-600" />
-            <span>Código-Fonte Python Flask & Implantação Linux</span>
+            <span>Código-Fonte Python Flask & Suíte Completa</span>
           </h2>
           <p className="text-sm text-slate-600 mt-1">
-            Exporte os arquivos prontas para rodar no seu servidor Debian/Ubuntu na porta 5000 via VPN.
+            Exporte os módulos organizados em Flask Blueprints, SQLAlchemy MariaDB vmail, MFA e scripts de implantação.
           </p>
         </div>
 
@@ -86,42 +109,36 @@ export const PythonExportTab: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         
         {/* Left Sidebar: File List */}
-        <div className="lg:col-span-1 space-y-2">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">
-            Arquivos do Projeto:
+        <div className="lg:col-span-1 space-y-1.5 max-h-[600px] overflow-y-auto pr-1">
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1 mb-2 block">
+            Módulos e Arquivos ({fileList.length}):
           </span>
 
-          {[
-            { key: 'app.py', label: 'app.py', icon: <FileCode className="w-4 h-4 text-blue-500" /> },
-            { key: 'templates/index.html', label: 'templates/index.html', icon: <Code className="w-4 h-4 text-amber-500" /> },
-            { key: 'sudoers_mailadmin', label: 'sudoers_mailadmin', icon: <ShieldCheck className="w-4 h-4 text-rose-500" /> },
-            { key: 'mailadmin.service', label: 'mailadmin.service', icon: <Server className="w-4 h-4 text-emerald-500" /> },
-            { key: 'README_DEPLOY.md', label: 'README_DEPLOY.md', icon: <Terminal className="w-4 h-4 text-purple-500" /> }
-          ].map((f) => (
+          {fileList.map((f) => (
             <button
               key={f.key}
               onClick={() => setSelectedFile(f.key as keyof PythonFiles)}
-              className={`w-full text-left p-3 rounded-xl border transition-all flex items-center justify-between gap-2 ${
+              className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-center justify-between gap-2 ${
                 selectedFile === f.key
                   ? 'bg-slate-900 text-white border-slate-800 shadow-sm font-semibold'
                   : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
               }`}
             >
-              <div className="flex items-center gap-2.5 truncate">
+              <div className="flex items-center gap-2 truncate">
                 {f.icon}
-                <span className="text-sm font-mono truncate">{f.label}</span>
+                <span className="text-xs font-mono truncate">{f.label}</span>
               </div>
             </button>
           ))}
 
           {/* Quick Technical Summary */}
-          <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs space-y-2 mt-4">
+          <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs space-y-2 mt-4">
             <div className="font-bold flex items-center gap-1.5 text-amber-900">
               <HelpCircle className="w-4 h-4 text-amber-700" />
               <span>Instruções do Sudoers</span>
             </div>
             <p className="leading-relaxed">
-              O arquivo <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">/etc/sudoers.d/mailadmin</code> permite ao usuário de suporte rodar os comandos <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">systemctl restart</code> e <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">cp</code> do <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">local.cf</code> sem senha.
+              O arquivo <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">/etc/sudoers.d/mailadmin</code> autoriza o usuário <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">suporte</code> a rodar <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">systemctl restart</code> e <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">postsuper/postqueue</code> sem senha.
             </p>
           </div>
         </div>
@@ -147,7 +164,7 @@ export const PythonExportTab: React.FC = () => {
             </button>
           </div>
 
-          <div className="p-4 font-mono text-xs leading-relaxed text-emerald-400 bg-slate-950 h-[520px] overflow-y-auto whitespace-pre select-text">
+          <div className="p-4 font-mono text-xs leading-relaxed text-emerald-400 bg-slate-950 h-[540px] overflow-y-auto whitespace-pre select-text">
             {loading ? (
               <div className="text-slate-500 italic">Carregando arquivo...</div>
             ) : (
