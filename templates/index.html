@@ -645,13 +645,26 @@
                                 <i class="bi bi-plus-circle me-1"></i> Novo Domínio
                             </button>
                         </div>
+
+                        <!-- Barra de Pesquisa de Domínios -->
+                        <div class="row g-2 mb-3 align-items-center">
+                            <div class="col-md-6 col-lg-4">
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text bg-light border-light-subtle text-muted">
+                                        <i class="bi bi-search"></i>
+                                    </span>
+                                    <input type="text" id="search-domains-input" class="form-control" placeholder="Filtrar domínio (ex: zrti.com.br)..." onkeyup="filterTableRows('search-domains-input', 'domains-table-body')">
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="table-responsive">
                             <table class="table table-custom align-middle">
                                 <thead>
                                     <tr>
                                         <th>Domínio</th>
                                         <th>Descrição</th>
-                                        <th>Caixas</th>
+                                        <th>Caixas Criadas</th>
                                         <th>Quota Máx</th>
                                         <th>Status</th>
                                         <th>Ações</th>
@@ -674,6 +687,19 @@
                                 <i class="bi bi-person-plus me-1"></i> Nova Caixa Postal
                             </button>
                         </div>
+
+                        <!-- Barra de Pesquisa de Caixas Postais -->
+                        <div class="row g-2 mb-3 align-items-center">
+                            <div class="col-md-6 col-lg-4">
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text bg-light border-light-subtle text-muted">
+                                        <i class="bi bi-search"></i>
+                                    </span>
+                                    <input type="text" id="search-mailboxes-input" class="form-control" placeholder="Filtrar conta de e-mail ou nome..." onkeyup="filterTableRows('search-mailboxes-input', 'mailboxes-table-body')">
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="table-responsive">
                             <table class="table table-custom align-middle">
                                 <thead>
@@ -681,7 +707,7 @@
                                         <th>E-mail Completo</th>
                                         <th>Nome</th>
                                         <th>Maildir Path</th>
-                                        <th>Cota (MB)</th>
+                                        <th>Espaço Utilizado / Cota</th>
                                         <th>Domínio</th>
                                         <th>Ações</th>
                                     </tr>
@@ -703,6 +729,19 @@
                                 <i class="bi bi-plus-lg me-1"></i> Novo Alias
                             </button>
                         </div>
+
+                        <!-- Barra de Pesquisa de Aliases -->
+                        <div class="row g-2 mb-3 align-items-center">
+                            <div class="col-md-6 col-lg-4">
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text bg-light border-light-subtle text-muted">
+                                        <i class="bi bi-search"></i>
+                                    </span>
+                                    <input type="text" id="search-aliases-input" class="form-control" placeholder="Filtrar alias ou destino..." onkeyup="filterTableRows('search-aliases-input', 'aliases-table-body')">
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="table-responsive">
                             <table class="table table-custom align-middle">
                                 <thead>
@@ -719,6 +758,7 @@
                             </table>
                         </div>
                     </div>
+
 
                 </div>
 
@@ -1501,6 +1541,45 @@
         }
     }
 
+    // Helpers de Formatação e Filtro Dinâmico
+    function formatQuota(quotaMB) {
+        if (!quotaMB || quotaMB === 0) return 'Ilimitado';
+        if (quotaMB >= 1024 && quotaMB % 1024 === 0) {
+            return `${quotaMB / 1024} GB`;
+        } else if (quotaMB >= 1024) {
+            return `${(quotaMB / 1024).toFixed(1)} GB`;
+        }
+        return `${quotaMB} MB`;
+    }
+
+    function formatBytes(bytes) {
+        if (!bytes || bytes === 0) return '0 MB';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    function filterTableRows(inputId, tbodyId) {
+        const input = document.getElementById(inputId);
+        const tbody = document.getElementById(tbodyId);
+        if (!input || !tbody) return;
+
+        const filter = input.value.toLowerCase().trim();
+        const rows = tbody.getElementsByTagName('tr');
+
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            if (row.cells.length === 1) continue; // Pula linha de mensagem de tabela vazia
+            const text = row.textContent || row.innerText || '';
+            if (text.toLowerCase().indexOf(filter) > -1) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        }
+    }
+
     // 4. VMAIL CRUD (Domínios, Mailboxes, Aliases)
     async function loadDomains() {
         const tbody = document.getElementById('domains-table-body');
@@ -1515,14 +1594,15 @@
                     <tr>
                         <td class="fw-bold text-dark">${d.domain}</td>
                         <td class="text-muted">${d.description || '-'}</td>
-                        <td><span class="badge bg-secondary">${d.mailboxes || 0}</span></td>
-                        <td class="font-monospace">${d.maxquota} MB</td>
+                        <td><span class="badge bg-primary px-2.5 py-1 font-monospace">${d.mailboxes || 0}</span></td>
+                        <td class="font-monospace fw-semibold">${formatQuota(d.maxquota)}</td>
                         <td><span class="badge ${d.active ? 'bg-success' : 'bg-warning'}">${d.active ? 'Ativo' : 'Inativo'}</span></td>
                         <td>
                             <button class="btn btn-sm btn-outline-danger p-1 border-0" onclick="deleteDomain('${d.domain}')" title="Excluir"><i class="bi bi-trash"></i></button>
                         </td>
                     </tr>
                 `).join('');
+                filterTableRows('search-domains-input', 'domains-table-body');
             }
         } catch (e) {
             console.error("Erro ao carregar domínios:", e);
@@ -1573,24 +1653,55 @@
                     tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Nenhuma caixa postal cadastrada.</td></tr>';
                     return;
                 }
-                tbody.innerHTML = data.mailboxes.map(m => `
-                    <tr>
-                        <td class="fw-bold text-dark">${m.username}</td>
-                        <td class="text-muted">${m.name || '-'}</td>
-                        <td class="font-monospace text-primary small">${m.maildir}</td>
-                        <td class="font-monospace">${m.quota} MB</td>
-                        <td>${m.domain}</td>
-                        <td>
-                            <button class="btn btn-sm btn-outline-danger p-1 border-0" onclick="deleteMailbox('${encodeURIComponent(m.username)}')" title="Excluir"><i class="bi bi-trash"></i></button>
-                        </td>
-                    </tr>
-                `).join('');
+                tbody.innerHTML = data.mailboxes.map(m => {
+                    const formattedQuota = formatQuota(m.quota);
+                    let usageHtml = '';
+
+                    if (m.bytes_used && m.bytes_used > 0) {
+                        const formattedBytes = formatBytes(m.bytes_used);
+                        const mbUsed = m.bytes_used / (1024 * 1024);
+                        const pct = (m.quota && m.quota > 0) ? Math.min(100, Math.round((mbUsed / m.quota) * 100)) : 0;
+                        
+                        let barColor = 'bg-success';
+                        if (pct >= 90) barColor = 'bg-danger';
+                        else if (pct >= 75) barColor = 'bg-warning';
+
+                        usageHtml = `
+                            <div style="min-width: 150px;">
+                                <div class="d-flex justify-content-between align-items-center mb-1 font-monospace" style="font-size: 11px;">
+                                    <span class="fw-bold text-dark">${formattedBytes}</span>
+                                    <span class="text-muted">/ ${formattedQuota} (${pct}%)</span>
+                                </div>
+                                <div class="progress bg-secondary bg-opacity-10" style="height: 5px;">
+                                    <div class="progress-bar ${barColor}" style="width: ${pct}%"></div>
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        usageHtml = `<span class="font-monospace fw-semibold text-dark">${formattedQuota}</span>`;
+                    }
+
+                    return `
+                        <tr>
+                            <td class="fw-bold text-dark">${m.username}</td>
+                            <td class="text-muted">${m.name || '-'}</td>
+                            <td class="font-monospace text-primary small">${m.maildir}</td>
+                            <td>${usageHtml}</td>
+                            <td class="fw-semibold text-secondary small">${m.domain}</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-danger p-1 border-0" onclick="deleteMailbox('${encodeURIComponent(m.username)}')" title="Excluir"><i class="bi bi-trash"></i></button>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+                filterTableRows('search-mailboxes-input', 'mailboxes-table-body');
             }
         } catch (e) {
             console.error("Erro ao carregar caixas postais:", e);
             tbody.innerHTML = `<tr><td colspan="6" class="text-danger font-monospace text-center py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar caixas postais: ${e.message}</td></tr>`;
         }
     }
+
 
     function showCreateMailboxModal() {
         new bootstrap.Modal(document.getElementById('createMailboxModal')).show();
@@ -1646,6 +1757,7 @@
                         </td>
                     </tr>
                 `).join('');
+                filterTableRows('search-aliases-input', 'aliases-table-body');
             }
         } catch (e) {
             console.error("Erro ao carregar aliases:", e);

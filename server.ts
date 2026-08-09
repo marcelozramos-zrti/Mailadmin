@@ -25,10 +25,10 @@ async function startServer() {
   ];
 
   let virtualMailboxes = [
-    { username: "diretoria@empresa.com.br", name: "Diretoria Executiva", maildir: "empresa.com.br/diretoria/", quota: 10240, domain: "empresa.com.br", active: true, created: "2026-01-15 10:05:00" },
-    { username: "financeiro@empresa.com.br", name: "Setor Financeiro", maildir: "empresa.com.br/financeiro/", quota: 5120, domain: "empresa.com.br", active: true, created: "2026-01-15 10:10:00" },
-    { username: "suporte@empresa.com.br", name: "Atendimento & Suporte", maildir: "empresa.com.br/suporte/", quota: 5120, domain: "empresa.com.br", active: true, created: "2026-01-16 08:00:00" },
-    { username: "vendas@loja-online.com", name: "Equipe de Vendas", maildir: "loja-online.com/vendas/", quota: 2048, domain: "loja-online.com", active: true, created: "2026-03-10 09:20:00" }
+    { username: "diretoria@empresa.com.br", name: "Diretoria Executiva", maildir: "empresa.com.br/diretoria/", quota: 10240, bytes_used: 3221225472, domain: "empresa.com.br", active: true, created: "2026-01-15 10:05:00" },
+    { username: "financeiro@empresa.com.br", name: "Setor Financeiro", maildir: "empresa.com.br/financeiro/", quota: 5120, bytes_used: 4194304000, domain: "empresa.com.br", active: true, created: "2026-01-15 10:10:00" },
+    { username: "suporte@empresa.com.br", name: "Atendimento & Suporte", maildir: "empresa.com.br/suporte/", quota: 5120, bytes_used: 838860800, domain: "empresa.com.br", active: true, created: "2026-01-16 08:00:00" },
+    { username: "vendas@loja-online.com", name: "Equipe de Vendas", maildir: "loja-online.com/vendas/", quota: 2048, bytes_used: 1258291200, domain: "loja-online.com", active: true, created: "2026-03-10 09:20:00" }
   ];
 
   let virtualAliases = [
@@ -140,7 +140,11 @@ blacklist_from *@spammerdomain.net
   // ===============================================
 
   app.get("/api/vmail/domains", (req, res) => {
-    res.json({ success: true, domains: virtualDomains });
+    const domainsWithCounts = virtualDomains.map(d => {
+      const realCount = virtualMailboxes.filter(m => m.domain === d.domain).length;
+      return { ...d, mailboxes: realCount };
+    });
+    res.json({ success: true, domains: domainsWithCounts });
   });
 
   app.post("/api/vmail/domains", (req, res) => {
@@ -197,6 +201,7 @@ blacklist_from *@spammerdomain.net
       name: name || "",
       maildir: `${domName}/${fullEmail.split("@")[0]}/`,
       quota: quota || 1024,
+      bytes_used: 0,
       domain: domName,
       active: true,
       created: new Date().toISOString().replace("T", " ").substring(0, 19)

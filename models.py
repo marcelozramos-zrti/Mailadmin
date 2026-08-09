@@ -112,3 +112,19 @@ class Alias(db.Model):
             'active': self.active,
             'created': self.created.strftime('%Y-%m-%d %H:%M:%S') if self.created else None
         }
+
+
+class UsedQuota(db.Model):
+    __tablename__ = 'used_quota'
+
+    username = db.Column(db.String(255), primary_key=True) # E-mail da caixa postal
+    bytes = db.Column(db.BigInteger, default=0)            # Espaço consumido em bytes
+    messages = db.Column(db.BigInteger, default=0)         # Total de mensagens salvas
+
+    def to_dict(self):
+        return {
+            'username': self.username,
+            'bytes': self.bytes,
+            'messages': self.messages
+        }
+

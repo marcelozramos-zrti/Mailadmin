@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_login import login_required
-from models import db, Domain, Mailbox, Alias
+from sqlalchemy import func
+from models import db, Domain, Mailbox, Alias, UsedQuota
 
 vmail_bp = Blueprint('vmail', __name__, url_prefix='/api/vmail')
 
@@ -39,10 +40,25 @@ def handle_domains():
             return jsonify({'success': False, 'message': f'Exceção ao criar domínio: {str(e)}'}), 500
     else:
         try:
+            # Subquery / agrupamento com COUNT() na tabela mailbox por dominio
+            mailbox_counts = dict(
+                db.session.query(Mailbox.domain, func.count(Mailbox.username))
+                .group_by(Mailbox.domain)
+                .all()
+            )
+
             domains = Domain.query.all()
-            return jsonify({'success': True, 'domains': [d.to_dict() for d in domains]})
+            domain_list = []
+            for d in domains:
+                d_dict = d.to_dict()
+                # Atualiza com a contagem real de contas criadas
+                d_dict['mailboxes'] = mailbox_counts.get(d.domain, 0)
+                domain_list.append(d_dict)
+
+            return jsonify({'success': True, 'domains': domain_list})
         except Exception as e:
             return jsonify({'success': False, 'message': f'Erro ao consultar domínios: {str(e)}'}), 500
+
 
 @vmail_bp.route('/domains/<domain_name>/toggle', methods=['GET', 'POST'])
 @login_required
@@ -148,7 +164,23 @@ def handle_mailboxes():
             if domain_filter:
                 query = query.filter_by(domain=domain_filter)
             boxes = query.all()
-            return jsonify({'success': True, 'mailboxes': [b.to_dict() for b in boxes]})
+
+            # Tenta buscar o consumo em bytes da tabela 'used_quota'
+            used_quota_map = {}
+            try:
+                quotas = UsedQuota.query.all()
+                used_quota_map = {q.username: q.bytes for q in quotas}
+            except Exception:
+                db.session.rollback()
+                used_quota_map = {}
+
+            mailbox_list = []
+            for b in boxes:
+                b_dict = b.to_dict()
+                b_dict['bytes_used'] = used_quota_map.get(b.username, 0)
+                mailbox_list.append(b_dict)
+
+            return jsonify({'success': True, 'mailboxes': mailbox_list})
         except Exception as e:
             return jsonify({'success': False, 'message': f'Erro ao listar caixas: {str(e)}'}), 500
 
