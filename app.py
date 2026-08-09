@@ -32,6 +32,10 @@ def create_app():
     def load_user(user_id):
         return AdminUser.query.get(int(user_id))
 
+    @login_manager.unauthorized_handler
+    def unauthorized():
+        return jsonify({'success': False, 'message': 'Acesso negado. Por favor, faça login.', 'authenticated': False}), 401
+
     # Registro de Blueprints
     app.register_blueprint(auth_bp)
     app.register_blueprint(vmail_bp)

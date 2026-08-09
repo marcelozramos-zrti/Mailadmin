@@ -295,3 +295,97 @@ def get_logs():
 
     return jsonify({'success': False, 'logs': ['Logs inacessíveis.']}), 500
 
+
+ENV_FILE_PATH = os.path.join(os.getcwd(), '.env')
+
+def parse_env_file():
+    env_vars = {}
+    if os.path.exists(ENV_FILE_PATH):
+        try:
+            with open(ENV_FILE_PATH, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, val = line.split('=', 1)
+                        env_vars[key.strip()] = val.strip().strip('"').strip("'")
+        except Exception:
+            pass
+    return env_vars
+
+def write_env_file(updates):
+    lines = []
+    existing_keys = set()
+    if os.path.exists(ENV_FILE_PATH):
+        try:
+            with open(ENV_FILE_PATH, 'r', encoding='utf-8') as f:
+                for line in f:
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith('#') and '=' in stripped:
+                        key = stripped.split('=', 1)[0].strip()
+                        if key in updates:
+                            lines.append(f'{key}="{updates[key]}"\n')
+                            existing_keys.add(key)
+                            continue
+                    lines.append(line)
+        except Exception:
+            lines = []
+
+    for k, v in updates.items():
+        if k not in existing_keys:
+            lines.append(f'{k}="{v}"\n')
+
+    with open(ENV_FILE_PATH, 'w', encoding='utf-8') as f:
+        f.writelines(lines)
+
+@services_bp.route('/settings', methods=['GET', 'POST'])
+@login_required
+def database_settings():
+    env_vars = parse_env_file()
+    
+    db_user = env_vars.get('DB_USER') or os.environ.get('DB_USER', 'vmailadmin')
+    db_pass = env_vars.get('DB_PASS') or os.environ.get('DB_PASS', 'senha_vmail_123')
+    db_host = env_vars.get('DB_HOST') or os.environ.get('DB_HOST', '127.0.0.1')
+    db_name = env_vars.get('DB_NAME') or os.environ.get('DB_NAME', 'vmail')
+    db_port = env_vars.get('DB_PORT') or os.environ.get('DB_PORT', '3306')
+
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or request.form or {}
+        new_user = data.get('DB_USER', db_user).strip()
+        new_pass = data.get('DB_PASS', db_pass).strip()
+        new_host = data.get('DB_HOST', db_host).strip()
+        new_name = data.get('DB_NAME', db_name).strip()
+        new_port = str(data.get('DB_PORT', db_port)).strip()
+
+        updates = {
+            'DB_USER': new_user,
+            'DB_PASS': new_pass,
+            'DB_HOST': new_host,
+            'DB_NAME': new_name,
+            'DB_PORT': new_port
+        }
+
+        try:
+            write_env_file(updates)
+            for k, v in updates.items():
+                os.environ[k] = v
+
+            return jsonify({
+                'success': True,
+                'message': 'Configurações do banco de dados salvas com sucesso no arquivo .env! Por favor, reinicie o serviço no Linux para aplicar as novas credenciais.',
+                'settings': updates
+            })
+        except Exception as e:
+            return jsonify({'success': False, 'message': f'Erro ao salvar arquivo .env: {str(e)}'}), 500
+
+    return jsonify({
+        'success': True,
+        'settings': {
+            'DB_USER': db_user,
+            'DB_PASS': db_pass,
+            'DB_HOST': db_host,
+            'DB_NAME': db_name,
+            'DB_PORT': db_port
+        }
+    })
+
+

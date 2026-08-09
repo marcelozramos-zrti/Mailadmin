@@ -245,7 +245,53 @@
 </head>
 <body>
 
-<div class="wrapper">
+<!-- LOGIN OVERLAY / SPA AUTH SCREEN -->
+<div id="login-screen" class="d-none min-vh-100 d-flex align-items-center justify-content-center p-4" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 9999; background: #0f172a;">
+    <div class="card border-0 shadow-lg p-4" style="max-width: 420px; width: 100%; background-color: #1e293b; border-radius: 16px;">
+        <div class="text-center mb-4">
+            <div class="logo-box mx-auto mb-3" style="width: 52px; height: 52px; border-radius: 14px;">
+                <i class="bi bi-envelope-fill fs-3"></i>
+            </div>
+            <h4 class="fw-bold text-white mb-1">MailAdmin Suite</h4>
+            <p class="text-secondary small mb-0">Autenticação do Painel de Controle MTA</p>
+        </div>
+
+        <form id="login-form" onsubmit="handleLoginSubmit(event)">
+            <div id="login-alert-container"></div>
+
+            <div class="mb-3">
+                <label class="form-label text-light small fw-semibold">Usuário Administrator</label>
+                <div class="input-group">
+                    <span class="input-group-text bg-dark border-secondary text-secondary"><i class="bi bi-person-fill"></i></span>
+                    <input type="text" id="login-username" class="form-control bg-dark text-white border-secondary" placeholder="admin" required>
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label text-light small fw-semibold">Senha</label>
+                <div class="input-group">
+                    <span class="input-group-text bg-dark border-secondary text-secondary"><i class="bi bi-lock-fill"></i></span>
+                    <input type="password" id="login-password" class="form-control bg-dark text-white border-secondary" placeholder="••••••••" required>
+                </div>
+            </div>
+
+            <div id="login-mfa-container" class="mb-3 d-none">
+                <label class="form-label text-warning small fw-semibold">Código TOTP / Authenticator</label>
+                <div class="input-group">
+                    <span class="input-group-text bg-dark border-warning text-warning"><i class="bi bi-shield-lock-fill"></i></span>
+                    <input type="text" id="login-mfa-token" class="form-control bg-dark text-white border-warning font-monospace" placeholder="123456" maxlength="6">
+                </div>
+                <small class="text-muted d-block mt-1" style="font-size: 11px;">MFA ativado nesta conta. Digite o código de 6 dígitos.</small>
+            </div>
+
+            <button type="submit" id="login-btn" class="btn btn-primary w-100 fw-bold py-2.5 mt-2 rounded-3 shadow-sm">
+                <i class="bi bi-box-arrow-in-right me-1"></i> Entrar no Sistema
+            </button>
+        </form>
+    </div>
+</div>
+
+<div class="wrapper" id="app-wrapper">
     <!-- SIDEBAR EXPANSÍVEL (Tema Escuro Preservado) -->
     <aside id="sidebar">
         <!-- Logo Header -->
@@ -300,13 +346,21 @@
                 <i class="bi bi-terminal fs-5"></i>
                 <span class="sidebar-text">Logs em Tempo Real</span>
             </a>
+            <a href="#settings" class="nav-link" data-target="tab-settings" data-tab="settings">
+                <i class="bi bi-gear fs-5"></i>
+                <span class="sidebar-text">Configurações</span>
+            </a>
         </nav>
 
         <!-- Sidebar Footer Controls -->
         <div class="sidebar-footer">
-            <button class="btn btn-outline-success btn-sm w-100 d-flex align-items-center justify-content-center gap-2 rounded-3 py-2" onclick="openMfaModal()">
+            <button class="btn btn-outline-success btn-sm w-100 d-flex align-items-center justify-content-center gap-2 rounded-3 py-2 mb-2" onclick="openMfaModal()">
                 <i class="bi bi-shield-check fs-6"></i>
                 <span class="sidebar-text small fw-semibold">Configurar MFA</span>
+            </button>
+            <button class="btn btn-outline-danger btn-sm w-100 d-flex align-items-center justify-content-center gap-2 rounded-3 py-2" onclick="handleLogout()">
+                <i class="bi bi-box-arrow-left fs-6"></i>
+                <span class="sidebar-text small fw-semibold">Sair / Logout</span>
             </button>
             <div class="text-center sidebar-text mt-2" style="font-size: 10px; color: #64748b;">
                 Postfix • MariaDB vmail
@@ -801,6 +855,86 @@
                     </div>
                 </div>
 
+                <!-- 6. CONFIGURAÇÕES DO SISTEMA TAB -->
+                <div class="tab-section d-none" id="tab-settings">
+                    <div class="card p-4">
+                        <div class="d-flex align-items-center justify-content-between mb-4 pb-3 border-bottom">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="p-3 rounded-3 bg-primary bg-opacity-10 text-primary">
+                                    <i class="bi bi-sliders fs-3"></i>
+                                </div>
+                                <div>
+                                    <h2 class="h5 mb-1 fw-bold text-dark">Configurações do Banco de Dados vmail</h2>
+                                    <p class="text-muted small mb-0">Gerencie as credenciais de conexão ao MariaDB/MySQL gravadas no arquivo <code>.env</code> do servidor.</p>
+                                </div>
+                            </div>
+                            <span class="badge bg-secondary-subtle text-secondary border font-monospace">.env Manager</span>
+                        </div>
+
+                        <form id="db-settings-form" onsubmit="saveDatabaseSettings(event)">
+                            <div id="settings-alert-container"></div>
+                            
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-dark small">Usuário do Banco (DB_USER)</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-person text-muted"></i></span>
+                                        <input type="text" id="cfg-db-user" class="form-control font-monospace" placeholder="vmailadmin" required>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-dark small">Senha do Banco (DB_PASS)</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-key text-muted"></i></span>
+                                        <input type="password" id="cfg-db-pass" class="form-control font-monospace" placeholder="senha_vmail_123" required>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-dark small">Host / IP do Banco (DB_HOST)</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-hdd-network text-muted"></i></span>
+                                        <input type="text" id="cfg-db-host" class="form-control font-monospace" placeholder="127.0.0.1" required>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-dark small">Nome da Base de Dados (DB_NAME)</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-database text-muted"></i></span>
+                                        <input type="text" id="cfg-db-name" class="form-control font-monospace" placeholder="vmail" required>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-dark small">Porta MySQL/MariaDB (DB_PORT)</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-ethernet text-muted"></i></span>
+                                        <input type="text" id="cfg-db-port" class="form-control font-monospace" placeholder="3306" required>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="alert alert-info border-0 bg-info bg-opacity-10 text-info-emphasis mt-4 d-flex align-items-center gap-2 small rounded-3">
+                                <i class="bi bi-info-circle-fill fs-5 flex-shrink-0"></i>
+                                <div>
+                                    Ao salvar, as variáveis serão gravadas fisicamente no arquivo <code>.env</code> no servidor Linux. Para aplicar as alterações de conexão no MailAdmin Suite, reinicie o serviço no Linux.
+                                </div>
+                            </div>
+
+                            <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+                                <button type="button" class="btn btn-outline-secondary btn-sm rounded-3" onclick="loadDatabaseSettings()">
+                                    <i class="bi bi-arrow-clockwise me-1"></i> Recarregar
+                                </button>
+                                <button type="submit" class="btn btn-primary btn-sm fw-bold px-4 rounded-3">
+                                    <i class="bi bi-floppy-fill me-1"></i> Salvar no .env
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
             </div>
         </main>
     </div>
@@ -942,18 +1076,104 @@
         initNavigation();
         initCharts();
         
-        // Carrega dados iniciais do Dashboard
-        loadTelemetry();
-        loadServiceStatus();
-
-        // Timer de Atualização da Telemetria (5s)
-        autoRefreshTimer = setInterval(() => {
-            if (isAutoRefreshOn) {
-                loadTelemetry();
-                loadServiceStatus();
-            }
-        }, 5000);
+        // Verifica autenticação da sessão no carregamento da SPA
+        checkAuthSession();
     });
+
+    // CONTROLE DE AUTENTICAÇÃO E SESSÃO DA SPA
+    async function checkAuthSession() {
+        try {
+            const res = await fetch('/api/auth/me');
+            if (res.ok) {
+                const data = await res.json();
+                if (data && data.authenticated) {
+                    showPanelScreen();
+                    loadTelemetry();
+                    loadServiceStatus();
+                    return;
+                }
+            }
+            showLoginScreen();
+        } catch (e) {
+            showLoginScreen();
+        }
+    }
+
+    function showLoginScreen() {
+        const loginScreen = document.getElementById('login-screen');
+        const appWrapper = document.getElementById('app-wrapper');
+        if (loginScreen) loginScreen.classList.remove('d-none');
+        if (appWrapper) appWrapper.classList.add('d-none');
+        if (autoRefreshTimer) {
+            clearInterval(autoRefreshTimer);
+            autoRefreshTimer = null;
+        }
+    }
+
+    function showPanelScreen() {
+        const loginScreen = document.getElementById('login-screen');
+        const appWrapper = document.getElementById('app-wrapper');
+        if (loginScreen) loginScreen.classList.add('d-none');
+        if (appWrapper) appWrapper.classList.remove('d-none');
+        if (!autoRefreshTimer) {
+            autoRefreshTimer = setInterval(() => {
+                if (isAutoRefreshOn) {
+                    loadTelemetry();
+                    loadServiceStatus();
+                }
+            }, 5000);
+        }
+    }
+
+    async function handleLoginSubmit(event) {
+        event.preventDefault();
+        const username = document.getElementById('login-username').value;
+        const password = document.getElementById('login-password').value;
+        const token = document.getElementById('login-mfa-token').value;
+        const alertContainer = document.getElementById('login-alert-container');
+        const submitBtn = document.getElementById('login-btn');
+
+        alertContainer.innerHTML = '';
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Autenticando...';
+
+        try {
+            const data = await fetchJson('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password, token })
+            });
+
+            if (data.mfa_required) {
+                document.getElementById('login-mfa-container').classList.remove('d-none');
+                alertContainer.innerHTML = `<div class="alert alert-warning py-2 px-3 small border-0 mb-3"><i class="bi bi-shield-lock me-1"></i> ${data.message}</div>`;
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="bi bi-box-arrow-in-right me-1"></i> Confirmar Código TOTP';
+                return;
+            }
+
+            if (data.success) {
+                showPanelScreen();
+                refreshCurrentTab();
+            } else {
+                alertContainer.innerHTML = `<div class="alert alert-danger py-2 px-3 small border-0 mb-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> ${data.message || 'Falha ao autenticar.'}</div>`;
+            }
+        } catch (e) {
+            alertContainer.innerHTML = `<div class="alert alert-danger py-2 px-3 small border-0 mb-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> ${e.message}</div>`;
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="bi bi-box-arrow-in-right me-1"></i> Entrar no Sistema';
+        }
+    }
+
+    async function handleLogout() {
+        try {
+            await fetchJson('/api/auth/logout', { method: 'POST' });
+        } catch (e) {
+            console.log("Logout:", e.message);
+        }
+        showLoginScreen();
+    }
 
     // HELPER PADRÃO PARA FETCH TRATANDO ERROS DE FORMA VISÍVEL
     async function fetchJson(url, options = {}) {
@@ -962,6 +1182,11 @@
             res = await fetch(url, options);
         } catch (netErr) {
             throw new Error(`Erro de conexão/rede com o servidor (${netErr.message || 'Servidor inacessível'})`);
+        }
+
+        if (res.status === 401 && !url.includes('/api/auth/login') && !url.includes('/api/auth/me')) {
+            showLoginScreen();
+            throw new Error('Sessão expirada. Por favor, faça login novamente.');
         }
 
         let data = null;
@@ -1067,6 +1292,7 @@
         else if (tabName === 'troubleshooting') loadQueue();
         else if (tabName === 'spam') loadSpamRules();
         else if (tabName === 'logs') loadLogs();
+        else if (tabName === 'settings') loadDatabaseSettings();
     }
 
     function refreshCurrentTab() {
@@ -1655,6 +1881,58 @@
             bootstrap.Modal.getInstance(document.getElementById('mfaModal')).hide();
         } catch (e) {
             showAlert(`Erro ao ativar MFA: ${e.message}`, 'danger');
+        }
+    }
+
+    // 8. DATABASE SETTINGS (.env MANAGER)
+    async function loadDatabaseSettings() {
+        try {
+            const data = await fetchJson('/api/services/settings');
+            if (data.settings) {
+                document.getElementById('cfg-db-user').value = data.settings.DB_USER || '';
+                document.getElementById('cfg-db-pass').value = data.settings.DB_PASS || '';
+                document.getElementById('cfg-db-host').value = data.settings.DB_HOST || '';
+                document.getElementById('cfg-db-name').value = data.settings.DB_NAME || '';
+                document.getElementById('cfg-db-port').value = data.settings.DB_PORT || '3306';
+            }
+        } catch (e) {
+            console.error("Erro ao carregar configurações do banco:", e);
+            showSettingsAlert(`Erro ao carregar configurações: ${e.message}`, 'danger');
+        }
+    }
+
+    function showSettingsAlert(message, type = 'success') {
+        const container = document.getElementById('settings-alert-container');
+        if (container) {
+            container.innerHTML = `
+                <div class="alert alert-${type === 'success' ? 'success' : 'danger'} alert-dismissible fade show border-0 shadow-sm mb-4" role="alert">
+                    <i class="bi ${type === 'success' ? 'bi-check-circle-fill' : 'bi-exclamation-triangle-fill'} me-2"></i>
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `;
+        }
+    }
+
+    async function saveDatabaseSettings(event) {
+        event.preventDefault();
+        const DB_USER = document.getElementById('cfg-db-user').value;
+        const DB_PASS = document.getElementById('cfg-db-pass').value;
+        const DB_HOST = document.getElementById('cfg-db-host').value;
+        const DB_NAME = document.getElementById('cfg-db-name').value;
+        const DB_PORT = document.getElementById('cfg-db-port').value;
+
+        try {
+            const data = await fetchJson('/api/services/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ DB_USER, DB_PASS, DB_HOST, DB_NAME, DB_PORT })
+            });
+
+            showSettingsAlert(data.message, 'success');
+            showAlert(data.message, 'success');
+        } catch (e) {
+            showSettingsAlert(`Erro ao salvar configurações: ${e.message}`, 'danger');
         }
     }
 </script>

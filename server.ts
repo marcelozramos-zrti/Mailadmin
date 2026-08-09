@@ -486,6 +486,37 @@ blacklist_from *@spammerdomain.net
     res.json({ success: true, logs: mockLogs });
   });
 
+  // Database Settings (.env manager)
+  let virtualDbSettings = {
+    DB_USER: "vmailadmin",
+    DB_PASS: "senha_vmail_123",
+    DB_HOST: "127.0.0.1",
+    DB_NAME: "vmail",
+    DB_PORT: "3306"
+  };
+
+  app.all("/api/services/settings", (req, res) => {
+    if (req.method === "POST") {
+      const { DB_USER, DB_PASS, DB_HOST, DB_NAME, DB_PORT } = req.body || {};
+      if (DB_USER) virtualDbSettings.DB_USER = DB_USER;
+      if (DB_PASS) virtualDbSettings.DB_PASS = DB_PASS;
+      if (DB_HOST) virtualDbSettings.DB_HOST = DB_HOST;
+      if (DB_NAME) virtualDbSettings.DB_NAME = DB_NAME;
+      if (DB_PORT) virtualDbSettings.DB_PORT = String(DB_PORT);
+
+      return res.json({
+        success: true,
+        message: "Configurações do banco de dados salvas com sucesso no arquivo .env! Por favor, reinicie o serviço no Linux para aplicar as novas credenciais.",
+        settings: virtualDbSettings
+      });
+    }
+
+    res.json({
+      success: true,
+      settings: virtualDbSettings
+    });
+  });
+
   // Export Python Files
   app.get("/api/python-files", (req, res) => {
     try {
