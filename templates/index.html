@@ -1,776 +1,1430 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-bs-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MailAdmin Suite - Painel de Administração de Servidores de E-mail</title>
-    <!-- Bootstrap 5 CSS via CDN -->
+    <title>MailAdmin Suite v2.0 - Painel de Controle Nativo</title>
+    <!-- Bootstrap 5 CSS (Dark Theme Native) -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Bootstrap Icons -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
     <style>
-        body { background-color: #f8fafc; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-        .navbar-brand { font-weight: 700; letter-spacing: -0.5px; }
-        .card { border-radius: 10px; border: 1px solid #e2e8f0; }
-        .service-badge { font-size: 0.85rem; padding: 0.4em 0.8em; border-radius: 20px; }
-        .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
-        .status-active { background-color: #22c55e; }
-        .status-inactive { background-color: #ef4444; }
-        .code-editor { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 0.88rem; background-color: #0f172a; color: #f8fafc; border-radius: 8px; min-height: 380px; }
-        .log-terminal { font-family: monospace; font-size: 0.85rem; background-color: #0f172a; color: #38bdf8; max-height: 480px; overflow-y: auto; padding: 1rem; border-radius: 8px; }
+        :root {
+            --sidebar-width: 260px;
+            --sidebar-collapsed-width: 78px;
+            --bg-dark-body: #0b1120;
+            --bg-dark-card: #1e293b;
+            --bg-dark-nav: #0f172a;
+            --border-color: #334155;
+            --accent-blue: #3b82f6;
+        }
+
+        body {
+            background-color: var(--bg-dark-body);
+            color: #f1f5f9;
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            overflow-x: hidden;
+        }
+
+        /* Layout Container */
+        .wrapper {
+            display: flex;
+            width: 100%;
+            min-height: 100vh;
+        }
+
+        /* Collapsible Dark Sidebar */
+        #sidebar {
+            width: var(--sidebar-width);
+            background-color: var(--bg-dark-nav);
+            border-right: 1px solid var(--border-color);
+            transition: all 0.3s ease-in-out;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+        }
+
+        #sidebar.collapsed {
+            width: var(--sidebar-collapsed-width);
+        }
+
+        #sidebar.collapsed .sidebar-text,
+        #sidebar.collapsed .badge-hide {
+            display: none !important;
+        }
+
+        #sidebar.collapsed .nav-link {
+            justify-content: center;
+            padding-left: 0;
+            padding-right: 0;
+        }
+
+        .sidebar-header {
+            padding: 1.25rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo-box {
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: #fff;
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+            flex-shrink: 0;
+        }
+
+        .sidebar-nav {
+            padding: 1rem 0.75rem;
+            flex-grow: 1;
+            overflow-y: auto;
+        }
+
+        .sidebar-nav .nav-link {
+            color: #94a3b8;
+            font-size: 0.85rem;
+            font-weight: 600;
+            border-radius: 10px;
+            padding: 0.65rem 0.85rem;
+            margin-bottom: 0.35rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            transition: all 0.2s ease;
+        }
+
+        .sidebar-nav .nav-link:hover {
+            color: #f8fafc;
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+
+        .sidebar-nav .nav-link.active {
+            color: #ffffff;
+            background-color: var(--accent-blue);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .sidebar-footer {
+            padding: 1rem;
+            border-top: 1px solid var(--border-color);
+            background-color: rgba(0, 0, 0, 0.2);
+        }
+
+        /* Main Content Area */
+        #content {
+            flex-grow: 1;
+            margin-left: var(--sidebar-width);
+            transition: all 0.3s ease-in-out;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        #content.expanded {
+            margin-left: var(--sidebar-collapsed-width);
+        }
+
+        /* Dark Cards & Controls */
+        .card {
+            background-color: var(--bg-dark-card);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+        }
+
+        .card-header {
+            background-color: rgba(0, 0, 0, 0.15);
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 700;
+        }
+
+        .table-dark-custom {
+            --bs-table-bg: transparent;
+            --bs-table-border-color: var(--border-color);
+            color: #cbd5e1;
+        }
+
+        .table-dark-custom th {
+            color: #94a3b8;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .log-terminal {
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-size: 0.82rem;
+            background-color: #030712;
+            color: #38bdf8;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 1rem;
+            max-height: 480px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .code-editor {
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-size: 0.85rem;
+            background-color: #030712;
+            color: #a5f3fc;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            min-height: 380px;
+        }
+
+        /* Status Dot Indicator */
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .pulse-emerald {
+            background-color: #10b981;
+            box-shadow: 0 0 8px #10b981;
+        }
+
+        .pulse-rose {
+            background-color: #f43f5e;
+            box-shadow: 0 0 8px #f43f5e;
+        }
+
+        /* Chart Canvas Constraints */
+        .chart-container {
+            position: relative;
+            width: 100%;
+            height: 220px;
+        }
+
+        @media (max-width: 768px) {
+            #sidebar {
+                margin-left: calc(-1 * var(--sidebar-width));
+            }
+            #sidebar.mobile-open {
+                margin-left: 0;
+            }
+            #content {
+                margin-left: 0 !important;
+            }
+        }
     </style>
 </head>
 <body>
 
-    <!-- NAVBAR PRINCIPAL -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
-        <div class="container-fluid px-4">
-            <a class="navbar-brand d-flex align-items-center gap-2" href="#">
-                <i class="bi bi-envelope-at-fill text-primary"></i>
-                MailAdmin <span class="badge bg-primary text-wrap ms-1" style="font-size:0.65rem;">Suite v2.0</span>
+<div class="wrapper">
+    <!-- SIDEBAR EXPANSÍVEL (Tema Escuro Avançado) -->
+    <aside id="sidebar">
+        <!-- Logo Header -->
+        <div class="sidebar-header">
+            <div class="d-flex align-items-center gap-2.5 overflow-hidden">
+                <div class="logo-box">
+                    <i class="bi bi-envelope-fill fs-5"></i>
+                </div>
+                <div class="sidebar-text truncate">
+                    <div class="d-flex align-items-center gap-1.5">
+                        <span class="fw-bold text-white fs-6">MailAdmin</span>
+                        <span class="badge bg-blue-500/20 text-info border border-info border-opacity-25 px-1.5 py-0.5" style="font-size: 9px;">v2.0</span>
+                    </div>
+                    <small class="text-secondary d-block" style="font-size: 10px;">Debian/Ubuntu Server</small>
+                </div>
+            </div>
+            <button class="btn btn-sm text-secondary p-1 border-0 d-none d-md-block" onclick="toggleSidebar()" title="Recolher/Expandir Menu">
+                <i class="bi bi-chevron-left" id="sidebar-toggle-icon"></i>
+            </button>
+        </div>
+
+        <!-- Service Overall Status Pill -->
+        <div class="px-3 py-2 my-2 sidebar-text">
+            <div class="p-2.5 rounded-3 border border-secondary border-opacity-25 bg-black bg-opacity-30 d-flex align-items-center justify-content-between">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="status-dot pulse-emerald" id="global-status-dot"></span>
+                    <span class="small fw-semibold text-light" id="global-status-text">Serviços OK</span>
+                </div>
+                <span class="badge bg-dark text-secondary border border-secondary border-opacity-25" style="font-size: 9px;">4/4 SVC</span>
+            </div>
+        </div>
+
+        <!-- Navigation Links -->
+        <nav class="sidebar-nav">
+            <a href="#dashboard" class="nav-link active" data-bs-toggle="pill" data-bs-target="#tab-dashboard" onclick="setActiveTab('dashboard')">
+                <i class="bi bi-speedometer2 fs-5"></i>
+                <span class="sidebar-text">Dashboard & Telemetria</span>
             </a>
+            <a href="#vmail" class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-vmail" onclick="setActiveTab('vmail')">
+                <i class="bi bi-globe fs-5"></i>
+                <span class="sidebar-text">Domínios & Contas (vmail)</span>
+            </a>
+            <a href="#troubleshooting" class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-troubleshooting" onclick="setActiveTab('troubleshooting')">
+                <i class="bi bi-tools fs-5"></i>
+                <span class="sidebar-text">Troubleshooting & DNS</span>
+            </a>
+            <a href="#spam" class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-spam" onclick="setActiveTab('spam')">
+                <i class="bi bi-shield-lock fs-5"></i>
+                <span class="sidebar-text">Regras SpamAssassin</span>
+            </a>
+            <a href="#logs" class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-logs" onclick="setActiveTab('logs')">
+                <i class="bi bi-terminal fs-5"></i>
+                <span class="sidebar-text">Logs em Tempo Real</span>
+            </a>
+        </nav>
+
+        <!-- Sidebar Footer Controls -->
+        <div class="sidebar-footer">
+            <button class="btn btn-outline-emerald text-emerald btn-sm w-100 border border-success border-opacity-50 text-success d-flex align-items-center justify-content-center gap-2 rounded-3 py-2" onclick="openMfaModal()">
+                <i class="bi bi-shield-check fs-6"></i>
+                <span class="sidebar-text small fw-semibold">Configurar MFA</span>
+            </button>
+            <div class="text-center sidebar-text mt-2" style="font-size: 10px; color: #64748b;">
+                Postfix • MariaDB vmail
+            </div>
+        </div>
+    </aside>
+
+    <!-- CONTENT AREA -->
+    <div id="content">
+        <!-- TOP TOOLBAR -->
+        <header class="bg-dark bg-opacity-75 border-bottom border-secondary border-opacity-25 sticky-top px-4 py-3 d-flex align-items-center justify-content-between shadow-sm">
             <div class="d-flex align-items-center gap-3">
-                <span class="text-light small"><i class="bi bi-shield-check text-success me-1"></i> <span id="nav-user-info">admin@local</span></span>
-                <button class="btn btn-outline-light btn-sm" onclick="openMfaModal()">
-                    <i class="bi bi-qr-code-scan me-1"></i> Configurar MFA
+                <button class="btn btn-outline-secondary btn-sm d-md-none" onclick="toggleMobileSidebar()">
+                    <i class="bi bi-list fs-5"></i>
                 </button>
-            </div>
-        </div>
-    </nav>
-
-    <!-- CONTAINER CONTEÚDO PRINCIPAL -->
-    <div class="container-fluid px-4 py-4">
-
-        <!-- NAV TABS MÓDULOS -->
-        <ul class="nav nav-pills mb-4 bg-white p-2 rounded shadow-sm border" id="mainTabs" role="tablist">
-            <li class="nav-item">
-                <button class="nav-link active" id="dashboard-tab" data-bs-toggle="pill" data-bs-target="#tab-dashboard" type="button">
-                    <i class="bi bi-speedometer2 me-1"></i> Dashboard
-                </button>
-            </li>
-            <li class="nav-item">
-                <button class="nav-link" id="domains-tab" data-bs-toggle="pill" data-bs-target="#tab-domains" type="button" onclick="loadDomains()">
-                    <i class="bi bi-globe me-1"></i> Domínios
-                </button>
-            </li>
-            <li class="nav-item">
-                <button class="nav-link" id="mailboxes-tab" data-bs-toggle="pill" data-bs-target="#tab-mailboxes" type="button" onclick="loadMailboxes()">
-                    <i class="bi bi-mailbox me-1"></i> Caixas Postais (vmail)
-                </button>
-            </li>
-            <li class="nav-item">
-                <button class="nav-link" id="aliases-tab" data-bs-toggle="pill" data-bs-target="#tab-aliases" type="button" onclick="loadAliases()">
-                    <i class="bi bi-signpost-split me-1"></i> Redirecionamentos (Aliases)
-                </button>
-            </li>
-            <li class="nav-item">
-                <button class="nav-link" id="troubleshooting-tab" data-bs-toggle="pill" data-bs-target="#tab-troubleshooting" type="button" onclick="loadTroubleshootingData()">
-                    <i class="bi bi-tools me-1"></i> Troubleshooting & Fila Postfix
-                </button>
-            </li>
-            <li class="nav-item">
-                <button class="nav-link" id="spamassassin-tab" data-bs-toggle="pill" data-bs-target="#tab-spamassassin" type="button" onclick="loadSpamRules()">
-                    <i class="bi bi-shield-slash me-1"></i> Regras SpamAssassin
-                </button>
-            </li>
-            <li class="nav-item">
-                <button class="nav-link" id="logs-tab" data-bs-toggle="pill" data-bs-target="#tab-logs" type="button" onclick="loadLogs()">
-                    <i class="bi bi-terminal me-1"></i> Logs mail.log
-                </button>
-            </li>
-        </ul>
-
-        <!-- CONTEÚDO DAS TABS -->
-        <div class="tab-content" id="mainTabsContent">
-
-            <!-- TAB 1: DASHBOARD -->
-            <div class="tab-pane fade show active" id="tab-dashboard" role="tabpanel">
-                <div class="row g-4 mb-4">
-                    <!-- Cards de Status de Serviço -->
-                    <div class="col-md-3">
-                        <div class="card p-3 shadow-sm">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <span class="fw-bold text-secondary">POSTFIX</span>
-                                <span id="badge-postfix" class="badge bg-secondary">Verificando...</span>
-                            </div>
-                            <h5 class="card-title mb-3">MTA Mail Server</h5>
-                            <button class="btn btn-outline-primary btn-sm w-100" onclick="restartService('postfix')">
-                                <i class="bi bi-arrow-clockwise me-1"></i> Reiniciar Postfix
-                            </button>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="card p-3 shadow-sm">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <span class="fw-bold text-secondary">AMAVISD</span>
-                                <span id="badge-amavis" class="badge bg-secondary">Verificando...</span>
-                            </div>
-                            <h5 class="card-title mb-3">Filtro Amavis Core</h5>
-                            <button class="btn btn-outline-primary btn-sm w-100" onclick="restartService('amavis')">
-                                <i class="bi bi-arrow-clockwise me-1"></i> Reiniciar Amavis
-                            </button>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="card p-3 shadow-sm">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <span class="fw-bold text-secondary">CLAMAV</span>
-                                <span id="badge-clamav-daemon" class="badge bg-secondary">Verificando...</span>
-                            </div>
-                            <h5 class="card-title mb-3">Antivírus daemon</h5>
-                            <button class="btn btn-outline-primary btn-sm w-100" onclick="restartService('clamav-daemon')">
-                                <i class="bi bi-arrow-clockwise me-1"></i> Reiniciar ClamAV
-                            </button>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="card p-3 shadow-sm">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <span class="fw-bold text-secondary">SPAMASSASSIN</span>
-                                <span id="badge-spamassassin" class="badge bg-secondary">Verificando...</span>
-                            </div>
-                            <h5 class="card-title mb-3">Motor Antispam</h5>
-                            <button class="btn btn-outline-primary btn-sm w-100" onclick="restartService('spamassassin')">
-                                <i class="bi bi-arrow-clockwise me-1"></i> Reiniciar SpamAssassin
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="card shadow-sm p-4">
-                    <h5 class="card-title mb-3"><i class="bi bi-info-circle me-2 text-primary"></i>Resumo da Arquitetura MailAdmin Suite</h5>
-                    <p class="text-muted">A aplicação gerencia nativamente a pilha completa do servidor de e-mail integrado ao banco de dados MariaDB (schema <code>vmail</code>):</p>
-                    <ul class="list-group list-group-flush mb-3">
-                        <li class="list-group-item"><strong>MFA / Autenticação TOTP:</strong> Suporte a segundo fator com Google Authenticator via biblioteca <code>pyotp</code>.</li>
-                        <li class="list-group-item"><strong>Gestão vmail:</strong> CRUD de Domínios, Caixas Postais com hash Dovecot SSHA512/BCRYPT, Cotas e Aliases.</li>
-                        <li class="list-group-item"><strong>Troubleshooting & Diagnósticos:</strong> Rastreio de e-mails em <code>/var/log/mail.log</code>, limpeza/flush da fila Postfix (<code>postsuper</code>/<code>postqueue</code>) e validador DNS (MX, SPF, DKIM, DMARC) via <code>dnspython</code>.</li>
-                    </ul>
+                <div>
+                    <h1 class="h6 mb-0 fw-bold text-white d-flex align-items-center gap-2">
+                        Painel de Controle MailAdmin Suite
+                        <span class="badge bg-primary bg-opacity-25 text-primary border border-primary border-opacity-25 text-uppercase" style="font-size: 10px;">Flask Native</span>
+                    </h1>
+                    <small class="text-secondary d-none d-sm-block" style="font-size: 11px;">Administração Integrada MTA Postfix, Amavis, ClamAV e SpamAssassin</small>
                 </div>
             </div>
 
-            <!-- TAB 2: DOMÍNIOS -->
-            <div class="tab-pane fade" id="tab-domains" role="tabpanel">
-                <div class="card shadow-sm p-4 mb-4">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h5 class="mb-0"><i class="bi bi-globe me-2 text-primary"></i>Domínios Virtuais Registrados</h5>
-                        <button class="btn btn-primary btn-sm" onclick="showCreateDomainModal()">
-                            <i class="bi bi-plus-circle me-1"></i> Adicionar Domínio
-                        </button>
-                    </div>
-                    <div class="table-responsive">
-                        <table class="table table-hover align-middle">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>Domínio</th>
-                                    <th>Descrição</th>
-                                    <th>Caixas</th>
-                                    <th>Quota Máx</th>
-                                    <th>Status</th>
-                                    <th>Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody id="domains-table-body">
-                                <tr><td colspan="6" class="text-center py-3 text-muted">Carregando domínios...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge bg-dark text-success border border-success border-opacity-25 px-3 py-2 d-none d-md-inline-flex align-items-center gap-1.5" id="nav-system-badge">
+                    <span class="status-dot pulse-emerald"></span>
+                    <span>Debian 12 / Linux</span>
+                </span>
+                <button class="btn btn-sm btn-outline-light d-flex align-items-center gap-1.5 rounded-3" onclick="refreshCurrentTab()">
+                    <i class="bi bi-arrow-clockwise" id="refresh-icon"></i>
+                    <span class="d-none d-sm-inline">Atualizar</span>
+                </button>
             </div>
+        </header>
 
-            <!-- TAB 3: MAILBOXES -->
-            <div class="tab-pane fade" id="tab-mailboxes" role="tabpanel">
-                <div class="card shadow-sm p-4 mb-4">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h5 class="mb-0"><i class="bi bi-mailbox me-2 text-primary"></i>Caixas Postais (vmail)</h5>
-                        <button class="btn btn-primary btn-sm" onclick="showCreateMailboxModal()">
-                            <i class="bi bi-person-plus me-1"></i> Nova Caixa Postal
-                        </button>
-                    </div>
-                    <div class="table-responsive">
-                        <table class="table table-hover align-middle">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>E-mail Completo</th>
-                                    <th>Nome</th>
-                                    <th>Maildir Path</th>
-                                    <th>Cota (MB)</th>
-                                    <th>Domínio</th>
-                                    <th>Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody id="mailboxes-table-body">
-                                <tr><td colspan="6" class="text-center py-3 text-muted">Carregando caixas postais...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
+        <!-- MAIN BODY CONTENT -->
+        <main class="p-4 flex-grow-1">
+            
+            <!-- ALERT BANNER -->
+            <div id="global-alert-container"></div>
 
-            <!-- TAB 4: ALIASES -->
-            <div class="tab-pane fade" id="tab-aliases" role="tabpanel">
-                <div class="card shadow-sm p-4 mb-4">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h5 class="mb-0"><i class="bi bi-signpost-split me-2 text-primary"></i>Redirecionamentos de E-mail (Aliases)</h5>
-                        <button class="btn btn-primary btn-sm" onclick="showCreateAliasModal()">
-                            <i class="bi bi-plus-lg me-1"></i> Novo Alias
-                        </button>
-                    </div>
-                    <div class="table-responsive">
-                        <table class="table table-hover align-middle">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>Endereço do Alias</th>
-                                    <th>Destinos (goto)</th>
-                                    <th>Domínio</th>
-                                    <th>Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody id="aliases-table-body">
-                                <tr><td colspan="4" class="text-center py-3 text-muted">Carregando aliases...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAB 5: TROUBLESHOOTING & FILA POSTFIX -->
-            <div class="tab-pane fade" id="tab-troubleshooting" role="tabpanel">
-                <div class="row g-4">
-                    <!-- Rastreamento de E-mail -->
-                    <div class="col-md-6">
-                        <div class="card shadow-sm p-4 h-100">
-                            <h5><i class="bi bi-search me-2 text-primary"></i>Rastrear Jornada de E-mail</h5>
-                            <p class="text-muted small">Busca o caminho completo da mensagem em <code>/var/log/mail.log</code> por remetente ou destinatário.</p>
-                            <div class="input-group mb-3">
-                                <input type="email" id="track-email-input" class="form-control" placeholder="ex: contato@parceiro.com.br">
-                                <button class="btn btn-primary" onclick="trackEmail()"><i class="bi bi-search"></i> Buscar</button>
-                            </div>
-                            <div id="track-results" class="log-terminal mt-2" style="max-height: 260px;">
-                                <span class="text-muted">Insira um e-mail para rastrear os logs da mensagem...</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Validador DNS -->
-                    <div class="col-md-6">
-                        <div class="card shadow-sm p-4 h-100">
-                            <h5><i class="bi bi-shield-check me-2 text-success"></i>Validador DNS (MX, SPF, DKIM, DMARC)</h5>
-                            <p class="text-muted small">Verifica registros DNS públicos do domínio utilizando a biblioteca <code>dnspython</code>.</p>
-                            <div class="row g-2 mb-3">
-                                <div class="col-8">
-                                    <input type="text" id="dns-domain-input" class="form-control" placeholder="ex: empresa.com.br">
+            <div class="tab-content" id="v-pills-tabContent">
+                
+                <!-- 1. DASHBOARD & TELEMETRIA TAB -->
+                <div class="tab-pane fade show active" id="tab-dashboard" role="tabpanel">
+                    
+                    <!-- Hardware Telemetry Header Banner -->
+                    <div class="card p-4 mb-4">
+                        <div class="d-flex flex-column flex-lg-row align-items-start align-items-lg-center justify-content-between gap-3">
+                            <div>
+                                <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+                                    <h2 class="h5 mb-0 fw-bold text-white">Telemetria de Hardware & Servidor</h2>
+                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace" id="tele-hostname">mailserver.empresa.com.br</span>
+                                    <span class="badge bg-success-subtle text-success border border-success-subtle font-monospace" id="tele-os">Debian 12 (Linux 6.1)</span>
                                 </div>
-                                <div class="col-4">
-                                    <button class="btn btn-success w-100" onclick="checkDNS()"><i class="bi bi-check-circle"></i> Validar</button>
+                                <div class="text-secondary small font-monospace d-flex align-items-center gap-3">
+                                    <span><i class="bi bi-clock me-1"></i> Uptime: <strong class="text-light" id="tele-uptime">Calculando...</strong></span>
+                                    <span>•</span>
+                                    <span>Kernel: <strong class="text-light" id="tele-kernel">6.1.0-21-amd64</strong></span>
                                 </div>
                             </div>
-                            <div id="dns-report-container" class="mt-2">
-                                <div class="alert alert-secondary text-center small mb-0">Insira um domínio para checar a saúde dos registros DNS.</div>
+
+                            <div class="d-flex align-items-center gap-2">
+                                <button class="btn btn-sm btn-outline-success font-monospace" id="btn-auto-refresh" onclick="toggleAutoRefresh()">
+                                    <i class="bi bi-lightning-charge-fill me-1"></i> Auto-Refresh (5s)
+                                </button>
+                                <button class="btn btn-sm btn-primary" onclick="loadTelemetry()">
+                                    <i class="bi bi-arrow-repeat me-1"></i> Ler psutil
+                                </button>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Fila Postfix -->
-                    <div class="col-12">
-                        <div class="card shadow-sm p-4">
-                            <div class="d-flex justify-content-between align-items-center mb-3">
+                    <!-- Hardware Charts Section (CPU & RAM) -->
+                    <div class="row g-4 mb-4">
+                        <!-- CPU Usage Line Chart -->
+                        <div class="col-lg-8">
+                            <div class="card p-4 h-100">
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="p-2 rounded-3 bg-primary bg-opacity-25 text-primary">
+                                            <i class="bi bi-cpu fs-5"></i>
+                                        </div>
+                                        <div>
+                                            <h3 class="h6 mb-0 fw-bold text-white">Processador (CPU & Histórico)</h3>
+                                            <small class="text-secondary" id="tele-cpu-model">Intel Xeon / AMD EPYC</small>
+                                        </div>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="h4 mb-0 fw-bold text-primary font-monospace" id="tele-cpu-pct">0%</div>
+                                        <small class="text-secondary text-uppercase font-monospace" style="font-size: 10px;">Uso de Processamento</small>
+                                    </div>
+                                </div>
+
+                                <!-- Load Averages -->
+                                <div class="row text-center g-2 mb-3 p-2 bg-dark rounded-3 border border-secondary border-opacity-25">
+                                    <div class="col-4">
+                                        <small class="text-secondary d-block font-monospace" style="font-size: 10px;">LOAD 1 MIN</small>
+                                        <span class="fw-bold font-monospace text-light" id="tele-load-1">0.18</span>
+                                    </div>
+                                    <div class="col-4">
+                                        <small class="text-secondary d-block font-monospace" style="font-size: 10px;">LOAD 5 MIN</small>
+                                        <span class="fw-bold font-monospace text-light" id="tele-load-5">0.25</span>
+                                    </div>
+                                    <div class="col-4">
+                                        <small class="text-secondary d-block font-monospace" style="font-size: 10px;">LOAD 15 MIN</small>
+                                        <span class="fw-bold font-monospace text-light" id="tele-load-15">0.31</span>
+                                    </div>
+                                </div>
+
+                                <!-- Chart Canvas -->
+                                <div class="chart-container">
+                                    <canvas id="cpuChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Memory Donut Chart -->
+                        <div class="col-lg-4">
+                            <div class="card p-4 h-100 d-flex flex-column justify-content-between">
                                 <div>
-                                    <h5 class="mb-0"><i class="bi bi-list-task me-2 text-warning"></i>Fila de Mensagens Postfix (postqueue)</h5>
-                                    <span class="text-muted small">Mensagens retidas por falhas temporárias ou bloqueios.</span>
+                                    <div class="d-flex align-items-center justify-content-between mb-3">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="p-2 rounded-3 bg-info bg-opacity-25 text-info">
+                                                <i class="bi bi-memory fs-5"></i>
+                                            </div>
+                                            <div>
+                                                <h3 class="h6 mb-0 fw-bold text-white">Memória RAM</h3>
+                                                <small class="text-secondary" id="tele-ram-total">Total: 16 GB DDR4</small>
+                                            </div>
+                                        </div>
+                                        <div class="text-end">
+                                            <div class="h5 mb-0 fw-bold text-info font-monospace" id="tele-ram-pct">31.2%</div>
+                                            <small class="text-secondary text-uppercase font-monospace" style="font-size: 10px;">Alocada</small>
+                                        </div>
+                                    </div>
+
+                                    <div class="chart-container mb-3" style="height: 180px;">
+                                        <canvas id="ramChart"></canvas>
+                                    </div>
+
+                                    <div class="space-y-2 font-monospace small">
+                                        <div class="d-flex justify-content-between p-2 rounded bg-dark border border-secondary border-opacity-25 mb-1">
+                                            <span class="text-info"><i class="bi bi-circle-fill me-1" style="font-size: 8px;"></i>Em Uso:</span>
+                                            <strong class="text-light" id="tele-ram-used">5.12 GB</strong>
+                                        </div>
+                                        <div class="d-flex justify-content-between p-2 rounded bg-dark border border-secondary border-opacity-25 mb-1">
+                                            <span class="text-warning"><i class="bi bi-circle-fill me-1" style="font-size: 8px;"></i>Cache / Buffers:</span>
+                                            <strong class="text-light" id="tele-ram-cache">3.46 GB</strong>
+                                        </div>
+                                        <div class="d-flex justify-content-between p-2 rounded bg-dark border border-secondary border-opacity-25">
+                                            <span class="text-success"><i class="bi bi-circle-fill me-1" style="font-size: 8px;"></i>Livre:</span>
+                                            <strong class="text-light" id="tele-ram-free">7.80 GB</strong>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="d-flex gap-2">
-                                    <button class="btn btn-outline-warning btn-sm" onclick="flushQueue()">
-                                        <i class="bi bi-send-check me-1"></i> Liberar Fila (postqueue -f)
-                                    </button>
-                                    <button class="btn btn-outline-secondary btn-sm" onclick="loadQueue()">
-                                        <i class="bi bi-arrow-clockwise"></i>
-                                    </button>
+
+                                <div class="pt-3 border-top border-secondary border-opacity-25 text-secondary font-monospace small d-flex justify-content-between">
+                                    <span>SWAP: <strong class="text-light" id="tele-swap">128 MB / 4096 MB</strong></span>
                                 </div>
-                            </div>
-                            <div class="table-responsive">
-                                <table class="table table-hover align-middle">
-                                    <thead class="table-light">
-                                        <tr>
-                                            <th>Queue ID</th>
-                                            <th>Tamanho</th>
-                                            <th>Data</th>
-                                            <th>Remetente</th>
-                                            <th>Destinatário</th>
-                                            <th>Motivo / Erro</th>
-                                            <th>Ação</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="queue-table-body">
-                                        <tr><td colspan="7" class="text-center py-3 text-muted">Carregando fila Postfix...</td></tr>
-                                    </tbody>
-                                </table>
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
 
-            <!-- TAB 6: SPAMASSASSIN RULES -->
-            <div class="tab-pane fade" id="tab-spamassassin" role="tabpanel">
-                <div class="card shadow-sm p-4">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h5 class="mb-0"><i class="bi bi-file-earmark-code me-2 text-primary"></i>Editor local.cf (SpamAssassin)</h5>
-                        <div class="d-flex gap-2">
-                            <button class="btn btn-outline-info btn-sm" onclick="lintRules()">
-                                <i class="bi bi-check-all me-1"></i> Testar Sintaxe (spamassassin --lint)
-                            </button>
-                            <button class="btn btn-success btn-sm" onclick="saveRules()">
-                                <i class="bi bi-save me-1"></i> Salvar & Reiniciar Amavis
-                            </button>
+                    <!-- Disk Storage Partitions -->
+                    <div class="card p-4 mb-4">
+                        <h3 class="h6 mb-3 fw-bold text-white d-flex align-items-center gap-2">
+                            <i class="bi bi-hdd-network text-warning"></i> Armazenamento em Disco e Partições
+                        </h3>
+                        <div class="row g-3" id="disk-cards-container">
+                            <!-- Populated dynamically -->
                         </div>
                     </div>
-                    <textarea id="rules-textarea" class="form-control code-editor p-3" spellcheck="false"></textarea>
+
+                    <!-- Services Grid Controls -->
+                    <div class="card p-4 mb-4">
+                        <div class="d-flex align-items-center justify-content-between mb-3 border-bottom border-secondary border-opacity-25 pb-3">
+                            <h3 class="h6 mb-0 fw-bold text-white d-flex align-items-center gap-2">
+                                <i class="bi bi-gear-wide-connected text-primary"></i> Daemon da Stack de E-mail (systemctl)
+                            </h3>
+                            <span class="font-monospace text-secondary small">sudo systemctl restart &lt;svc&gt;</span>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <div class="p-3 rounded-3 bg-dark border border-secondary border-opacity-25 h-100 d-flex flex-column justify-content-between">
+                                    <div>
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <span class="fw-bold text-primary">Postfix (MTA)</span>
+                                            <span id="badge-postfix" class="badge bg-success">active</span>
+                                        </div>
+                                        <p class="text-secondary small mb-3">Servidor SMTP principal nas portas 25, 465 e 587.</p>
+                                    </div>
+                                    <button class="btn btn-outline-primary btn-sm w-100" onclick="restartService('postfix')">
+                                        <i class="bi bi-arrow-clockwise me-1"></i> Reiniciar
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="col-md-3">
+                                <div class="p-3 rounded-3 bg-dark border border-secondary border-opacity-25 h-100 d-flex flex-column justify-content-between">
+                                    <div>
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <span class="fw-bold text-warning">Amavis Filter</span>
+                                            <span id="badge-amavis" class="badge bg-success">active</span>
+                                        </div>
+                                        <p class="text-secondary small mb-3">Intermediário de filtragem na porta 10024.</p>
+                                    </div>
+                                    <button class="btn btn-outline-warning btn-sm w-100" onclick="restartService('amavis')">
+                                        <i class="bi bi-arrow-clockwise me-1"></i> Reiniciar
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="col-md-3">
+                                <div class="p-3 rounded-3 bg-dark border border-secondary border-opacity-25 h-100 d-flex flex-column justify-content-between">
+                                    <div>
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <span class="fw-bold text-danger">ClamAV Daemon</span>
+                                            <span id="badge-clamav-daemon" class="badge bg-success">active</span>
+                                        </div>
+                                        <p class="text-secondary small mb-3">Escaneamento de antivírus em tempo real de anexos.</p>
+                                    </div>
+                                    <button class="btn btn-outline-danger btn-sm w-100" onclick="restartService('clamav-daemon')">
+                                        <i class="bi bi-arrow-clockwise me-1"></i> Reiniciar
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="col-md-3">
+                                <div class="p-3 rounded-3 bg-dark border border-secondary border-opacity-25 h-100 d-flex flex-column justify-content-between">
+                                    <div>
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <span class="fw-bold text-info">SpamAssassin</span>
+                                            <span id="badge-spamassassin" class="badge bg-success">active</span>
+                                        </div>
+                                        <p class="text-secondary small mb-3">Mecanismo Bayesiano e de pontuação heurística antispam.</p>
+                                    </div>
+                                    <button class="btn btn-outline-info btn-sm w-100" onclick="restartService('spamassassin')">
+                                        <i class="bi bi-arrow-clockwise me-1"></i> Reiniciar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Top Processes Table -->
+                    <div class="card p-4">
+                        <h3 class="h6 mb-3 fw-bold text-white d-flex align-items-center gap-2">
+                            <i class="bi bi-activity text-info"></i> Processos Principais do Servidor
+                        </h3>
+                        <div class="table-responsive">
+                            <table class="table table-dark-custom align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>PID</th>
+                                        <th>Nome do Processo / Daemon</th>
+                                        <th>Uso CPU</th>
+                                        <th>Uso Memória</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="top-processes-tbody">
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- 2. DOMÍNIOS & CONTAS (vmail MariaDB) TAB -->
+                <div class="tab-pane fade" id="tab-vmail" role="tabpanel">
+                    
+                    <!-- DOMÍNIOS -->
+                    <div class="card p-4 mb-4">
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <h3 class="h6 mb-0 fw-bold text-white d-flex align-items-center gap-2">
+                                <i class="bi bi-globe text-primary"></i> Domínios Virtuais Registrados
+                            </h3>
+                            <button class="btn btn-primary btn-sm rounded-3" onclick="showCreateDomainModal()">
+                                <i class="bi bi-plus-circle me-1"></i> Novo Domínio
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-dark-custom align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>Domínio</th>
+                                        <th>Descrição</th>
+                                        <th>Caixas</th>
+                                        <th>Quota Máx</th>
+                                        <th>Status</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="domains-table-body">
+                                    <tr><td colspan="6" class="text-center text-secondary py-3">Carregando domínios...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- MAILBOXES -->
+                    <div class="card p-4 mb-4">
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <h3 class="h6 mb-0 fw-bold text-white d-flex align-items-center gap-2">
+                                <i class="bi bi-mailbox text-info"></i> Caixas Postais (vmail Mailboxes)
+                            </h3>
+                            <button class="btn btn-info text-white btn-sm rounded-3" onclick="showCreateMailboxModal()">
+                                <i class="bi bi-person-plus me-1"></i> Nova Caixa Postal
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-dark-custom align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>E-mail Completo</th>
+                                        <th>Nome</th>
+                                        <th>Maildir Path</th>
+                                        <th>Cota (MB)</th>
+                                        <th>Domínio</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="mailboxes-table-body">
+                                    <tr><td colspan="6" class="text-center text-secondary py-3">Carregando caixas postais...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- ALIASES -->
+                    <div class="card p-4">
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <h3 class="h6 mb-0 fw-bold text-white d-flex align-items-center gap-2">
+                                <i class="bi bi-signpost-split text-warning"></i> Redirecionamentos de E-mail (Aliases)
+                            </h3>
+                            <button class="btn btn-warning text-dark btn-sm rounded-3 fw-semibold" onclick="showCreateAliasModal()">
+                                <i class="bi bi-plus-lg me-1"></i> Novo Alias
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-dark-custom align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>Endereço do Alias</th>
+                                        <th>Destinos (goto)</th>
+                                        <th>Domínio</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="aliases-table-body">
+                                    <tr><td colspan="4" class="text-center text-secondary py-3">Carregando aliases...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- 3. TROUBLESHOOTING & DNS TAB -->
+                <div class="tab-pane fade" id="tab-troubleshooting" role="tabpanel">
+                    <div class="row g-4 mb-4">
+                        <!-- Tracking -->
+                        <div class="col-lg-6">
+                            <div class="card p-4 h-100">
+                                <h3 class="h6 mb-2 fw-bold text-white d-flex align-items-center gap-2">
+                                    <i class="bi bi-search text-primary"></i> Rastrear Jornada de Mensagens
+                                </h3>
+                                <p class="text-secondary small mb-3">Filtra eventos em <code>/var/log/mail.log</code> por remetente ou destinatário.</p>
+
+                                <div class="input-group mb-3">
+                                    <input type="email" id="track-email-input" class="form-control bg-dark border-secondary text-light" placeholder="ex: contato@parceiro.com.br">
+                                    <button class="btn btn-primary" onclick="trackEmail()"><i class="bi bi-search"></i> Rastrear</button>
+                                </div>
+
+                                <div id="track-results" class="log-terminal flex-grow-1" style="max-height: 250px;">
+                                    <span class="text-secondary">Insira um endereço para consultar logs do Postfix...</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- DNS Check -->
+                        <div class="col-lg-6">
+                            <div class="card p-4 h-100">
+                                <h3 class="h6 mb-2 fw-bold text-white d-flex align-items-center gap-2">
+                                    <i class="bi bi-shield-check text-success"></i> Validador DNS (MX, SPF, DKIM, DMARC)
+                                </h3>
+                                <p class="text-secondary small mb-3">Executa consultas DNS ativas via biblioteca <code>dnspython</code>.</p>
+
+                                <div class="row g-2 mb-3">
+                                    <div class="col-8">
+                                        <input type="text" id="dns-domain-input" class="form-control bg-dark border-secondary text-light" placeholder="ex: empresa.com.br">
+                                    </div>
+                                    <div class="col-4">
+                                        <button class="btn btn-success w-100" onclick="checkDNS()"><i class="bi bi-check-circle"></i> Checar</button>
+                                    </div>
+                                </div>
+
+                                <div id="dns-report-container">
+                                    <div class="alert bg-dark text-secondary text-center small border border-secondary border-opacity-25">
+                                        Insira um domínio para verificar registros DNS de autenticação.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Postfix Queue -->
+                    <div class="card p-4">
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <div>
+                                <h3 class="h6 mb-0 fw-bold text-white d-flex align-items-center gap-2">
+                                    <i class="bi bi-list-task text-warning"></i> Fila de Mensagens Postfix (postqueue)
+                                </h3>
+                                <small class="text-secondary">Visualizador e gerenciamento com postsuper -d / postqueue -f</small>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-outline-warning btn-sm rounded-3" onclick="flushQueue()">
+                                    <i class="bi bi-send-check me-1"></i> Liberar Fila (postqueue -f)
+                                </button>
+                                <button class="btn btn-outline-secondary btn-sm rounded-3" onclick="loadQueue()">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="table-responsive">
+                            <table class="table table-dark-custom align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>Queue ID</th>
+                                        <th>Tamanho</th>
+                                        <th>Data</th>
+                                        <th>Remetente</th>
+                                        <th>Destinatário</th>
+                                        <th>Erro / Motivo</th>
+                                        <th>Ação</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="queue-table-body">
+                                    <tr><td colspan="7" class="text-center text-secondary py-3">Carregando fila Postfix...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. REGRAS SPAMASSASSIN TAB -->
+                <div class="tab-pane fade" id="tab-spam" role="tabpanel">
+                    <div class="card p-4">
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <div>
+                                <h3 class="h6 mb-0 fw-bold text-white d-flex align-items-center gap-2">
+                                    <i class="bi bi-file-earmark-code text-info"></i> Editor de Configuração local.cf
+                                </h3>
+                                <small class="text-secondary">Edição direta do arquivo <code>/etc/spamassassin/local.cf</code></small>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-outline-info btn-sm rounded-3" onclick="lintRules()">
+                                    <i class="bi bi-check-all me-1"></i> Testar Sintaxe (--lint)
+                                </button>
+                                <button class="btn btn-success btn-sm rounded-3" onclick="saveRules()">
+                                    <i class="bi bi-save me-1"></i> Salvar & Aplicar
+                                </button>
+                            </div>
+                        </div>
+
+                        <textarea id="rules-textarea" class="form-control code-editor p-3" spellcheck="false"></textarea>
+                    </div>
+                </div>
+
+                <!-- 5. LOGS AUDIT TAB -->
+                <div class="tab-pane fade" id="tab-logs" role="tabpanel">
+                    <div class="card p-4">
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <div>
+                                <h3 class="h6 mb-0 fw-bold text-white d-flex align-items-center gap-2">
+                                    <i class="bi bi-terminal text-primary"></i> Logs do Sistema (/var/log/mail.log)
+                                </h3>
+                                <small class="text-secondary">Transmissão e auditoria em tempo real via tail / journalctl</small>
+                            </div>
+                            <button class="btn btn-outline-secondary btn-sm rounded-3" onclick="loadLogs()">
+                                <i class="bi bi-arrow-clockwise me-1"></i> Atualizar Logs
+                            </button>
+                        </div>
+
+                        <div id="logs-container" class="log-terminal">
+                            Carregando registros de log do servidor...
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+</div>
+
+<!-- MFA MODAL (Google Authenticator) -->
+<div class="modal fade" id="mfaModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title text-white"><i class="bi bi-qr-code-scan me-2 text-success"></i>Configurar Autenticação MFA</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <p class="text-secondary small mb-3">Digitalize o código abaixo com o aplicativo <strong>Google Authenticator</strong> ou <strong>Authy</strong>:</p>
+                
+                <div id="qr-code-wrapper" class="p-3 bg-white rounded-3 d-inline-block border mb-3">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+
+                <div class="mb-3 text-start">
+                    <label class="form-label small text-secondary">Chave Secreta TOTP:</label>
+                    <input type="text" id="mfa-secret-key" class="form-control bg-dark border-secondary text-info text-center font-monospace" readonly>
+                </div>
+
+                <div class="mb-3 text-start">
+                    <label class="form-label small text-secondary">Digite o código de 6 dígitos gerado:</label>
+                    <input type="text" id="mfa-token-input" class="form-control bg-dark border-secondary text-white text-center fs-4 font-monospace" placeholder="000000" maxlength="6">
                 </div>
             </div>
-
-            <!-- TAB 7: LOGS -->
-            <div class="tab-pane fade" id="tab-logs" role="tabpanel">
-                <div class="card shadow-sm p-4">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h5 class="mb-0"><i class="bi bi-terminal me-2 text-primary"></i>Logs em Tempo Real (/var/log/mail.log)</h5>
-                        <button class="btn btn-outline-secondary btn-sm" onclick="loadLogs()">
-                            <i class="bi bi-arrow-clockwise me-1"></i> Atualizar Logs
-                        </button>
-                    </div>
-                    <div id="logs-container" class="log-terminal">
-                        Carregando logs do servidor...
-                    </div>
-                </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-success btn-sm" onclick="enableMfa()">Ativar MFA</button>
             </div>
-
         </div>
     </div>
+</div>
 
-    <!-- MODAL CONFIGURAÇÃO MFA (TOTP / Google Authenticator) -->
-    <div class="modal fade" id="mfaModal" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-qr-code me-2"></i>Configurar Autenticação MFA (TOTP)</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+<!-- CREATE DOMAIN MODAL -->
+<div class="modal fade" id="createDomainModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title text-white">Adicionar Domínio Virtual</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label text-secondary small">Nome do Domínio</label>
+                    <input type="text" id="dom-name-input" class="form-control bg-dark border-secondary text-white" placeholder="ex: novadominio.com.br">
                 </div>
-                <div class="modal-body text-center">
-                    <p class="text-muted small">Escaneie o QR Code abaixo com o <strong>Google Authenticator</strong> ou <strong>Authy</strong>:</p>
-                    <div id="qr-code-wrapper" class="p-3 bg-light rounded d-inline-block border mb-3">
-                        <div class="spinner-border text-primary" role="status"></div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label small fw-bold">Chave Secreta Manual:</label>
-                        <input type="text" id="mfa-secret-key" class="form-control text-center font-monospace" readonly>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label small fw-bold">Insira o código de 6 dígitos para validar:</label>
-                        <input type="text" id="mfa-token-input" class="form-control text-center fs-4" placeholder="000000" maxlength="6">
-                    </div>
+                <div class="mb-3">
+                    <label class="form-label text-secondary small">Descrição</label>
+                    <input type="text" id="dom-desc-input" class="form-control bg-dark border-secondary text-white" placeholder="ex: Filial São Paulo">
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="button" class="btn btn-primary" onclick="enableMfa()">Ativar MFA</button>
+                <div class="mb-3">
+                    <label class="form-label text-secondary small">Cota Máxima Global (MB)</label>
+                    <input type="number" id="dom-quota-input" class="form-control bg-dark border-secondary text-white" value="10240">
                 </div>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary btn-sm" onclick="submitCreateDomain()">Criar Domínio</button>
             </div>
         </div>
     </div>
+</div>
 
-    <!-- MODAL NOVO DOMÍNIO -->
-    <div class="modal fade" id="createDomainModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Adicionar Novo Domínio Virtual</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+<!-- CREATE MAILBOX MODAL -->
+<div class="modal fade" id="createMailboxModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title text-white">Nova Caixa Postal (vmail)</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label text-secondary small">E-mail Completo</label>
+                    <input type="text" id="mb-user-input" class="form-control bg-dark border-secondary text-white" placeholder="ex: joao@empresa.com.br">
                 </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label class="form-label">Nome do Domínio</label>
-                        <input type="text" id="dom-name-input" class="form-control" placeholder="ex: novadominio.com.br">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Descrição</label>
-                        <input type="text" id="dom-desc-input" class="form-control" placeholder="ex: Filial São Paulo">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Cota Máxima Global (MB)</label>
-                        <input type="number" id="dom-quota-input" class="form-control" value="10240">
-                    </div>
+                <div class="mb-3">
+                    <label class="form-label text-secondary small">Nome Completo</label>
+                    <input type="text" id="mb-name-input" class="form-control bg-dark border-secondary text-white" placeholder="ex: João Silva">
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="button" class="btn btn-primary" onclick="submitCreateDomain()">Criar Domínio</button>
+                <div class="mb-3">
+                    <label class="form-label text-secondary small">Senha</label>
+                    <input type="password" id="mb-pass-input" class="form-control bg-dark border-secondary text-white">
                 </div>
+                <div class="mb-3">
+                    <label class="form-label text-secondary small">Cota (MB)</label>
+                    <input type="number" id="mb-quota-input" class="form-control bg-dark border-secondary text-white" value="1024">
+                </div>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-info btn-sm text-white" onclick="submitCreateMailbox()">Criar Caixa Postal</button>
             </div>
         </div>
     </div>
+</div>
 
-    <!-- MODAL NOVA CAIXA POSTAL -->
-    <div class="modal fade" id="createMailboxModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Nova Caixa Postal (vmail)</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label class="form-label">Usuário / E-mail</label>
-                        <input type="text" id="mb-user-input" class="form-control" placeholder="ex: joao@empresa.com.br">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Nome Completo</label>
-                        <input type="text" id="mb-name-input" class="form-control" placeholder="ex: João Silva">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Senha da Caixa Postal</label>
-                        <input type="password" id="mb-pass-input" class="form-control">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Cota (MB)</label>
-                        <input type="number" id="mb-quota-input" class="form-control" value="1024">
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="button" class="btn btn-primary" onclick="submitCreateMailbox()">Criar Caixa Postal</button>
-                </div>
+<!-- Bootstrap 5 Bundle JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Vanilla JS Application Logic -->
+<script>
+    // Global State
+    let cpuChartInstance = null;
+    let ramChartInstance = null;
+    let autoRefreshTimer = null;
+    let isAutoRefreshOn = true;
+
+    document.addEventListener('DOMContentLoaded', () => {
+        initCharts();
+        loadTelemetry();
+        loadServiceStatus();
+
+        // Start Auto refresh
+        autoRefreshTimer = setInterval(() => {
+            if (isAutoRefreshOn) {
+                loadTelemetry();
+                loadServiceStatus();
+            }
+        }, 5000);
+    });
+
+    function toggleSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const content = document.getElementById('content');
+        const icon = document.getElementById('sidebar-toggle-icon');
+
+        sidebar.classList.toggle('collapsed');
+        content.classList.toggle('expanded');
+
+        if (sidebar.classList.contains('collapsed')) {
+            icon.className = 'bi bi-chevron-right';
+        } else {
+            icon.className = 'bi bi-chevron-left';
+        }
+    }
+
+    function toggleMobileSidebar() {
+        document.getElementById('sidebar').classList.toggle('mobile-open');
+    }
+
+    function showAlert(message, type = 'success') {
+        const container = document.getElementById('global-alert-container');
+        const alertHtml = `
+            <div class="alert alert-${type === 'success' ? 'success' : 'danger'} alert-dismissible fade show border-0 shadow-sm" role="alert">
+                <i class="bi ${type === 'success' ? 'bi-check-circle-fill' : 'bi-exclamation-triangle-fill'} me-2"></i>
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
-        </div>
-    </div>
+        `;
+        container.innerHTML = alertHtml;
+        setTimeout(() => {
+            container.innerHTML = '';
+        }, 6000);
+    }
 
-    <!-- Bootstrap 5 JS Bundle -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    function setActiveTab(tabName) {
+        if (tabName === 'dashboard') loadTelemetry();
+        else if (tabName === 'vmail') { loadDomains(); loadMailboxes(); loadAliases(); }
+        else if (tabName === 'troubleshooting') loadQueue();
+        else if (tabName === 'spam') loadSpamRules();
+        else if (tabName === 'logs') loadLogs();
+    }
 
-    <script>
-        // Carregamento Inicial
-        document.addEventListener('DOMContentLoaded', () => {
-            loadStatus();
-            loadDomains();
+    function refreshCurrentTab() {
+        const activeTab = document.querySelector('.sidebar-nav .nav-link.active');
+        if (activeTab) {
+            const target = activeTab.getAttribute('onclick');
+            if (target) eval(target);
+        }
+        loadServiceStatus();
+    }
+
+    function toggleAutoRefresh() {
+        isAutoRefreshOn = !isAutoRefreshOn;
+        const btn = document.getElementById('btn-auto-refresh');
+        if (isAutoRefreshOn) {
+            btn.className = 'btn btn-sm btn-outline-success font-monospace';
+            btn.innerHTML = '<i class="bi bi-lightning-charge-fill me-1"></i> Auto-Refresh (5s)';
+        } else {
+            btn.className = 'btn btn-sm btn-outline-secondary font-monospace';
+            btn.innerHTML = '<i class="bi bi-pause-fill me-1"></i> Auto-Refresh Pausado';
+        }
+    }
+
+    // 1. CHART.JS INITIALIZATION AND UPDATES
+    function initCharts() {
+        // CPU Line Chart
+        const cpuCtx = document.getElementById('cpuChart').getContext('2d');
+        cpuChartInstance = new Chart(cpuCtx, {
+            type: 'line',
+            data: {
+                labels: ['10:00', '10:01', '10:02', '10:03', '10:04'],
+                datasets: [{
+                    label: 'Uso CPU (%)',
+                    data: [12, 18, 15, 22, 16],
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                    fill: true,
+                    tension: 0.4,
+                    borderWidth: 2,
+                    pointRadius: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: 'rgba(51, 65, 85, 0.3)' } },
+                    y: { min: 0, max: 100, ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: 'rgba(51, 65, 85, 0.3)' } }
+                }
+            }
         });
 
-        // 1. DASHBOARD E STATUS DOS SERVIÇOS
-        async function loadStatus() {
-            try {
-                const res = await fetch('/api/services/status');
-                const data = await res.json();
-                if (data.success && data.services) {
-                    for (const [svc, info] of Object.entries(data.services)) {
-                        const badge = document.getElementById(`badge-${svc}`);
-                        if (badge) {
-                            badge.textContent = info.active ? 'RODANDO' : 'PARADO';
-                            badge.className = info.active ? 'badge bg-success' : 'badge bg-danger';
-                        }
+        // RAM Donut Chart
+        const ramCtx = document.getElementById('ramChart').getContext('2d');
+        ramChartInstance = new Chart(ramCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Em Uso', 'Buffers/Cache', 'Livre'],
+                datasets: [{
+                    data: [5120, 3464, 7800],
+                    backgroundColor: ['#06b6d4', '#eab308', '#10b981'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '70%',
+                plugins: { legend: { display: false } }
+            }
+        });
+    }
+
+    // 2. FETCH TELEMETRY & HARDWARE (psutil)
+    async function loadTelemetry() {
+        try {
+            const res = await fetch('/api/services/system-metrics');
+            const data = await res.json();
+            if (data.success && data.metrics) {
+                const m = data.metrics;
+
+                document.getElementById('tele-hostname').textContent = m.hostname;
+                document.getElementById('tele-os').textContent = m.os;
+                document.getElementById('tele-uptime').textContent = m.uptime;
+                document.getElementById('tele-kernel').textContent = m.kernel;
+
+                document.getElementById('tele-cpu-model').textContent = `${m.cpu.model} (${m.cpu.cores} Cores)`;
+                document.getElementById('tele-cpu-pct').textContent = `${m.cpu.usage_percent}%`;
+
+                document.getElementById('tele-load-1').textContent = m.cpu.load_avg[0];
+                document.getElementById('tele-load-5').textContent = m.cpu.load_avg[1];
+                document.getElementById('tele-load-15').textContent = m.cpu.load_avg[2];
+
+                // Update CPU Chart
+                if (cpuChartInstance && m.cpu.history) {
+                    cpuChartInstance.data.labels = m.cpu.history.map(h => h.time);
+                    cpuChartInstance.data.datasets[0].data = m.cpu.history.map(h => h.usage);
+                    cpuChartInstance.update();
+                }
+
+                // Update Memory Donut
+                document.getElementById('tele-ram-total').textContent = `Total: ${(m.memory.total_mb / 1024).toFixed(1)} GB`;
+                document.getElementById('tele-ram-pct').textContent = `${m.memory.usage_percent}%`;
+                document.getElementById('tele-ram-used').textContent = `${(m.memory.used_mb / 1024).toFixed(2)} GB`;
+                document.getElementById('tele-ram-cache').textContent = `${(m.memory.cached_mb / 1024).toFixed(2)} GB`;
+                document.getElementById('tele-ram-free').textContent = `${(m.memory.free_mb / 1024).toFixed(2)} GB`;
+                document.getElementById('tele-swap').textContent = `${m.memory.swap_used_mb} MB / ${m.memory.swap_total_mb} MB`;
+
+                if (ramChartInstance) {
+                    ramChartInstance.data.datasets[0].data = [m.memory.used_mb, m.memory.cached_mb, m.memory.free_mb];
+                    ramChartInstance.update();
+                }
+
+                // Update Disks Partitions
+                const diskContainer = document.getElementById('disk-cards-container');
+                if (diskContainer && m.disks) {
+                    diskContainer.innerHTML = m.disks.map(d => `
+                        <div class="col-md-4">
+                            <div class="p-3 bg-dark rounded-3 border border-secondary border-opacity-25 h-100">
+                                <div class="d-flex justify-content-between mb-2">
+                                    <span class="fw-bold text-white small">${d.mount}</span>
+                                    <span class="badge ${d.usage_percent > 85 ? 'bg-danger' : 'bg-primary'}" style="font-size: 10px;">${d.usage_percent}%</span>
+                                </div>
+                                <div class="progress bg-secondary bg-opacity-25 mb-2" style="height: 6px;">
+                                    <div class="progress-bar ${d.usage_percent > 85 ? 'bg-danger' : 'bg-primary'}" style="width: ${d.usage_percent}%"></div>
+                                </div>
+                                <div class="d-flex justify-content-between font-monospace text-secondary" style="font-size: 11px;">
+                                    <span>Usado: ${d.used_gb} GB</span>
+                                    <span>Total: ${d.total_gb} GB</span>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+
+                // Update Top Processes
+                const procTbody = document.getElementById('top-processes-tbody');
+                if (procTbody && m.top_processes) {
+                    procTbody.innerHTML = m.top_processes.map(p => `
+                        <tr>
+                            <td class="font-monospace text-secondary">${p.pid}</td>
+                            <td class="fw-semibold text-light">${p.name}</td>
+                            <td class="font-monospace text-info">${p.cpu_percent}%</td>
+                            <td class="font-monospace text-light">${p.mem_mb} MB</td>
+                        </tr>
+                    `).join('');
+                }
+            }
+        } catch (e) {
+            console.error("Erro ao carregar telemetria psutil:", e);
+        }
+    }
+
+    // 3. FETCH SERVICES STATUS
+    async function loadServiceStatus() {
+        try {
+            const res = await fetch('/api/services/status');
+            const data = await res.json();
+            if (data.success && data.services) {
+                let allActive = true;
+                for (const [svc, info] of Object.entries(data.services)) {
+                    const badge = document.getElementById(`badge-${svc}`);
+                    if (badge) {
+                        badge.textContent = info.active ? 'active' : 'stopped';
+                        badge.className = info.active ? 'badge bg-success' : 'badge bg-danger';
                     }
+                    if (!info.active) allActive = false;
                 }
-            } catch (err) {
-                console.error('Erro ao buscar status:', err);
-            }
-        }
 
-        async function restartService(service) {
-            if (!confirm(`Deseja reiniciar o serviço ${service}?`)) return;
-            try {
-                const res = await fetch('/api/services/restart', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ service })
-                });
-                const data = await res.json();
-                alert(data.message);
-                loadStatus();
-            } catch (err) {
-                alert('Erro ao reiniciar serviço.');
+                const dot = document.getElementById('global-status-dot');
+                const txt = document.getElementById('global-status-text');
+                if (allActive) {
+                    dot.className = 'status-dot pulse-emerald';
+                    txt.textContent = 'Serviços 100% OK';
+                } else {
+                    dot.className = 'status-dot pulse-rose';
+                    txt.textContent = 'Alerta de Serviço';
+                }
             }
+        } catch (e) {
+            console.error("Erro ao carregar status de serviços:", e);
         }
+    }
 
-        // 2. DOMÍNIOS
-        async function loadDomains() {
-            try {
-                const res = await fetch('/api/vmail/domains');
-                const data = await res.json();
-                const tbody = document.getElementById('domains-table-body');
-                if (data.success && data.domains) {
-                    tbody.innerHTML = data.domains.map(d => `
+    async function restartService(svc) {
+        if (!confirm(`Deseja reiniciar o serviço ${svc}?`)) return;
+        try {
+            const res = await fetch('/api/services/restart', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ service: svc })
+            });
+            const data = await res.json();
+            showAlert(data.message, data.success ? 'success' : 'danger');
+            loadServiceStatus();
+        } catch (e) {
+            showAlert('Erro na requisição de reinício.', 'danger');
+        }
+    }
+
+    // 4. VMAIL CRUD (Domínios, Mailboxes, Aliases)
+    async function loadDomains() {
+        try {
+            const res = await fetch('/api/vmail/domains');
+            const data = await res.json();
+            const tbody = document.getElementById('domains-table-body');
+            if (data.success && data.domains) {
+                tbody.innerHTML = data.domains.map(d => `
+                    <tr>
+                        <td class="fw-bold text-white">${d.domain}</td>
+                        <td class="text-secondary">${d.description || '-'}</td>
+                        <td><span class="badge bg-secondary">${d.mailboxes}</span></td>
+                        <td class="font-monospace">${d.maxquota} MB</td>
+                        <td><span class="badge ${d.active ? 'bg-success' : 'bg-warning'}">${d.active ? 'Ativo' : 'Inativo'}</span></td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-danger p-1 border-0" onclick="deleteDomain('${d.domain}')"><i class="bi bi-trash"></i></button>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+        } catch (e) { console.error(e); }
+    }
+
+    function showCreateDomainModal() {
+        new bootstrap.Modal(document.getElementById('createDomainModal')).show();
+    }
+
+    async function submitCreateDomain() {
+        const domain = document.getElementById('dom-name-input').value;
+        const description = document.getElementById('dom-desc-input').value;
+        const maxquota = document.getElementById('dom-quota-input').value;
+
+        const res = await fetch('/api/vmail/domains', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ domain, description, maxquota })
+        });
+        const data = await res.json();
+        showAlert(data.message, data.success ? 'success' : 'danger');
+        bootstrap.Modal.getInstance(document.getElementById('createDomainModal')).hide();
+        loadDomains();
+    }
+
+    async function deleteDomain(dom) {
+        if (!confirm(`Remover o domínio ${dom} e todas as suas contas?`)) return;
+        const res = await fetch(`/api/vmail/domains/${dom}`, { method: 'DELETE' });
+        const data = await res.json();
+        showAlert(data.message, data.success ? 'success' : 'danger');
+        loadDomains();
+    }
+
+    async function loadMailboxes() {
+        try {
+            const res = await fetch('/api/vmail/mailboxes');
+            const data = await res.json();
+            const tbody = document.getElementById('mailboxes-table-body');
+            if (data.success && data.mailboxes) {
+                tbody.innerHTML = data.mailboxes.map(m => `
+                    <tr>
+                        <td class="fw-bold text-white">${m.username}</td>
+                        <td class="text-secondary">${m.name || '-'}</td>
+                        <td class="font-monospace text-info small">${m.maildir}</td>
+                        <td class="font-monospace">${m.quota} MB</td>
+                        <td>${m.domain}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-danger p-1 border-0" onclick="deleteMailbox('${encodeURIComponent(m.username)}')"><i class="bi bi-trash"></i></button>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+        } catch (e) { console.error(e); }
+    }
+
+    function showCreateMailboxModal() {
+        new bootstrap.Modal(document.getElementById('createMailboxModal')).show();
+    }
+
+    async function submitCreateMailbox() {
+        const username = document.getElementById('mb-user-input').value;
+        const name = document.getElementById('mb-name-input').value;
+        const password = document.getElementById('mb-pass-input').value;
+        const quota = document.getElementById('mb-quota-input').value;
+
+        const res = await fetch('/api/vmail/mailboxes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, name, password, quota })
+        });
+        const data = await res.json();
+        showAlert(data.message, data.success ? 'success' : 'danger');
+        bootstrap.Modal.getInstance(document.getElementById('createMailboxModal')).hide();
+        loadMailboxes();
+    }
+
+    async function deleteMailbox(email) {
+        if (!confirm(`Remover caixa ${decodeURIComponent(email)}?`)) return;
+        const res = await fetch(`/api/vmail/mailboxes/${email}`, { method: 'DELETE' });
+        const data = await res.json();
+        showAlert(data.message, data.success ? 'success' : 'danger');
+        loadMailboxes();
+    }
+
+    async function loadAliases() {
+        try {
+            const res = await fetch('/api/vmail/aliases');
+            const data = await res.json();
+            const tbody = document.getElementById('aliases-table-body');
+            if (data.success && data.aliases) {
+                tbody.innerHTML = data.aliases.map(a => `
+                    <tr>
+                        <td class="fw-bold text-white">${a.address}</td>
+                        <td class="font-monospace text-warning small">${a.goto}</td>
+                        <td>${a.domain}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-danger p-1 border-0" onclick="deleteAlias('${encodeURIComponent(a.address)}')"><i class="bi bi-trash"></i></button>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+        } catch (e) { console.error(e); }
+    }
+
+    // 5. TROUBLESHOOTING & POSTFIX QUEUE
+    async function loadQueue() {
+        try {
+            const res = await fetch('/api/troubleshooting/queue');
+            const data = await res.json();
+            const tbody = document.getElementById('queue-table-body');
+            if (data.success) {
+                if (data.queue_empty || !data.messages || data.messages.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-success py-3"><i class="bi bi-check-circle me-1"></i> A fila Postfix está limpa e sem mensagens retidas!</td></tr>';
+                } else {
+                    tbody.innerHTML = data.messages.map(q => `
                         <tr>
-                            <td class="fw-bold">${d.domain}</td>
-                            <td>${d.description || '-'}</td>
-                            <td><span class="badge bg-secondary">${d.mailboxes}</span></td>
-                            <td>${d.maxquota} MB</td>
-                            <td><span class="badge ${d.active ? 'bg-success' : 'bg-warning'}">${d.active ? 'Ativo' : 'Inativo'}</span></td>
+                            <td class="font-monospace text-info">${q.queue_id}</td>
+                            <td>${q.size} bytes</td>
+                            <td>${q.date}</td>
+                            <td class="small">${q.sender}</td>
+                            <td class="small">${q.recipients.join(', ')}</td>
+                            <td class="text-danger small">${q.reason || 'Em espera'}</td>
                             <td>
-                                <button class="btn btn-sm btn-outline-danger" onclick="deleteDomain('${d.domain}')"><i class="bi bi-trash"></i></button>
+                                <button class="btn btn-sm btn-outline-danger p-1 border-0" onclick="deleteQueueMsg('${q.queue_id}')"><i class="bi bi-trash"></i></button>
                             </td>
                         </tr>
                     `).join('');
                 }
-            } catch (err) {
-                console.error(err);
             }
+        } catch (e) { console.error(e); }
+    }
+
+    async function flushQueue() {
+        const res = await fetch('/api/troubleshooting/queue/flush', { method: 'POST' });
+        const data = await res.json();
+        showAlert(data.message, data.success ? 'success' : 'danger');
+        loadQueue();
+    }
+
+    async function deleteQueueMsg(qid) {
+        const res = await fetch('/api/troubleshooting/queue/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ queue_id: qid })
+        });
+        const data = await res.json();
+        showAlert(data.message, data.success ? 'success' : 'danger');
+        loadQueue();
+    }
+
+    async function trackEmail() {
+        const email = document.getElementById('track-email-input').value;
+        const res = await fetch(`/api/troubleshooting/email-tracking?email=${encodeURIComponent(email)}`);
+        const data = await res.json();
+        const container = document.getElementById('track-results');
+        if (data.success && data.events) {
+            container.innerHTML = data.events.map(ev => `<div>${ev.raw}</div>`).join('');
         }
+    }
 
-        function showCreateDomainModal() {
-            new bootstrap.Modal(document.getElementById('createDomainModal')).show();
-        }
-
-        async function submitCreateDomain() {
-            const domain = document.getElementById('dom-name-input').value;
-            const description = document.getElementById('dom-desc-input').value;
-            const maxquota = document.getElementById('dom-quota-input').value;
-
-            const res = await fetch('/api/vmail/domains', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ domain, description, maxquota })
-            });
-            const data = await res.json();
-            alert(data.message);
-            bootstrap.Modal.getInstance(document.getElementById('createDomainModal')).hide();
-            loadDomains();
-        }
-
-        async function deleteDomain(domain) {
-            if (!confirm(`Remover o domínio ${domain} e todos os seus e-mails?`)) return;
-            const res = await fetch(`/api/vmail/domains/${domain}`, { method: 'DELETE' });
-            const data = await res.json();
-            alert(data.message);
-            loadDomains();
-        }
-
-        // 3. MAILBOXES
-        async function loadMailboxes() {
-            try {
-                const res = await fetch('/api/vmail/mailboxes');
-                const data = await res.json();
-                const tbody = document.getElementById('mailboxes-table-body');
-                if (data.success && data.mailboxes) {
-                    tbody.innerHTML = data.mailboxes.map(m => `
-                        <tr>
-                            <td class="fw-bold">${m.username}</td>
-                            <td>${m.name || '-'}</td>
-                            <td><code>${m.maildir}</code></td>
-                            <td>${m.quota} MB</td>
-                            <td>${m.domain}</td>
-                            <td>
-                                <button class="btn btn-sm btn-outline-danger" onclick="deleteMailbox('${encodeURIComponent(m.username)}')"><i class="bi bi-trash"></i></button>
-                            </td>
-                        </tr>
-                    `).join('');
-                }
-            } catch (err) {
-                console.error(err);
-            }
-        }
-
-        function showCreateMailboxModal() {
-            new bootstrap.Modal(document.getElementById('createMailboxModal')).show();
-        }
-
-        async function submitCreateMailbox() {
-            const username = document.getElementById('mb-user-input').value;
-            const name = document.getElementById('mb-name-input').value;
-            const password = document.getElementById('mb-pass-input').value;
-            const quota = document.getElementById('mb-quota-input').value;
-
-            const res = await fetch('/api/vmail/mailboxes', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, name, password, quota })
-            });
-            const data = await res.json();
-            alert(data.message);
-            bootstrap.Modal.getInstance(document.getElementById('createMailboxModal')).hide();
-            loadMailboxes();
-        }
-
-        async function deleteMailbox(email) {
-            if (!confirm(`Remover caixa ${decodeURIComponent(email)}?`)) return;
-            const res = await fetch(`/api/vmail/mailboxes/${email}`, { method: 'DELETE' });
-            const data = await res.json();
-            alert(data.message);
-            loadMailboxes();
-        }
-
-        // 4. ALIASES
-        async function loadAliases() {
-            try {
-                const res = await fetch('/api/vmail/aliases');
-                const data = await res.json();
-                const tbody = document.getElementById('aliases-table-body');
-                if (data.success && data.aliases) {
-                    tbody.innerHTML = data.aliases.map(a => `
-                        <tr>
-                            <td class="fw-bold">${a.address}</td>
-                            <td><code>${a.goto}</code></td>
-                            <td>${a.domain}</td>
-                            <td>
-                                <button class="btn btn-sm btn-outline-danger" onclick="deleteAlias('${encodeURIComponent(a.address)}')"><i class="bi bi-trash"></i></button>
-                            </td>
-                        </tr>
-                    `).join('');
-                }
-            } catch (err) {
-                console.error(err);
-            }
-        }
-
-        // 5. TROUBLESHOOTING & FILA POSTFIX
-        function loadTroubleshootingData() {
-            loadQueue();
-        }
-
-        async function loadQueue() {
-            try {
-                const res = await fetch('/api/troubleshooting/queue');
-                const data = await res.json();
-                const tbody = document.getElementById('queue-table-body');
-                if (data.success) {
-                    if (data.queue_empty || data.messages.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-3 text-success"><i class="bi bi-check-circle me-1"></i> A fila Postfix está vazia!</td></tr>';
-                    } else {
-                        tbody.innerHTML = data.messages.map(q => `
-                            <tr>
-                                <td><code>${q.queue_id}</code></td>
-                                <td>${q.size} bytes</td>
-                                <td>${q.date}</td>
-                                <td>${q.sender}</td>
-                                <td>${q.recipients.join(', ')}</td>
-                                <td class="text-danger small">${q.reason || 'Em espera'}</td>
-                                <td>
-                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteQueueMsg('${q.queue_id}')"><i class="bi bi-trash"></i></button>
-                                </td>
-                            </tr>
-                        `).join('');
-                    }
-                }
-            } catch (err) {
-                console.error(err);
-            }
-        }
-
-        async function deleteQueueMsg(queue_id) {
-            const res = await fetch('/api/troubleshooting/queue/delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ queue_id })
-            });
-            const data = await res.json();
-            alert(data.message);
-            loadQueue();
-        }
-
-        async function flushQueue() {
-            const res = await fetch('/api/troubleshooting/queue/flush', { method: 'POST' });
-            const data = await res.json();
-            alert(data.message);
-            loadQueue();
-        }
-
-        async function trackEmail() {
-            const email = document.getElementById('track-email-input').value;
-            const res = await fetch(`/api/troubleshooting/email-tracking?email=${encodeURIComponent(email)}`);
-            const data = await res.json();
-            const container = document.getElementById('track-results');
-            if (data.success && data.events) {
-                container.innerHTML = data.events.map(ev => `<div>${ev.raw}</div>`).join('');
-            }
-        }
-
-        async function checkDNS() {
-            const domain = document.getElementById('dns-domain-input').value;
-            const res = await fetch(`/api/troubleshooting/dns-check?domain=${encodeURIComponent(domain)}`);
-            const data = await res.json();
-            const container = document.getElementById('dns-report-container');
-            if (data.success && data.dns_report) {
-                const rep = data.dns_report;
-                container.innerHTML = `
-                    <div class="list-group">
-                        <div class="list-group-item d-flex justify-content-between align-items-center">
-                            <div><strong>MX:</strong> ${rep.mx.records.join(', ') || 'Nenhum'}</div>
-                            <span class="badge bg-${rep.mx.status === 'OK' ? 'success' : 'danger'}">${rep.mx.status}</span>
-                        </div>
-                        <div class="list-group-item d-flex justify-content-between align-items-center">
-                            <div><strong>SPF:</strong> <code>${rep.spf.record || 'Não encontrado'}</code></div>
-                            <span class="badge bg-${rep.spf.status === 'OK' ? 'success' : 'danger'}">${rep.spf.status}</span>
-                        </div>
-                        <div class="list-group-item d-flex justify-content-between align-items-center">
-                            <div><strong>DKIM:</strong> <code>${rep.dkim.record || 'Não encontrado'}</code></div>
-                            <span class="badge bg-${rep.dkim.status === 'OK' ? 'success' : 'warning'}">${rep.dkim.status}</span>
-                        </div>
-                        <div class="list-group-item d-flex justify-content-between align-items-center">
-                            <div><strong>DMARC:</strong> <code>${rep.dmarc.record || 'Não encontrado'}</code></div>
-                            <span class="badge bg-${rep.dmarc.status === 'OK' ? 'success' : 'danger'}">${rep.dmarc.status}</span>
-                        </div>
+    async function checkDNS() {
+        const domain = document.getElementById('dns-domain-input').value;
+        const res = await fetch(`/api/troubleshooting/dns-check?domain=${encodeURIComponent(domain)}`);
+        const data = await res.json();
+        const container = document.getElementById('dns-report-container');
+        if (data.success && data.dns_report) {
+            const rep = data.dns_report;
+            container.innerHTML = `
+                <div class="list-group list-group-flush bg-dark rounded-3 border border-secondary border-opacity-25">
+                    <div class="list-group-item bg-dark text-light d-flex justify-content-between align-items-center">
+                        <div><strong>MX:</strong> ${rep.mx.records.join(', ') || 'Nenhum'}</div>
+                        <span class="badge bg-${rep.mx.status === 'OK' ? 'success' : 'danger'}">${rep.mx.status}</span>
                     </div>
-                `;
-            }
+                    <div class="list-group-item bg-dark text-light d-flex justify-content-between align-items-center">
+                        <div><strong>SPF:</strong> <code class="text-info">${rep.spf.record || 'Ausente'}</code></div>
+                        <span class="badge bg-${rep.spf.status === 'OK' ? 'success' : 'danger'}">${rep.spf.status}</span>
+                    </div>
+                    <div class="list-group-item bg-dark text-light d-flex justify-content-between align-items-center">
+                        <div><strong>DKIM:</strong> <code class="text-info">${rep.dkim.record || 'Ausente'}</code></div>
+                        <span class="badge bg-${rep.dkim.status === 'OK' ? 'success' : 'warning'}">${rep.dkim.status}</span>
+                    </div>
+                    <div class="list-group-item bg-dark text-light d-flex justify-content-between align-items-center">
+                        <div><strong>DMARC:</strong> <code class="text-info">${rep.dmarc.record || 'Ausente'}</code></div>
+                        <span class="badge bg-${rep.dmarc.status === 'OK' ? 'success' : 'danger'}">${rep.dmarc.status}</span>
+                    </div>
+                </div>
+            `;
         }
+    }
 
-        // 6. SPAMASSASSIN & LOGS
-        async function loadSpamRules() {
-            const res = await fetch('/api/services/spamassassin/rules');
-            const data = await res.json();
-            if (data.success) {
-                document.getElementById('rules-textarea').value = data.content;
-            }
+    // 6. SPAMASSASSIN & LOGS
+    async function loadSpamRules() {
+        const res = await fetch('/api/services/spamassassin/rules');
+        const data = await res.json();
+        if (data.success) {
+            document.getElementById('rules-textarea').value = data.content;
         }
+    }
 
-        async function saveRules() {
-            const content = document.getElementById('rules-textarea').value;
-            const res = await fetch('/api/services/spamassassin/rules', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content })
-            });
-            const data = await res.json();
-            alert(data.message);
-        }
+    async function saveRules() {
+        const content = document.getElementById('rules-textarea').value;
+        const res = await fetch('/api/services/spamassassin/rules', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content })
+        });
+        const data = await res.json();
+        showAlert(data.message, data.success ? 'success' : 'danger');
+    }
 
-        async function lintRules() {
-            const content = document.getElementById('rules-textarea').value;
-            const res = await fetch('/api/services/spamassassin/lint', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content })
-            });
-            const data = await res.json();
-            alert(data.message);
-        }
+    async function lintRules() {
+        const content = document.getElementById('rules-textarea').value;
+        const res = await fetch('/api/services/spamassassin/lint', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content })
+        });
+        const data = await res.json();
+        showAlert(data.message, data.success ? 'success' : 'danger');
+    }
 
-        async function loadLogs() {
-            const res = await fetch('/api/services/logs');
-            const data = await res.json();
-            if (data.success && data.logs) {
-                document.getElementById('logs-container').innerHTML = data.logs.join('<br>');
-            }
+    async function loadLogs() {
+        const res = await fetch('/api/services/logs');
+        const data = await res.json();
+        if (data.success && data.logs) {
+            document.getElementById('logs-container').innerHTML = data.logs.join('\n');
         }
+    }
 
-        // 7. MFA MODAL
-        async function openMfaModal() {
-            const modal = new bootstrap.Modal(document.getElementById('mfaModal'));
-            modal.show();
-            const res = await fetch('/api/auth/mfa/setup');
-            const data = await res.json();
-            if (data.success) {
-                document.getElementById('qr-code-wrapper').innerHTML = `<img src="${data.qr_code_base64}" alt="MFA QR Code" class="img-fluid" style="max-width:180px;">`;
-                document.getElementById('mfa-secret-key').value = data.otp_secret;
-            }
+    // 7. MFA SETUP
+    async function openMfaModal() {
+        const modal = new bootstrap.Modal(document.getElementById('mfaModal'));
+        modal.show();
+        const res = await fetch('/api/auth/mfa/setup');
+        const data = await res.json();
+        if (data.success) {
+            document.getElementById('qr-code-wrapper').innerHTML = `<img src="${data.qr_code_base64}" alt="MFA QR Code" class="img-fluid" style="max-width:180px;">`;
+            document.getElementById('mfa-secret-key').value = data.otp_secret;
         }
+    }
 
-        async function enableMfa() {
-            const token = document.getElementById('mfa-token-input').value;
-            const res = await fetch('/api/auth/mfa/enable', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ token })
-            });
-            const data = await res.json();
-            alert(data.message);
-            if (data.success) {
-                bootstrap.Modal.getInstance(document.getElementById('mfaModal')).hide();
-            }
+    async function enableMfa() {
+        const token = document.getElementById('mfa-token-input').value;
+        const res = await fetch('/api/auth/mfa/enable', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token })
+        });
+        const data = await res.json();
+        showAlert(data.message, data.success ? 'success' : 'danger');
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('mfaModal')).hide();
         }
-    </script>
+    }
+</script>
 </body>
 </html>

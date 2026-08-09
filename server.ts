@@ -522,6 +522,11 @@ blacklist_from *@spammerdomain.net
     }
   });
 
+  // Root HTML Route
+  app.get("/", (req, res) => {
+    res.sendFile(path.join(process.cwd(), "templates/index.html"));
+  });
+
   // Legacy route mappings
   app.get("/api/status", (req, res) => res.redirect("/api/services/status"));
   app.post("/api/service/restart", (req, res) => {
