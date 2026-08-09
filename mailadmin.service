@@ -1,0 +1,17 @@
+[Unit]
+Description=Painel Web de Administracao MailServer (Postfix, Amavis, SpamAssassin)
+After=network.target postfix.service amavis.service
+
+[Service]
+Type=simple
+User=suporte
+Group=suporte
+WorkingDirectory=/opt/mailadmin
+Environment="ADMIN_USER=admin"
+Environment="ADMIN_PASS=senha_segura_123"
+ExecStart=/opt/mailadmin/venv/bin/python3 /opt/mailadmin/app.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

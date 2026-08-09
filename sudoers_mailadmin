@@ -1,0 +1,16 @@
+# Configuração de Sudoers para o Painel Web Admin Mail Server
+# Coloque este arquivo em: /etc/sudoers.d/mailadmin
+# Permissões do arquivo: chmod 440 /etc/sudoers.d/mailadmin
+
+# Permite ao usuário 'suporte' executar comandos específicos do systemctl e manuseio do local.cf e logs sem senha
+
+suporte ALL=(ALL) NOPASSWD: /bin/systemctl is-active postfix
+suporte ALL=(ALL) NOPASSWD: /bin/systemctl is-active amavis
+suporte ALL=(ALL) NOPASSWD: /bin/systemctl is-active clamav-daemon
+suporte ALL=(ALL) NOPASSWD: /bin/systemctl restart postfix
+suporte ALL=(ALL) NOPASSWD: /bin/systemctl restart amavis
+suporte ALL=(ALL) NOPASSWD: /bin/systemctl restart clamav-daemon
+suporte ALL=(ALL) NOPASSWD: /bin/systemctl restart spamassassin
+suporte ALL=(ALL) NOPASSWD: /bin/cp /tmp/local.cf.tmp /etc/spamassassin/local.cf
+suporte ALL=(ALL) NOPASSWD: /usr/bin/tail -n * /var/log/mail.log
+suporte ALL=(ALL) NOPASSWD: /bin/journalctl -u postfix -u amavis *

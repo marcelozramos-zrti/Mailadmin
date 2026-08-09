@@ -1,0 +1,6 @@
+{
+  "name": "Painel de Administração de Servidor de E-mail",
+  "description": "Painel Web interno para administração de Postfix, Amavis e SpamAssassin em Debian/Ubuntu com monitoramento de serviços, edição de local.cf, teste de sintaxe e auditoria de logs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
