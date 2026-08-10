@@ -568,7 +568,15 @@ blacklist_from *@spammerdomain.net
     });
   });
 
-  let systemdAvailable: boolean = fs.existsSync("/run/systemd/system");
+  let systemdAvailable = false;
+  try {
+    if (fs.existsSync("/proc/1/comm")) {
+      const comm = fs.readFileSync("/proc/1/comm", "utf-8").trim();
+      systemdAvailable = comm === "systemd";
+    }
+  } catch {
+    systemdAvailable = false;
+  }
 
   app.get("/api/services/status", async (req, res) => {
     const services = ["postfix", "amavis", "clamav-daemon", "spamassassin"];

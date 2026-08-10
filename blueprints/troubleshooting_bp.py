@@ -37,171 +37,142 @@ def run_cmd(cmd_list):
 @login_required
 def track_email():
     """Explorador de logs flexível baseado em data (YYYY-MM-DD), caixa postal, termo de busca e limite de linhas."""
-    if request.method == 'POST':
-        data = request.get_json(silent=True) or request.form or {}
-    else:
-        data = request.args or {}
-
-    # Leitura dos parâmetros com múltiplos aliases para compatibilidade
-    date_param = (data.get('date') or data.get('data_busca') or data.get('period') or data.get('periodo') or '').strip().lower()
-    mailbox = (data.get('mailbox') or data.get('caixa_postal') or data.get('sender') or data.get('recipient') or data.get('email') or '').strip().lower()
-    search_term = (data.get('search_term') or data.get('termo_busca') or data.get('term') or data.get('subject') or '').strip().lower()
-    delivery_status = (data.get('delivery_status') or data.get('status_entrega') or data.get('status') or '').strip().lower()
-    service = (data.get('service') or data.get('servico') or data.get('service_filter') or '').strip().lower()
-
     try:
-        limit = int(data.get('limit') or data.get('limite') or 500)
-    except (ValueError, TypeError):
-        limit = 500
+        if request.method == 'POST':
+            data = request.get_json(silent=True) or request.form or {}
+        else:
+            data = request.args or {}
 
-    if limit <= 0:
-        limit = 500
+        # 3. Validação de Variáveis e Valores Default
+        date_param = (data.get('date') or data.get('data_busca') or data.get('period') or data.get('periodo') or '').strip().lower()
+        mailbox = (data.get('mailbox') or data.get('caixa_postal') or data.get('sender') or data.get('recipient') or data.get('email') or '').strip().lower()
+        search_term = (data.get('search_term') or data.get('termo_busca') or data.get('term') or data.get('subject') or '').strip().lower()
+        delivery_status = (data.get('delivery_status') or data.get('status_entrega') or data.get('status') or '').strip().lower()
+        service = (data.get('service') or data.get('servico') or data.get('service_filter') or '').strip().lower()
 
-    today_obj = datetime.date.today()
-    yesterday_obj = today_obj - datetime.timedelta(days=1)
-
-    today_iso = today_obj.strftime('%Y-%m-%d')
-    yesterday_iso = yesterday_obj.strftime('%Y-%m-%d')
-
-    # Parse date input
-    chosen_date_obj = today_obj
-    if date_param in ['yesterday', 'ontem', 'mail.log.1']:
-        chosen_date_obj = yesterday_obj
-    elif date_param in ['today', 'hoje', 'mail.log']:
-        chosen_date_obj = today_obj
-    elif date_param:
         try:
-            chosen_date_obj = datetime.datetime.strptime(date_param, '%Y-%m-%d').date()
-        except ValueError:
-            chosen_date_obj = today_obj
+            limit = int(data.get('limit') or data.get('limite') or 500)
+        except (ValueError, TypeError):
+            limit = 500
 
-    chosen_iso = chosen_date_obj.strftime('%Y-%m-%d')
-    chosen_fmt = chosen_date_obj.strftime('%d/%m/%Y')
+        if limit <= 0:
+            limit = 500
 
-    month_abbr = chosen_date_obj.strftime('%b')
-    day_int = chosen_date_obj.day
-    # Syslog date prefix format (e.g., "Aug 10" or "Aug  8")
-    syslog_date_pattern = f"{month_abbr} {day_int:2d}"
+        today_obj = datetime.date.today()
+        today_iso = today_obj.strftime('%Y-%m-%d')
+        yesterday_iso = (today_obj - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
 
-    log_lines = []
+        if date_param in ['yesterday', 'ontem', 'mail.log.1']:
+            data_buscada = yesterday_iso
+        elif date_param in ['today', 'hoje', 'mail.log', '']:
+            data_buscada = today_iso
+        else:
+            try:
+                parsed_dt = datetime.datetime.strptime(date_param, '%Y-%m-%d').date()
+                data_buscada = parsed_dt.strftime('%Y-%m-%d')
+            except ValueError:
+                data_buscada = today_iso
 
-    # 1. Seleção do Arquivo de Log com base na Data Escolhida
-    if chosen_iso == today_iso:
-        log_file = '/var/log/mail.log'
-        period_label = f"Hoje - {chosen_fmt} (mail.log)"
+        period = data_buscada
+        data_buscada_safe = re.sub(r'[^0-9a-zA-Z-]', '', data_buscada)
+
+        # Parse date for syslog prefix format (ex: "Aug 10" or "Aug  8")
         try:
-            cmd_res = subprocess.run(
-                ['sudo', 'cat', log_file],
-                capture_output=True, text=True, errors='ignore', timeout=20
-            )
-            if cmd_res.stdout:
-                log_lines = [line.strip() for line in cmd_res.stdout.splitlines() if line.strip()]
+            dt_obj = datetime.datetime.strptime(data_buscada, '%Y-%m-%d').date()
+            syslog_date_pattern = f"{dt_obj.strftime('%b')} {dt_obj.day:2d}"
+            formatted_date_br = dt_obj.strftime('%d/%m/%Y')
         except Exception:
-            log_lines = []
+            syslog_date_pattern = ""
+            formatted_date_br = data_buscada
 
-    elif chosen_iso == yesterday_iso:
-        log_file = '/var/log/mail.log.1'
-        period_label = f"Ontem - {chosen_fmt} (mail.log.1)"
-        try:
-            cmd_res = subprocess.run(
-                ['sudo', 'cat', log_file],
-                capture_output=True, text=True, errors='ignore', timeout=20
-            )
-            if cmd_res.stdout:
-                log_lines = [line.strip() for line in cmd_res.stdout.splitlines() if line.strip()]
-        except Exception:
-            log_lines = []
+        period_label = f"Data: {formatted_date_br}"
 
-    else:
-        # Data anterior a ontem: iterar/buscar nos arquivos /var/log/mail.log.*.gz
-        period_label = f"Data: {chosen_fmt} (mail.log.*.gz)"
-        try:
-            cmd_str = f"sudo zgrep -h '^{syslog_date_pattern}' /var/log/mail.log.*.gz 2>/dev/null"
-            cmd_res = subprocess.run(
-                cmd_str, shell=True, capture_output=True, text=True, errors='ignore', timeout=25
-            )
-            if cmd_res.stdout:
-                log_lines = [line.strip() for line in cmd_res.stdout.splitlines() if line.strip()]
-        except Exception:
-            log_lines = []
+        log_lines = []
+
+        # 2. Correção do Subprocess (Anti-Crash) com zcat -f
+        comando = f"sudo bash -c 'zcat -f /var/log/mail.log* 2>/dev/null | grep \"{data_buscada_safe}\"'"
+        resultado = subprocess.run(comando, shell=True, capture_output=True, text=True)
+        if resultado.stdout:
+            log_lines = [line.strip() for line in resultado.stdout.splitlines() if line.strip()]
+
+        # Se não encontrou pelo formato ISO, tenta busca pelo padrão de data syslog
+        if not log_lines and syslog_date_pattern:
+            cmd_syslog = f"sudo bash -c 'zcat -f /var/log/mail.log* 2>/dev/null | grep \"{syslog_date_pattern}\"'"
+            res_sys = subprocess.run(cmd_syslog, shell=True, capture_output=True, text=True)
+            if res_sys.stdout:
+                log_lines = [line.strip() for line in res_sys.stdout.splitlines() if line.strip()]
+
+        # Fallback para journalctl se mail.log estiver ausente
+        if not log_lines:
+            try:
+                res_j = run_cmd(['sudo', 'journalctl', '-u', 'postfix', '-u', 'amavis', '-n', '2000', '--no-pager'])
+                if res_j['stdout']:
+                    all_lines = [line.strip() for line in res_j['stdout'].splitlines() if line.strip()]
+                    matching = [l for l in all_lines if data_buscada_safe in l or (syslog_date_pattern and syslog_date_pattern in l)]
+                    log_lines = matching if matching else all_lines
+            except Exception:
+                pass
 
         if not log_lines:
-            # Fallback manual iterando arquivos .gz
-            gz_files = sorted(glob.glob('/var/log/mail.log.*.gz'))
-            for gz_path in gz_files:
-                try:
-                    res = subprocess.run(
-                        ['sudo', 'zcat', gz_path],
-                        capture_output=True, text=True, errors='ignore', timeout=15
-                    )
-                    if res.stdout:
-                        for line in res.stdout.splitlines():
-                            if line.startswith(syslog_date_pattern) or chosen_iso in line:
-                                log_lines.append(line.strip())
-                except Exception:
-                    pass
+            msg = f"Nenhum registro de log encontrado para a data {formatted_date_br}."
+            return jsonify({
+                'success': True,
+                'period': period,
+                'period_label': period_label,
+                'mailbox': mailbox,
+                'search_term': search_term,
+                'delivery_status': delivery_status,
+                'service': service,
+                'limit': limit,
+                'total_matches': 0,
+                'lines': [],
+                'events': [{'raw': msg, 'type': 'INFO'}],
+                'raw_text': msg
+            })
 
-    # Fallback para journalctl se mail.log estiver vazio / ausente
-    if not log_lines:
-        try:
-            res = run_cmd(['sudo', 'journalctl', '-u', 'postfix', '-u', 'amavis', '-n', '2000', '--no-pager'])
-            if res['stdout']:
-                all_lines = [line.strip() for line in res['stdout'].splitlines() if line.strip()]
-                matching = [l for l in all_lines if syslog_date_pattern in l or chosen_iso in l]
-                log_lines = matching if matching else all_lines
-        except Exception:
-            pass
+        # Lógica de Filtragem no Python
+        filtered_lines = []
 
-    if not log_lines:
-        msg = f"Nenhum registro de log encontrado para a data {chosen_fmt}."
-        return jsonify({
-            'success': True,
-            'period': chosen_iso,
-            'period_label': period_label,
-            'mailbox': mailbox,
-            'search_term': search_term,
-            'delivery_status': delivery_status,
-            'service': service,
-            'limit': limit,
-            'total_matches': 0,
-            'lines': [],
-            'events': [{'raw': msg, 'type': 'INFO'}],
-            'raw_text': msg
-        })
+        for line in log_lines:
+            line_lower = line.lower()
 
-    # 2. Lógica de Filtragem no Python
-    filtered_lines = []
+            if mailbox and mailbox not in line_lower:
+                continue
+            if search_term and search_term not in line_lower:
+                continue
+            if delivery_status and delivery_status not in line_lower:
+                continue
+            if service and service not in line_lower:
+                continue
 
-    for line in log_lines:
-        line_lower = line.lower()
+            filtered_lines.append(line)
 
-        # Filtro de Caixa Postal (De ou Para)
-        if mailbox and mailbox not in line_lower:
-            continue
+        total_matches = len(filtered_lines)
+        if total_matches > limit:
+            result_lines = filtered_lines[-limit:]
+        else:
+            result_lines = filtered_lines
 
-        # Filtro de Termo de Busca Livre (Assunto, IP, Porta, Status, Erro)
-        if search_term and search_term not in line_lower:
-            continue
+        if not result_lines:
+            msg = "Nenhum registro de log encontrado para os filtros informados."
+            return jsonify({
+                'success': True,
+                'period': period,
+                'period_label': period_label,
+                'mailbox': mailbox,
+                'search_term': search_term,
+                'delivery_status': delivery_status,
+                'service': service,
+                'limit': limit,
+                'total_matches': 0,
+                'lines': [],
+                'events': [{'raw': msg, 'type': 'INFO'}],
+                'raw_text': msg
+            })
 
-        # Filtro de Status da Entrega (sent, bounced, deferred)
-        if delivery_status and delivery_status not in line_lower:
-            continue
+        raw_text = "\n".join(result_lines)
+        events = [{'raw': l, 'type': 'INFO'} for l in result_lines]
 
-        # Filtro de Serviço (postfix, amavis, dovecot)
-        if service and service not in line_lower:
-            continue
-
-        filtered_lines.append(line)
-
-    # 3. Limite de Linhas (pegando as mais recentes = do final do array)
-    total_matches = len(filtered_lines)
-    if total_matches > limit:
-        result_lines = filtered_lines[-limit:]
-    else:
-        result_lines = filtered_lines
-
-    if not result_lines:
-        msg = "Nenhum registro de log encontrado para os filtros informados."
         return jsonify({
             'success': True,
             'period': period,
@@ -211,29 +182,14 @@ def track_email():
             'delivery_status': delivery_status,
             'service': service,
             'limit': limit,
-            'total_matches': 0,
-            'lines': [],
-            'events': [{'raw': msg, 'type': 'INFO'}],
-            'raw_text': msg
+            'total_matches': total_matches,
+            'lines': result_lines,
+            'events': events,
+            'raw_text': raw_text
         })
 
-    raw_text = "\n".join(result_lines)
-    events = [{'raw': l, 'type': 'INFO'} for l in result_lines]
-
-    return jsonify({
-        'success': True,
-        'period': period,
-        'period_label': period_label,
-        'mailbox': mailbox,
-        'search_term': search_term,
-        'delivery_status': delivery_status,
-        'service': service,
-        'limit': limit,
-        'total_matches': total_matches,
-        'lines': result_lines,
-        'events': events,
-        'raw_text': raw_text
-    })
+    except Exception as e:
+        return f"[Erro Interno do Python]: {str(e)}", 500
 
 
 # ==========================================
