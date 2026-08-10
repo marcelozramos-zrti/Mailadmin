@@ -443,6 +443,7 @@ blacklist_from *@spammerdomain.net
     const smtpAttackKeywords = ["improper command pipelining", "non-smtp command", "unknown[", "warning: hostname", "lost connection after", "too many errors", "connect from unknown", "anvil"];
     const authFailureKeywords = ["authentication failed", "auth failed", "sasl", "password mismatch", "unknown user", "relay access denied", "554 5.7.1", "reject: rcp", "login failed"];
 
+    const matchingBlocks: Array<{ key: string | null; lines: string[] }> = [];
     let filteredLines: string[] = [];
     for (const blk of blocks) {
       const blkText = blk.lines.join("\n").toLowerCase();
@@ -465,8 +466,46 @@ blacklist_from *@spammerdomain.net
         if (!freeTerms.every(term => blkText.includes(term))) continue;
       }
 
+      matchingBlocks.push(blk);
       filteredLines.push(...blk.lines);
     }
+
+    const transacoes = matchingBlocks.map(blk => {
+      const blkFull = blk.lines.join("\n");
+      const keyVal = blk.key || "";
+      let qid = keyVal.replace(/^(qid|pid):/, "");
+      if (!qid) {
+        const qm = blkFull.match(/\b([0-9A-Za-z]{8,16}):/);
+        qid = qm ? qm[1] : "NOQUEUE";
+      }
+
+      const tsMatch = blkFull.match(/([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}|\d{2}:\d{2}:\d{2})/);
+      const data_hora = tsMatch ? tsMatch[1] : "N/A";
+
+      const fromMatch = blkFull.match(/(?:from=|<from>|From:)\s*<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9._%+-]+)>?/i);
+      let remetente = fromMatch ? fromMatch[1] : "";
+      if (!remetente || ["none", "null", "<>"].includes(remetente.toLowerCase())) {
+        remetente = blkFull.toLowerCase().includes("from=<>") ? "<> (Bounce)" : "N/A";
+      }
+
+      const toMatch = blkFull.match(/(?:to=|<to>|To:)\s*<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9._%+-]+)>?/i);
+      const destinatario = toMatch ? toMatch[1] : "N/A";
+
+      const scoreMatch = blkFull.match(/(?:hits|score)\s*[:=]\s*([-\d\.]+)/i);
+      const score = scoreMatch ? scoreMatch[1] : "-";
+
+      const blkLow = blkFull.toLowerCase();
+      let veredito = "CLEAN";
+      if (blkLow.includes("passed spam") || blkLow.includes("spam") || blkLow.includes("bounced")) {
+        veredito = "SPAM";
+      } else if (blkLow.includes("alert") || blkLow.includes("warning") || blkLow.includes("chkrootkit") || blkLow.includes("auth failed") || blkLow.includes("reject")) {
+        veredito = "ALERTA";
+      } else if (blkLow.includes("passed clean") || blkLow.includes("clean") || blkLow.includes("sent") || blkLow.includes("status=sent")) {
+        veredito = "CLEAN";
+      }
+
+      return { queue_id: qid, data_hora, remetente, destinatario, score, veredito };
+    });
 
     res.json({
       success: true,
@@ -480,7 +519,10 @@ blacklist_from *@spammerdomain.net
       limit,
       total_matches: filteredLines.length,
       lines: filteredLines.slice(-limit),
-      raw_text: filteredLines.join("\n")
+      raw_text: filteredLines.join("\n"),
+      texto_bruto: filteredLines.join("\n"),
+      transacoes,
+      transactions: transacoes
     });
   });
 

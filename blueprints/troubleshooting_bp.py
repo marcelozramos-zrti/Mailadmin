@@ -183,6 +183,7 @@ def track_email():
                 blocks.append({'key': None, 'lines': [line]})
 
         # 5. Validação dos blocos contra Power Query e Lentes Rápidas
+        matching_blocks = []
         filtered_lines = []
         smtp_attack_keywords = ["improper command pipelining", "non-smtp command", "unknown[", "warning: hostname", "lost connection after", "too many errors", "connect from unknown", "anvil"]
         auth_failure_keywords = ["authentication failed", "auth failed", "sasl", "password mismatch", "unknown user", "relay access denied", "554 5.7.1", "reject: rcp", "login failed"]
@@ -214,7 +215,64 @@ def track_email():
                 if not all(term in blk_text for term in free_terms):
                     continue
 
+            matching_blocks.append(blk)
             filtered_lines.extend(blk['lines'])
+
+        # Extração Estruturada de Transações para a Tabela SOAR
+        transacoes = []
+        for blk in matching_blocks:
+            blk_full = "\n".join(blk['lines'])
+
+            # 1. Queue ID / Key
+            key_val = blk.get('key') or ''
+            if key_val.startswith('qid:'):
+                qid = key_val[4:]
+            elif key_val.startswith('pid:'):
+                qid = key_val[4:]
+            else:
+                qm = re.search(r'\b([0-9A-Za-z]{8,16}):', blk_full)
+                qid = qm.group(1) if qm else "NOQUEUE"
+
+            # 2. Data / Hora
+            ts_m = re.search(r'([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}|\d{2}:\d{2}:\d{2})', blk_full)
+            data_hora = ts_m.group(1) if ts_m else "N/A"
+
+            # 3. Remetente (from=<...>)
+            from_m = re.search(r'(?:from=|<from>|From:)\s*<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9._%+-]+)>?', blk_full, re.IGNORECASE)
+            remetente = from_m.group(1) if (from_m and from_m.group(1)) else ""
+            if not remetente or remetente.lower() in ['none', 'null', '<>']:
+                if 'from=<>' in blk_full.lower():
+                    remetente = "<> (Bounce)"
+                else:
+                    remetente = "N/A"
+
+            # 4. Destinatário (to=<...>)
+            to_m = re.search(r'(?:to=|<to>|To:)\s*<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9._%+-]+)>?', blk_full, re.IGNORECASE)
+            destinatario = to_m.group(1) if (to_m and to_m.group(1)) else "N/A"
+
+            # 5. Score (Hits: ... ou score=...)
+            score_m = re.search(r'(?:hits|score)\s*[:=]\s*([-\d\.]+)', blk_full, re.IGNORECASE)
+            score = score_m.group(1) if score_m else "-"
+
+            # 6. Veredito (Passed CLEAN, Passed SPAM, [chkrootkit] alert, etc.)
+            blk_low = blk_full.lower()
+            if 'passed spam' in blk_low or 'spam' in blk_low or 'bounced' in blk_low:
+                veredito = "SPAM"
+            elif 'alert' in blk_low or 'warning' in blk_low or 'chkrootkit' in blk_low or 'auth failed' in blk_low or 'reject' in blk_low:
+                veredito = "ALERTA"
+            elif 'passed clean' in blk_low or 'clean' in blk_low or 'sent' in blk_low or 'status=sent' in blk_low:
+                veredito = "CLEAN"
+            else:
+                veredito = "CLEAN"
+
+            transacoes.append({
+                'queue_id': qid,
+                'data_hora': data_hora,
+                'remetente': remetente,
+                'destinatario': destinatario,
+                'score': score,
+                'veredito': veredito
+            })
 
         total_matches = len(filtered_lines)
         if total_matches > limit:
@@ -233,7 +291,10 @@ def track_email():
                 'total_matches': 0,
                 'lines': [],
                 'events': [{'raw': msg, 'type': 'INFO'}],
-                'raw_text': msg
+                'raw_text': msg,
+                'texto_bruto': msg,
+                'transacoes': [],
+                'transactions': []
             })
 
         return jsonify({
@@ -245,7 +306,10 @@ def track_email():
             'total_matches': total_matches,
             'lines': result_lines,
             'events': [{'raw': line, 'type': 'LOG'} for line in result_lines],
-            'raw_text': "\n".join(result_lines)
+            'raw_text': "\n".join(result_lines),
+            'texto_bruto': "\n".join(result_lines),
+            'transacoes': transacoes,
+            'transactions': transacoes
         })
 
     except Exception as e:

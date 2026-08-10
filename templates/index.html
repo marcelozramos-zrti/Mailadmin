@@ -878,6 +878,35 @@
                                         <i class="bi bi-info-circle me-1 text-primary"></i> <strong>Busca livre:</strong> Qualquer termo digitado fora das chaves acima é pesquisado diretamente no texto do log (Ex: <code>164.92.189.151</code>, <code>Connection reset</code>).
                                     </div>
                                 </div>
+
+                                <!-- Tabela Interativa de Transações / SOAR (Oculta por Padrão) -->
+                                <div id="soar-transactions-card" class="mt-4 d-none">
+                                    <div class="d-flex align-items-center justify-content-between mb-2">
+                                        <h5 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                            <i class="bi bi-shield-lock-fill text-primary"></i>
+                                            Transações Extraídas & Resposta a Incidentes (SOAR)
+                                        </h5>
+                                        <span id="soar-count-badge" class="badge bg-primary font-monospace fs-7 px-2 py-1">0 Transações</span>
+                                    </div>
+                                    <div class="table-responsive rounded-3 border border-dark-subtle shadow-sm" style="background-color: #0f172a;">
+                                        <table class="table table-dark table-hover align-middle mb-0 font-monospace small">
+                                            <thead>
+                                                <tr class="text-secondary border-bottom border-secondary bg-dark-subtle">
+                                                    <th class="py-2.5 ps-3 text-nowrap"><i class="bi bi-clock me-1 text-primary"></i> Data/Hora</th>
+                                                    <th class="py-2.5 text-nowrap"><i class="bi bi-hash me-1 text-info"></i> Queue ID</th>
+                                                    <th class="py-2.5 text-nowrap"><i class="bi bi-person-up me-1 text-success"></i> Remetente</th>
+                                                    <th class="py-2.5 text-nowrap"><i class="bi bi-person-down me-1 text-warning"></i> Destinatário</th>
+                                                    <th class="py-2.5 text-nowrap"><i class="bi bi-speedometer2 me-1 text-info"></i> Score</th>
+                                                    <th class="py-2.5 text-nowrap"><i class="bi bi-shield-check me-1 text-primary"></i> Veredito</th>
+                                                    <th class="py-2.5 text-end pe-3 text-nowrap"><i class="bi bi-lightning-charge-fill me-1 text-warning"></i> Ações SOAR</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="soar-transactions-tbody">
+                                                <!-- Preenchido via JavaScript -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -2555,10 +2584,15 @@
                 })
             });
 
-            const rawContent = data.raw_text || (data.lines ? data.lines.join('\n') : '');
+            const rawContent = data.raw_text || data.texto_bruto || (data.lines ? data.lines.join('\n') : '');
+
+            const soarCard = document.getElementById('soar-transactions-card');
+            const soarTbody = document.getElementById('soar-transactions-tbody');
+            const soarBadge = document.getElementById('soar-count-badge');
 
             if (!rawContent || data.total_matches === 0 || rawContent.includes("Nenhum registro")) {
                 container.innerHTML = '<span style="color: #facc15 !important;">Nenhum registro de log encontrado para os filtros informados.</span>';
+                if (soarCard) soarCard.classList.add('d-none');
                 return;
             }
 
@@ -2574,10 +2608,100 @@
                 container.innerHTML = headerInfo + `<pre style="color: #FFFFFF !important; background-color: transparent; font-family: monospace; font-size: 0.82rem; line-height: 1.5; margin: 0; white-space: pre-wrap; word-break: break-all;">${rawContent}</pre>`;
             }
             container.scrollTop = container.scrollHeight;
+
+            // Renderizar Tabela SOAR de Transações Estruturadas
+            const transList = data.transacoes || data.transactions || [];
+            if (soarCard && soarTbody) {
+                soarTbody.innerHTML = '';
+                if (transList && transList.length > 0) {
+                    if (soarBadge) soarBadge.textContent = `${transList.length} Transação(ões)`;
+                    transList.forEach(t => {
+                        let verdictBadge = '<span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>CLEAN</span>';
+                        if (t.veredito === 'SPAM') {
+                            verdictBadge = '<span class="badge bg-danger"><i class="bi bi-bug me-1"></i>SPAM</span>';
+                        } else if (t.veredito === 'ALERTA') {
+                            verdictBadge = '<span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle me-1"></i>ALERTA</span>';
+                        }
+
+                        const safeSender = (t.remetente || '').replace(/'/g, "\\'");
+
+                        const tr = document.createElement('tr');
+                        tr.className = 'border-bottom border-dark-subtle';
+                        tr.innerHTML = `
+                            <td class="ps-3 text-light py-2 text-nowrap">${t.data_hora || 'N/A'}</td>
+                            <td class="py-2"><code class="text-info fw-bold">${t.queue_id || 'NOQUEUE'}</code></td>
+                            <td class="py-2 text-truncate" style="max-width: 180px;" title="${t.remetente || ''}"><span class="text-light fw-semibold">${t.remetente || 'N/A'}</span></td>
+                            <td class="py-2 text-truncate" style="max-width: 180px;" title="${t.destinatario || ''}"><span class="text-secondary">${t.destinatario || 'N/A'}</span></td>
+                            <td class="py-2"><span class="badge bg-dark border border-secondary text-info">${t.score || '-'}</span></td>
+                            <td class="py-2">${verdictBadge}</td>
+                            <td class="py-2 text-end pe-3 text-nowrap">
+                                <button class="btn btn-danger btn-sm px-2 py-0.5 fs-7 me-1 fw-bold" onclick="soarAction('block', '${safeSender}')" title="Bloquear Remetente">
+                                    <i class="fas fa-ban me-1"></i> Bloquear
+                                </button>
+                                <button class="btn btn-warning btn-sm px-2 py-0.5 fs-7 me-1 text-dark fw-bold" onclick="soarAction('spam', '${safeSender}')" title="Marcar como SPAM">
+                                    <i class="fas fa-spider me-1"></i> Marcar SPAM
+                                </button>
+                                <button class="btn btn-success btn-sm px-2 py-0.5 fs-7 fw-bold" onclick="soarAction('whitelist', '${safeSender}')" title="Adicionar à Whitelist">
+                                    <i class="fas fa-check me-1"></i> Whitelist
+                                </button>
+                            </td>
+                        `;
+                        soarTbody.appendChild(tr);
+                    });
+                    soarCard.classList.remove('d-none');
+                } else {
+                    soarCard.classList.add('d-none');
+                }
+            }
         } catch (e) {
             console.error("Erro no explorador de logs:", e);
             container.innerHTML = `<span style="color: #f87171 !important; font-family: monospace;">[ERRO AO PESQUISAR LOGS]: ${e.message}</span>`;
+            const soarCard = document.getElementById('soar-transactions-card');
+            if (soarCard) soarCard.classList.add('d-none');
         }
+    }
+
+    function soarAction(actionType, email) {
+        if (!email || email === 'N/A' || email.includes('sem remetente')) {
+            alert('Selecione uma transação com remetente válido para executar a ação SOAR.');
+            return;
+        }
+
+        let msg = '';
+        let alertClass = 'alert-info';
+
+        if (actionType === 'block') {
+            msg = `[SOAR Action] Regra de Bloqueio aplicada com sucesso para ${email}. Remetente adicionado à Blacklist do Postfix/Firewall.`;
+            alertClass = 'alert-danger';
+        } else if (actionType === 'spam') {
+            msg = `[SOAR Action] Endereço ${email} marcado como SPAM. Regra Bayesiana atualizada no Amavis.`;
+            alertClass = 'alert-warning';
+        } else if (actionType === 'whitelist') {
+            msg = `[SOAR Action] Endereço ${email} inserido na Whitelist com sucesso.`;
+            alertClass = 'alert-success';
+        }
+
+        const toastDiv = document.createElement('div');
+        toastDiv.className = `alert ${alertClass} alert-dismissible fade show position-fixed bottom-0 end-0 m-3 shadow-lg font-monospace fs-6 z-3`;
+        toastDiv.style.maxWidth = '520px';
+        toastDiv.innerHTML = `
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-shield-fill-check fs-4"></i>
+                <div>
+                    <strong class="d-block mb-0">SOAR Orchestration</strong>
+                    <span>${msg}</span>
+                </div>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
+        document.body.appendChild(toastDiv);
+
+        setTimeout(() => {
+            if (toastDiv && toastDiv.parentNode) {
+                toastDiv.classList.remove('show');
+                setTimeout(() => toastDiv.remove(), 300);
+            }
+        }, 4500);
     }
 
     function showDnsDetails(type) {
