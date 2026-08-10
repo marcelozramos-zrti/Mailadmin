@@ -63,7 +63,7 @@ def track_email():
 
         # Fallback para journalctl se o arquivo mail.log nao existir ou nao puder ser lido
         if not log_lines:
-            res = run_cmd(['sudo', 'journalctl', '-u', 'postfix', '-u', 'amavis', '-u', 'dovecot', '-n', '2000', '--no-pager'])
+            res = run_cmd(['sudo', 'journalctl', '-u', 'postfix', '-u', 'amavis', '-u', 'dovecot', '-n', '3000', '--no-pager'])
             if res['stdout']:
                 log_lines = [line.strip() for line in res['stdout'].splitlines() if line.strip()]
 
@@ -78,35 +78,36 @@ def track_email():
                 'raw_text': 'Nenhuma jornada encontrada para estes parâmetros.'
             })
 
-        # Função auxiliar para extrair Queue IDs de uma linha de log (ex: 4YtZ8b3K ou 4hJHwV0zp9z4X)
-        def extract_qids(line):
-            qids = set(re.findall(r'\b([0-9A-Za-z]{8,16})\b:', line))
-            qids.update(re.findall(r'\(([0-9A-Za-z]{8,16})\)', line))
-            qids.update(re.findall(r'\b([0-9A-Za-z]{8,16})\b', line))
-            invalid_keywords = {'postfix', 'amavis', 'dovecot', 'status', 'passed', 'blocked', 'sent', 'queued', 'connect', 'disconnect', 'client', 'relay'}
-            valid = set()
-            for q in qids:
-                if len(q) >= 6 and q.lower() not in invalid_keywords and any(c.isdigit() for c in q) and any(c.isalpha() for c in q):
-                    valid.add(q)
-            return valid
+        # Regex estrita para Queue ID do Postfix (código alfanumérico de 10 a 15 caracteres seguido de dois pontos)
+        qid_pattern = re.compile(r'\b([0-9A-Za-z]{10,15}):')
 
-        # Extração de Queue IDs de remetente e destinatário
         sender_qids = set()
         recipient_qids = set()
 
         sender_lower = sender.lower()
         recipient_lower = recipient.lower()
 
+        # PASSO A: Varre o log procurando "from=<remetente>" e "to=<destinatario>"
         for line in log_lines:
-            line_lower = line.lower()
-            if sender_lower and sender_lower in line_lower:
-                sender_qids.update(extract_qids(line))
-            if recipient_lower and recipient_lower in line_lower:
-                recipient_qids.update(extract_qids(line))
+            # Descarte de logs de login IMAP/POP3 do Dovecot
+            if 'imap-login' in line or 'pop3-login' in line:
+                continue
 
-        # Determina os Queue IDs alvo
+            line_lower = line.lower()
+
+            if sender_lower and f"from=<{sender_lower}>" in line_lower:
+                matches = qid_pattern.findall(line)
+                for q in matches:
+                    sender_qids.add(q)
+
+            if recipient_lower and f"to=<{recipient_lower}>" in line_lower:
+                matches = qid_pattern.findall(line)
+                for q in matches:
+                    recipient_qids.add(q)
+
+        # Determina o conjunto de Queue IDs alvo
         if sender and recipient:
-            # Interseção quando ambos preenchidos
+            # Interseção exata quando ambos são fornecidos
             target_qids = sender_qids.intersection(recipient_qids)
         elif sender:
             target_qids = sender_qids
@@ -124,11 +125,14 @@ def track_email():
                 'raw_text': 'Nenhuma jornada encontrada para estes parâmetros.'
             })
 
-        # Varre o log novamente e coleta TODAS as linhas que contêm os Queue IDs encontrados
+        # PASSO B: Segunda varredura no log retornando apenas linhas com os Queue IDs alvo
         journey_lines = []
         for line in log_lines:
+            if 'imap-login' in line or 'pop3-login' in line:
+                continue
+
             for qid in target_qids:
-                if qid in line:
+                if f" {qid}:" in line or f"({qid})" in line or f": {qid}:" in line:
                     journey_lines.append(line)
                     break
 
