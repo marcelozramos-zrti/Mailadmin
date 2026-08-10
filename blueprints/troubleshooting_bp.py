@@ -54,19 +54,21 @@ def track_email():
         return jsonify({'success': False, 'message': 'Informe o remetente (De), destinatário (Para) ou assunto para rastrear.'}), 400
 
     try:
-        # 1. Comando Anti-Logrotate (lê o log de ontem e o de hoje concatenados)
+        # 1. Leitura de Logs (Anti-Logrotate)
         log_lines = []
         try:
-            cmd = "sudo cat /var/log/mail.log.1 /var/log/mail.log 2>/dev/null"
-            resultado = subprocess.run(cmd, shell=True, capture_output=True, text=True, errors='ignore', timeout=25)
+            resultado = subprocess.run(
+                ['sudo', 'sh', '-c', 'cat /var/log/mail.log.1 /var/log/mail.log 2>/dev/null'],
+                capture_output=True, text=True, errors='ignore', timeout=25
+            )
             if resultado.stdout:
                 log_lines = [line.strip() for line in resultado.stdout.split('\n') if line.strip()]
-        except Exception as read_err:
+        except Exception:
             log_lines = []
 
         # Fallback para journalctl se mail.log estiver vazio
         if not log_lines:
-            res = run_cmd(['sudo', 'journalctl', '-u', 'postfix', '-u', 'amavis', '-u', 'dovecot', '-n', '4000', '--no-pager'])
+            res = run_cmd(['sudo', 'journalctl', '-u', 'postfix', '-u', 'amavis', '-n', '4000', '--no-pager'])
             if res['stdout']:
                 log_lines = [line.strip() for line in res['stdout'].splitlines() if line.strip()]
 
@@ -82,61 +84,54 @@ def track_email():
                 'raw_text': 'Nenhuma jornada encontrada para estes parâmetros.'
             })
 
-        # 2. Estrutura de Dados (bloco_por_qid e msgid_por_qid)
+        # 2. Extração e Filtro Inicial (bloco_por_qid e msgid_por_qid)
         bloco_por_qid = {}
         msgid_por_qid = {}
 
-        # Regex estrito para capturar Queue ID apenas do Postfix e Amavis (ex: postfix/qmgr[123]: 4hJJgV5Txsz4X: ou amavis[123]: 4hJJgV5Txsz4X:)
-        qid_regex = re.compile(r'(?:postfix\/[a-zA-Z0-9_-]+|amavis)\[\d+\]:.*?\b([A-Za-z0-9]{10,15}):', re.IGNORECASE)
-        msgid_regex = re.compile(r'message-id=<([^>]+)>', re.IGNORECASE)
-
-        for line in log_lines:
-            # 1. Descarte Imediato de Ruído (IGNORA 100% DO DOVECOT)
-            if 'dovecot' in line.lower():
+        for linha in log_lines:
+            # Descarte de ruído: imap-login, pop3-login, dovecot
+            if 'imap-login' in linha or 'pop3-login' in linha or 'dovecot' in linha.lower():
                 continue
 
-            match = qid_regex.search(line)
-            if match:
-                qid = match.group(1)
-                if qid:
-                    if qid not in bloco_por_qid:
-                        bloco_por_qid[qid] = []
-                    bloco_por_qid[qid].append(line)
+            match_qid = re.search(r'\s([a-zA-Z0-9]{10,15}):\s', ' ' + linha + ' ')
+            if match_qid:
+                qid = match_qid.group(1)
+                if qid not in bloco_por_qid:
+                    bloco_por_qid[qid] = []
+                bloco_por_qid[qid].append(linha)
 
-                    m_msg = msgid_regex.search(line)
-                    if m_msg:
-                        msgid_por_qid[qid] = m_msg.group(1).lower().strip()
+                m_msg = re.search(r'message-id=<([^>]+)>', linha, re.IGNORECASE)
+                if m_msg:
+                    msgid_por_qid[qid] = m_msg.group(1).lower().strip()
 
         sender_lower = sender.lower() if sender else ""
         recipient_lower = recipient.lower() if recipient else ""
         subject_lower = subject.lower() if subject else ""
 
-        # 3. O Motor de Busca - Filtro inicial por remetente/destinatário
-        qids_iniciais = set()
+        qids_alvo = set()
 
         for qid, linhas in bloco_por_qid.items():
-            bloco_lower = "\n".join(linhas).lower()
+            bloco_texto = "\n".join(linhas)
+            bloco_lower = bloco_texto.lower()
 
             match_sender = True
             if sender_lower:
-                match_sender = (f"from=<{sender_lower}" in bloco_lower or 
-                                f"<{sender_lower}>" in bloco_lower or 
-                                f"from={sender_lower}" in bloco_lower)
+                match_sender = (f"from=<{sender_lower}" in bloco_lower or f"from={sender_lower}" in bloco_lower or f"<{sender_lower}>" in bloco_lower)
 
             match_recipient = True
             if recipient_lower:
-                match_recipient = (f"to=<{recipient_lower}" in bloco_lower or 
-                                   f"<{recipient_lower}>" in bloco_lower or 
-                                   f"to={recipient_lower}" in bloco_lower)
+                match_recipient = (f"to=<{recipient_lower}" in bloco_lower or f"to={recipient_lower}" in bloco_lower or f"<{recipient_lower}>" in bloco_lower)
 
-            if match_sender and match_recipient:
-                qids_iniciais.add(qid)
+            match_subject = True
+            if subject_lower:
+                match_subject = (subject_lower in bloco_lower)
 
-        # A Ponte do Amavis (Integração de QIDs pelo mesmo Message-ID)
-        qids_alvo = set(qids_iniciais)
+            if match_sender and match_recipient and match_subject:
+                qids_alvo.add(qid)
+
+        # 3. A Ponte do Amavis (Transação Completa)
         target_msg_ids = set()
-
-        for qid in qids_iniciais:
+        for qid in list(qids_alvo):
             if qid in msgid_por_qid:
                 target_msg_ids.add(msgid_por_qid[qid])
 
@@ -152,29 +147,7 @@ def track_email():
                         qids_alvo.add(qid)
                         break
 
-        # 4. Filtro de Assunto
-        final_qids_alvo = set()
-        for qid in qids_alvo:
-            linhas = bloco_por_qid.get(qid, [])
-            bloco_lower = "\n".join(linhas).lower()
-
-            if subject_lower:
-                has_sub = subject_lower in bloco_lower
-                if not has_sub:
-                    qid_msgid = msgid_por_qid.get(qid)
-                    if qid_msgid:
-                        for partner_qid in qids_alvo:
-                            if msgid_por_qid.get(partner_qid) == qid_msgid:
-                                partner_bloco = "\n".join(bloco_por_qid.get(partner_qid, [])).lower()
-                                if subject_lower in partner_bloco:
-                                    has_sub = True
-                                    break
-                if not has_sub:
-                    continue
-
-            final_qids_alvo.add(qid)
-
-        if not final_qids_alvo:
+        if not qids_alvo:
             return jsonify({
                 'success': True,
                 'sender': sender,
@@ -186,9 +159,9 @@ def track_email():
                 'raw_text': 'Nenhuma jornada encontrada para estes parâmetros.'
             })
 
-        ordered_approved_qids = [q for q in bloco_por_qid.keys() if q in final_qids_alvo]
+        ordered_approved_qids = [q for q in bloco_por_qid.keys() if q in qids_alvo]
 
-        # 5. Renderização final
+        # 4. Retorno ao Frontend
         journey_events = []
         raw_text_parts = []
 
@@ -198,6 +171,8 @@ def track_email():
             journey_events.append({'raw': f"=== [ Queue ID: {qid} ] ===", 'type': 'HEADER'})
 
             for line in linhas:
+                if 'dovecot' in line.lower():
+                    continue
                 raw_text_parts.append(line)
                 event_type = 'INFO'
                 if 'Passed' in line or 'status=sent' in line:

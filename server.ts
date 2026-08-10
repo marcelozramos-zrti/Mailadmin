@@ -81,11 +81,11 @@ blacklist_from *@spammerdomain.net
 
   const runCmd = (cmd: string): Promise<{ code: number; stdout: string; stderr: string }> => {
     return new Promise((resolve) => {
-      exec(cmd, { timeout: 10000 }, (error, stdout, stderr) => {
+      exec(cmd, { timeout: 800 }, (error, stdout, stderr) => {
         resolve({
           code: error ? error.code || 1 : 0,
-          stdout: stdout.trim(),
-          stderr: stderr.trim()
+          stdout: stdout ? stdout.trim() : "",
+          stderr: stderr ? stderr.trim() : ""
         });
       });
     });
@@ -550,14 +550,29 @@ blacklist_from *@spammerdomain.net
     const services = ["postfix", "amavis", "clamav-daemon", "spamassassin"];
     const statusResult: Record<string, any> = {};
 
-    for (const svc of services) {
-      const cmdRes = await runCmd(`sudo systemctl is-active ${svc}`);
-      if (cmdRes.code === 0 && cmdRes.stdout === "active") {
-        statusResult[svc] = { active: true, state: "active" };
-      } else {
+    try {
+      const promises = services.map(async (svc) => {
+        try {
+          const cmdRes = await runCmd(`sudo systemctl is-active ${svc}`);
+          if (cmdRes.code === 0 && cmdRes.stdout === "active") {
+            return [svc, { active: true, state: "active" }];
+          }
+        } catch {
+          // fallback
+        }
+        return [svc, virtualServices[svc] || { active: true, state: "active" }];
+      });
+
+      const results = await Promise.all(promises);
+      for (const [svc, status] of results) {
+        statusResult[svc as string] = status;
+      }
+    } catch {
+      for (const svc of services) {
         statusResult[svc] = virtualServices[svc] || { active: true, state: "active" };
       }
     }
+
     res.json({ success: true, services: statusResult });
   });
 
