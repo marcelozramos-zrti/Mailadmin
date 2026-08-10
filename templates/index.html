@@ -246,7 +246,7 @@
 <body>
 
 <!-- LOGIN OVERLAY / SPA AUTH SCREEN -->
-<div id="login-screen" class="d-none min-vh-100 d-flex align-items-center justify-content-center p-4" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 9999; background: #0f172a;">
+<div id="login-screen" class="d-none min-vh-100 d-flex align-items-center justify-content-center p-4" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 1000; background: #0f172a;">
     <div class="card border-0 shadow-lg p-4" style="max-width: 420px; width: 100%; background-color: #1e293b; border-radius: 16px;">
         <div class="text-center mb-4">
             <div class="logo-box mx-auto mb-3" style="width: 52px; height: 52px; border-radius: 14px;">
@@ -1557,13 +1557,28 @@
 
             if (data.require_mfa_setup) {
                 tempMfaUserId = data.temp_user_id;
-                document.getElementById('forced-qr-wrapper').innerHTML = `<img src="${data.qr_code_base64}" alt="QR Code" class="img-fluid" style="max-width:180px;">`;
-                document.getElementById('forced-mfa-secret').value = data.otp_secret || '';
-                document.getElementById('forced-mfa-token').value = '';
-                document.getElementById('forced-mfa-alert').innerHTML = '';
+                const qrWrapper = document.getElementById('forced-qr-wrapper');
+                if (qrWrapper) {
+                    if (data.qr_code_base64) {
+                        qrWrapper.innerHTML = `<img src="${data.qr_code_base64}" alt="QR Code" class="img-fluid" style="max-width:180px;">`;
+                    } else if (data.provision_url) {
+                        qrWrapper.innerHTML = `<div class="p-2 text-break font-monospace small bg-light text-dark rounded border">${data.provision_url}</div>`;
+                    }
+                }
+                const secretEl = document.getElementById('forced-mfa-secret');
+                if (secretEl) secretEl.value = data.otp_secret || '';
 
-                const forcedModal = new bootstrap.Modal(document.getElementById('forcedMfaModal'));
-                forcedModal.show();
+                const tokenEl = document.getElementById('forced-mfa-token');
+                if (tokenEl) tokenEl.value = '';
+
+                const alertEl = document.getElementById('forced-mfa-alert');
+                if (alertEl) alertEl.innerHTML = '';
+
+                const modalEl = document.getElementById('forcedMfaModal');
+                if (modalEl) {
+                    const forcedModal = bootstrap.Modal.getOrCreateInstance(modalEl);
+                    forcedModal.show();
+                }
                 return;
             }
 
