@@ -38,30 +38,32 @@ def track_email():
         data = request.get_json(silent=True) or request.form or {}
         sender = (data.get('sender') or '').strip()
         recipient = (data.get('recipient') or '').strip()
+        subject = (data.get('subject') or '').strip()
         email_query = (data.get('email') or '').strip()
     else:
         sender = (request.args.get('sender') or '').strip()
         recipient = (request.args.get('recipient') or '').strip()
+        subject = (request.args.get('subject') or '').strip()
         email_query = (request.args.get('email') or '').strip()
 
     # Fallback de compatibilidade
-    if not sender and not recipient and email_query:
+    if not sender and not recipient and not subject and email_query:
         sender = email_query
 
-    if not sender and not recipient:
-        return jsonify({'success': False, 'message': 'Informe o e-mail de origem (De) ou de destino (Para) para rastrear.'}), 400
+    if not sender and not recipient and not subject:
+        return jsonify({'success': False, 'message': 'Informe o remetente (De), destinatário (Para) ou assunto para rastrear.'}), 400
 
     try:
-        # 1. Leitura direta do arquivo de log em Python puro (linha por linha)
+        # 1. Leitura do arquivo de log via subprocess com sudo cat
         log_lines = []
-        if os.path.exists(MAIL_LOG_PATH):
-            try:
-                with open(MAIL_LOG_PATH, 'r', encoding='utf-8', errors='ignore') as f:
-                    log_lines = [line.strip() for line in f if line.strip()]
-            except Exception as read_err:
-                log_lines = []
+        try:
+            log_data = subprocess.run(['sudo', 'cat', MAIL_LOG_PATH], capture_output=True, text=True, errors='ignore', timeout=20)
+            if log_data.stdout:
+                log_lines = [line.strip() for line in log_data.stdout.split('\n') if line.strip()]
+        except Exception as read_err:
+            log_lines = []
 
-        # Fallback para journalctl se o arquivo mail.log nao existir ou nao puder ser lido
+        # Fallback para journalctl se mail.log estiver vazio
         if not log_lines:
             res = run_cmd(['sudo', 'journalctl', '-u', 'postfix', '-u', 'amavis', '-u', 'dovecot', '-n', '3000', '--no-pager'])
             if res['stdout']:
@@ -72,17 +74,17 @@ def track_email():
                 'success': True,
                 'sender': sender,
                 'recipient': recipient,
+                'subject': subject,
                 'found_queue_ids': [],
                 'total_matches': 0,
                 'events': [{'raw': 'Nenhuma jornada encontrada para estes parâmetros.', 'type': 'INFO'}],
                 'raw_text': 'Nenhuma jornada encontrada para estes parâmetros.'
             })
 
-        # 1. Mapeamento Total (Agrupamento por Queue ID e extração de Message-ID)
+        # 2. Mapeamento Total (Agrupamento por Queue ID e extração de Message-ID)
         linhas_por_qid = {}
         msgid_por_qid = {}
 
-        # Regex flexível para capturar Queue ID do Postfix e Amavis (suportando a-z minúsculo, ex: 4hJJgV5Txsz4X)
         qid_regex = re.compile(r'(?:\s|^)([a-zA-Z0-9]{8,16}):(?:\s|$)|(?:\s|^)\(([a-zA-Z0-9]{8,16})\)(?:\s|$)')
         msgid_regex = re.compile(r'message-id=<([^>]+)>', re.IGNORECASE)
 
@@ -99,15 +101,15 @@ def track_email():
                         linhas_por_qid[qid] = []
                     linhas_por_qid[qid].append(line)
 
-                    # Tenta extrair Message-ID se presente na linha
                     m_msg = msgid_regex.search(line)
                     if m_msg:
                         msgid_por_qid[qid] = m_msg.group(1).lower().strip()
 
         sender_lower = sender.lower() if sender else ""
         recipient_lower = recipient.lower() if recipient else ""
+        subject_lower = subject.lower() if subject else ""
 
-        # 2. Busca Inicial (Filtragem por remetente/destinatário)
+        # 3. Busca Inicial (Filtragem por remetente/destinatário/assunto)
         qids_alvo = set()
 
         for qid, linhas in linhas_por_qid.items():
@@ -125,22 +127,24 @@ def track_email():
                                    f"<{recipient_lower}>" in bloco_lower or 
                                    f"to={recipient_lower}" in bloco_lower)
 
-            if match_sender and match_recipient:
+            match_subject = True
+            if subject_lower:
+                match_subject = subject_lower in bloco_lower
+
+            if match_sender and match_recipient and match_subject:
                 qids_alvo.add(qid)
 
-        # 3. A Ponte do Amavis (Integração via Message-ID)
+        # 4. A Ponte do Amavis (Integração via Message-ID)
         target_msg_ids = set()
         for qid in qids_alvo:
             if qid in msgid_por_qid:
                 target_msg_ids.add(msgid_por_qid[qid])
 
         if target_msg_ids:
-            # Adiciona todos os QIDs que compartilham do mesmo Message-ID
             for qid, msgid in msgid_por_qid.items():
                 if msgid in target_msg_ids:
                     qids_alvo.add(qid)
 
-            # Adiciona QIDs onde o Message-ID apareça no bloco de texto
             for qid, linhas in linhas_por_qid.items():
                 bloco_lower = "\n".join(linhas).lower()
                 for mid in target_msg_ids:
@@ -148,21 +152,43 @@ def track_email():
                         qids_alvo.add(qid)
                         break
 
-        if not qids_alvo:
+        # 5. Validação final para garantir filtro de assunto nos blocos
+        final_qids_alvo = set()
+        for qid in qids_alvo:
+            linhas = linhas_por_qid.get(qid, [])
+            bloco_lower = "\n".join(linhas).lower()
+
+            if subject_lower:
+                has_sub = subject_lower in bloco_lower
+                if not has_sub:
+                    qid_msgid = msgid_por_qid.get(qid)
+                    if qid_msgid:
+                        for partner_qid in qids_alvo:
+                            if msgid_por_qid.get(partner_qid) == qid_msgid:
+                                partner_bloco = "\n".join(linhas_por_qid.get(partner_qid, [])).lower()
+                                if subject_lower in partner_bloco:
+                                    has_sub = True
+                                    break
+                if not has_sub:
+                    continue
+
+            final_qids_alvo.add(qid)
+
+        if not final_qids_alvo:
             return jsonify({
                 'success': True,
                 'sender': sender,
                 'recipient': recipient,
+                'subject': subject,
                 'found_queue_ids': [],
                 'total_matches': 0,
                 'events': [{'raw': 'Nenhuma jornada encontrada para estes parâmetros.', 'type': 'INFO'}],
                 'raw_text': 'Nenhuma jornada encontrada para estes parâmetros.'
             })
 
-        # Preserva a ordem cronológica de aparição dos QIDs
-        ordered_approved_qids = [q for q in linhas_por_qid.keys() if q in qids_alvo]
+        ordered_approved_qids = [q for q in linhas_por_qid.keys() if q in final_qids_alvo]
 
-        # 4. Renderização com separadores visuais
+        # 6. Renderização com separadores visuais
         journey_events = []
         raw_text_parts = []
 
@@ -182,7 +208,7 @@ def track_email():
                     event_type = 'AMAVIS_SCAN'
                 journey_events.append({'raw': line, 'type': event_type})
 
-            raw_text_parts.append("") # Linha em branco entre blocos
+            raw_text_parts.append("")
 
         raw_text_output = "\n".join(raw_text_parts)
 
@@ -190,6 +216,7 @@ def track_email():
             'success': True,
             'sender': sender,
             'recipient': recipient,
+            'subject': subject,
             'found_queue_ids': ordered_approved_qids,
             'total_matches': len(journey_events),
             'events': journey_events[-300:],

@@ -785,21 +785,25 @@
                                 <p class="text-muted small mb-3">Filtra eventos em <code>/var/log/mail.log</code> por remetente e/ou destinatário correlacionando Queue IDs do Postfix.</p>
 
                                 <div class="row g-2 mb-3">
-                                    <div class="col-md-5">
+                                    <div class="col-md-4">
                                         <label class="form-label small text-muted fw-semibold mb-1">Remetente (De):</label>
                                         <input type="email" id="track-sender-input" class="form-control font-monospace" placeholder="remetente@parceiro.com.br" onkeyup="if(event.key==='Enter') trackEmail()">
                                     </div>
-                                    <div class="col-md-5">
+                                    <div class="col-md-4">
                                         <label class="form-label small text-muted fw-semibold mb-1">Destinatário (Para):</label>
                                         <input type="email" id="track-recipient-input" class="form-control font-monospace" placeholder="destino@empresa.com.br" onkeyup="if(event.key==='Enter') trackEmail()">
                                     </div>
-                                    <div class="col-md-2 d-flex align-items-end">
+                                    <div class="col-md-3">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Assunto Contém (Opcional):</label>
+                                        <input type="text" id="track-subject-input" class="form-control font-monospace" placeholder="ex: Reunião..." onkeyup="if(event.key==='Enter') trackEmail()">
+                                    </div>
+                                    <div class="col-md-1 d-flex align-items-end">
                                         <button class="btn btn-primary w-100 fw-bold" onclick="trackEmail()"><i class="bi bi-search"></i></button>
                                     </div>
                                 </div>
 
                                 <div id="track-results" class="log-terminal flex-grow-1" style="background-color: #0a0a0a; color: #00FF00 !important; font-family: monospace; padding: 15px; border-radius: 5px; max-height: 500px; overflow-y: auto;">
-                                    <span style="color: #00FF00 !important;">Informe o remetente (De) ou destinatário (Para) para consultar os logs do Postfix...</span>
+                                    <span style="color: #00FF00 !important;">Informe o remetente (De), destinatário (Para) ou assunto para consultar os logs do Postfix...</span>
                                 </div>
                             </div>
                         </div>
@@ -2344,12 +2348,14 @@
     async function trackEmail() {
         const senderEl = document.getElementById('track-sender-input');
         const recipientEl = document.getElementById('track-recipient-input');
+        const subjectEl = document.getElementById('track-subject-input');
         const sender = senderEl ? senderEl.value.trim() : '';
         const recipient = recipientEl ? recipientEl.value.trim() : '';
+        const subject = subjectEl ? subjectEl.value.trim() : '';
         const container = document.getElementById('track-results');
 
-        if (!sender && !recipient) {
-            container.innerHTML = '<span style="color: #00FF00 !important;"><i class="bi bi-exclamation-circle me-1"></i> Informe ao menos o e-mail de origem (De) ou destinatário (Para).</span>';
+        if (!sender && !recipient && !subject) {
+            container.innerHTML = '<span style="color: #00FF00 !important;"><i class="bi bi-exclamation-circle me-1"></i> Informe ao menos o remetente (De), destinatário (Para) ou assunto.</span>';
             return;
         }
 
@@ -2359,7 +2365,7 @@
             const data = await fetchJson('/api/troubleshooting/email-tracking', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sender, recipient, email: sender || recipient })
+                body: JSON.stringify({ sender, recipient, subject, email: sender || recipient || subject })
             });
 
             const rawContent = data.raw_text || (data.events ? data.events.map(ev => ev.raw).join('\n') : '');
