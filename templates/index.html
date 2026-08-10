@@ -2624,6 +2624,24 @@
                         }
 
                         const safeSender = (t.remetente || '').replace(/'/g, "\\'");
+                        const lowerSender = (t.remetente || '').toLowerCase().trim();
+                        const isInternalSender = lowerSender.includes('@zrti.') || 
+                                                 lowerSender === 'root' || 
+                                                 lowerSender === 'suporte' || 
+                                                 lowerSender.startsWith('root@') || 
+                                                 lowerSender.startsWith('suporte@') || 
+                                                 lowerSender === 'postmaster' || 
+                                                 lowerSender === 'mailer-daemon' || 
+                                                 lowerSender === 'n/a' || 
+                                                 lowerSender === '';
+
+                        const blockBtnHtml = isInternalSender
+                            ? `<button class="btn btn-secondary btn-sm px-2 py-0.5 fs-7 me-1 fw-bold opacity-50" disabled title="Bloqueio desabilitado para conta/domínio interno de sistema">
+                                    <i class="fas fa-ban me-1"></i> Bloquear
+                               </button>`
+                            : `<button class="btn btn-danger btn-sm px-2 py-0.5 fs-7 me-1 fw-bold" onclick="soarAction('block', '${safeSender}')" title="Bloquear Remetente">
+                                    <i class="fas fa-ban me-1"></i> Bloquear
+                               </button>`;
 
                         const tr = document.createElement('tr');
                         tr.className = 'border-bottom border-dark-subtle';
@@ -2635,9 +2653,7 @@
                             <td class="py-2"><span class="badge bg-dark border border-secondary text-info">${t.score || '-'}</span></td>
                             <td class="py-2">${verdictBadge}</td>
                             <td class="py-2 text-end pe-3 text-nowrap">
-                                <button class="btn btn-danger btn-sm px-2 py-0.5 fs-7 me-1 fw-bold" onclick="soarAction('block', '${safeSender}')" title="Bloquear Remetente">
-                                    <i class="fas fa-ban me-1"></i> Bloquear
-                                </button>
+                                ${blockBtnHtml}
                                 <button class="btn btn-warning btn-sm px-2 py-0.5 fs-7 me-1 text-dark fw-bold" onclick="soarAction('spam', '${safeSender}')" title="Marcar como SPAM">
                                     <i class="fas fa-spider me-1"></i> Marcar SPAM
                                 </button>

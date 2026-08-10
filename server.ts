@@ -471,7 +471,8 @@ blacklist_from *@spammerdomain.net
     }
 
     const transacoes = matchingBlocks.map(blk => {
-      const blkFull = blk.lines.join("\n");
+      const lines = blk.lines;
+      const blkFull = lines.join("\n");
       const keyVal = blk.key || "";
       let qid = keyVal.replace(/^(qid|pid):/, "");
       if (!qid) {
@@ -479,28 +480,94 @@ blacklist_from *@spammerdomain.net
         qid = qm ? qm[1] : "NOQUEUE";
       }
 
-      const tsMatch = blkFull.match(/([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}|\d{2}:\d{2}:\d{2})/);
-      const data_hora = tsMatch ? tsMatch[1] : "N/A";
-
-      const fromMatch = blkFull.match(/(?:from=|<from>|From:)\s*<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9._%+-]+)>?/i);
-      let remetente = fromMatch ? fromMatch[1] : "";
-      if (!remetente || ["none", "null", "<>"].includes(remetente.toLowerCase())) {
-        remetente = blkFull.toLowerCase().includes("from=<>") ? "<> (Bounce)" : "N/A";
+      const verdictKeywords = [
+        "passed clean", "passed spam", "passed", "status=sent", "bounced",
+        "reject:", "chkrootkit", "auth failed", "alert", "warning", "hits:"
+      ];
+      let targetLine = lines.find(line => {
+        const lLow = line.toLowerCase();
+        return verdictKeywords.some(kw => lLow.includes(kw));
+      });
+      if (!targetLine) {
+        targetLine = lines[lines.length - 1] || blkFull;
       }
 
-      const toMatch = blkFull.match(/(?:to=|<to>|To:)\s*<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9._%+-]+)>?/i);
-      const destinatario = toMatch ? toMatch[1] : "N/A";
+      const tsMatch = targetLine.match(/([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}|\d{2}:\d{2}:\d{2})/)
+        || (lines[0] && lines[0].match(/([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}|\d{2}:\d{2}:\d{2})/));
+      const data_hora = tsMatch ? tsMatch[1] : "N/A";
 
-      const scoreMatch = blkFull.match(/(?:hits|score)\s*[:=]\s*([-\d\.]+)/i);
-      const score = scoreMatch ? scoreMatch[1] : "-";
+      const extractSender = (text: string) => {
+        const m1 = text.match(/ESMTP\s*<([^>]+)>\s*->/i);
+        if (m1) return m1[1].trim();
+        const m2 = text.match(/from=<([^>]+)>/i);
+        if (m2) return m2[1].trim();
+        const m3 = text.match(/From:\s*<([^>]+)>/i);
+        if (m3) return m3[1].trim();
+        const m4 = text.match(/from=\s*<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9._%+-]+)>?/i);
+        if (m4) return m4[1].trim();
+        return null;
+      };
 
-      const blkLow = blkFull.toLowerCase();
+      let remetente = extractSender(targetLine);
+      if (!remetente) {
+        for (const line of lines) {
+          remetente = extractSender(line);
+          if (remetente) break;
+        }
+      }
+      if (!remetente || ["none", "null", "<>"].includes(remetente.toLowerCase())) {
+        remetente = blkFull.toLowerCase().includes("from=<>") || (targetLine || "").includes("<>") ? "<> (Bounce)" : "N/A";
+      }
+
+      const extractRecipient = (text: string) => {
+        const m1 = text.match(/->\s*<([^>]+)>/i);
+        if (m1) return m1[1].trim();
+        const m2 = text.match(/to=<([^>]+)>/i);
+        if (m2) return m2[1].trim();
+        const m3 = text.match(/To:\s*<([^>]+)>/i);
+        if (m3) return m3[1].trim();
+        const m4 = text.match(/to=\s*<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9._%+-]+)>?/i);
+        if (m4) return m4[1].trim();
+        return null;
+      };
+
+      let destinatario = extractRecipient(targetLine);
+      if (!destinatario) {
+        for (const line of lines) {
+          destinatario = extractRecipient(line);
+          if (destinatario) break;
+        }
+      }
+      if (!destinatario || ["none", "null"].includes(destinatario.toLowerCase())) {
+        destinatario = "N/A";
+      }
+
+      const extractScore = (text: string) => {
+        const m1 = text.match(/Hits:\s*([-\d\.]+)/i);
+        if (m1) return m1[1];
+        const m2 = text.match(/score=([-\d\.]+)/i);
+        if (m2) return m2[1];
+        const m3 = text.match(/(?:hits|score)\s*[:=]\s*([-\d\.]+)/i);
+        if (m3) return m3[1];
+        return null;
+      };
+
+      let score = extractScore(targetLine);
+      if (!score) {
+        for (const line of lines) {
+          score = extractScore(line);
+          if (score) break;
+        }
+      }
+      if (!score) score = "-";
+
+      const tLow = (targetLine + "\n" + blkFull).toLowerCase();
       let veredito = "CLEAN";
-      if (blkLow.includes("passed spam") || blkLow.includes("spam") || blkLow.includes("bounced")) {
+      if (tLow.includes("passed spam") || tLow.includes("spam") || tLow.includes("bounced")) {
         veredito = "SPAM";
-      } else if (blkLow.includes("alert") || blkLow.includes("warning") || blkLow.includes("chkrootkit") || blkLow.includes("auth failed") || blkLow.includes("reject")) {
+      } else if (tLow.includes("alert") || tLow.includes("warning") || tLow.includes("chkrootkit") || tLow.includes("auth failed") || tLow.includes("reject")) {
         veredito = "ALERTA";
-      } else if (blkLow.includes("passed clean") || blkLow.includes("clean") || blkLow.includes("sent") || blkLow.includes("status=sent")) {
+      } else if (tLow.includes("passed clean") || tLow.includes("clean") || tLow.includes("sent") || tLow.includes("status=sent")) {
         veredito = "CLEAN";
       }
 

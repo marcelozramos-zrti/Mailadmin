@@ -221,7 +221,8 @@ def track_email():
         # Extração Estruturada de Transações para a Tabela SOAR
         transacoes = []
         for blk in matching_blocks:
-            blk_full = "\n".join(blk['lines'])
+            lines = blk['lines']
+            blk_full = "\n".join(lines)
 
             # 1. Queue ID / Key
             key_val = blk.get('key') or ''
@@ -233,34 +234,98 @@ def track_email():
                 qm = re.search(r'\b([0-9A-Za-z]{8,16}):', blk_full)
                 qid = qm.group(1) if qm else "NOQUEUE"
 
-            # 2. Data / Hora
-            ts_m = re.search(r'([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}|\d{2}:\d{2}:\d{2})', blk_full)
+            # 2. Encontrar a linha exata do Veredito / Entrega / Processamento
+            verdict_keywords = [
+                'passed clean', 'passed spam', 'passed', 'status=sent', 'bounced',
+                'reject:', 'chkrootkit', 'auth failed', 'alert', 'warning', 'hits:'
+            ]
+            target_line = None
+            for line in lines:
+                l_low = line.lower()
+                if any(kw in l_low for kw in verdict_keywords):
+                    target_line = line
+                    break
+
+            if not target_line:
+                target_line = lines[-1] if lines else blk_full
+
+            # 3. Data / Hora (linha-alvo ou primeira linha)
+            ts_m = re.search(r'([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}|\d{2}:\d{2}:\d{2})', target_line)
+            if not ts_m and lines:
+                ts_m = re.search(r'([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}|\d{2}:\d{2}:\d{2})', lines[0])
             data_hora = ts_m.group(1) if ts_m else "N/A"
 
-            # 3. Remetente (from=<...>)
-            from_m = re.search(r'(?:from=|<from>|From:)\s*<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9._%+-]+)>?', blk_full, re.IGNORECASE)
-            remetente = from_m.group(1) if (from_m and from_m.group(1)) else ""
+            # 4. Extração do Remetente (prioriza target_line, depois busca no bloco)
+            def extract_sender(text):
+                # ESMTP <sender> -> ou from=<sender> ou From: <sender>
+                m1 = re.search(r'ESMTP\s*<([^>]+)>\s*->', text, re.IGNORECASE)
+                if m1: return m1.group(1).strip()
+                m2 = re.search(r'from=<([^>]+)>', text, re.IGNORECASE)
+                if m2: return m2.group(1).strip()
+                m3 = re.search(r'From:\s*<([^>]+)>', text, re.IGNORECASE)
+                if m3: return m3.group(1).strip()
+                m4 = re.search(r'from=\s*<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9._%+-]+)>?', text, re.IGNORECASE)
+                if m4: return m4.group(1).strip()
+                return None
+
+            remetente = extract_sender(target_line)
+            if not remetente:
+                for line in lines:
+                    remetente = extract_sender(line)
+                    if remetente: break
+
             if not remetente or remetente.lower() in ['none', 'null', '<>']:
-                if 'from=<>' in blk_full.lower():
+                if 'from=<>' in blk_full.lower() or '<>' in (target_line or ''):
                     remetente = "<> (Bounce)"
                 else:
                     remetente = "N/A"
 
-            # 4. Destinatário (to=<...>)
-            to_m = re.search(r'(?:to=|<to>|To:)\s*<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9._%+-]+)>?', blk_full, re.IGNORECASE)
-            destinatario = to_m.group(1) if (to_m and to_m.group(1)) else "N/A"
+            # 5. Extração do Destinatário (prioriza target_line, depois busca no bloco)
+            def extract_recipient(text):
+                # -> <recipient> ou to=<recipient> ou To: <recipient>
+                m1 = re.search(r'->\s*<([^>]+)>', text, re.IGNORECASE)
+                if m1: return m1.group(1).strip()
+                m2 = re.search(r'to=<([^>]+)>', text, re.IGNORECASE)
+                if m2: return m2.group(1).strip()
+                m3 = re.search(r'To:\s*<([^>]+)>', text, re.IGNORECASE)
+                if m3: return m3.group(1).strip()
+                m4 = re.search(r'to=\s*<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9._%+-]+)>?', text, re.IGNORECASE)
+                if m4: return m4.group(1).strip()
+                return None
 
-            # 5. Score (Hits: ... ou score=...)
-            score_m = re.search(r'(?:hits|score)\s*[:=]\s*([-\d\.]+)', blk_full, re.IGNORECASE)
-            score = score_m.group(1) if score_m else "-"
+            destinatario = extract_recipient(target_line)
+            if not destinatario:
+                for line in lines:
+                    destinatario = extract_recipient(line)
+                    if destinatario: break
+            if not destinatario or destinatario.lower() in ['none', 'null']:
+                destinatario = "N/A"
 
-            # 6. Veredito (Passed CLEAN, Passed SPAM, [chkrootkit] alert, etc.)
-            blk_low = blk_full.lower()
-            if 'passed spam' in blk_low or 'spam' in blk_low or 'bounced' in blk_low:
+            # 6. Extração do Score (Hits: ... ou score=...)
+            def extract_score(text):
+                m1 = re.search(r'Hits:\s*([-\d\.]+)', text, re.IGNORECASE)
+                if m1: return m1.group(1)
+                m2 = re.search(r'score=([-\d\.]+)', text, re.IGNORECASE)
+                if m2: return m2.group(1)
+                m3 = re.search(r'(?:hits|score)\s*[:=]\s*([-\d\.]+)', text, re.IGNORECASE)
+                if m3: return m3.group(1)
+                return None
+
+            score = extract_score(target_line)
+            if not score:
+                for line in lines:
+                    score = extract_score(line)
+                    if score: break
+            if not score:
+                score = "-"
+
+            # 7. Veredito
+            t_low = (target_line + "\n" + blk_full).lower()
+            if 'passed spam' in t_low or 'spam' in t_low or 'bounced' in t_low:
                 veredito = "SPAM"
-            elif 'alert' in blk_low or 'warning' in blk_low or 'chkrootkit' in blk_low or 'auth failed' in blk_low or 'reject' in blk_low:
+            elif 'alert' in t_low or 'warning' in t_low or 'chkrootkit' in t_low or 'auth failed' in t_low or 'reject' in t_low:
                 veredito = "ALERTA"
-            elif 'passed clean' in blk_low or 'clean' in blk_low or 'sent' in blk_low or 'status=sent' in blk_low:
+            elif 'passed clean' in t_low or 'clean' in t_low or 'sent' in t_low or 'status=sent' in t_low:
                 veredito = "CLEAN"
             else:
                 veredito = "CLEAN"
