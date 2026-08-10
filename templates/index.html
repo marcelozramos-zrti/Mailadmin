@@ -809,44 +809,30 @@
                                 </div>
                                 <p class="text-muted small mb-3">Investigue incidentes passados, rastreie mensagens perdidas e analise o status de entrega de e-mails em períodos específicos.</p>
 
-                                <!-- Barra de Busca Flexível com Novos Filtros de Metadados -->
+                                <!-- Barra de Busca com Filtros de Data/Hora + Power Query (Busca Avançada) -->
                                 <div class="row g-2 mb-3 align-items-end">
                                     <div class="col-md-3 col-lg-2">
-                                        <label class="form-label small text-muted fw-semibold mb-1">Data da Busca:</label>
-                                        <input type="date" id="log-date-input" class="form-control font-monospace">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Data Inicial:</label>
+                                        <input type="date" id="log-start-date-input" class="form-control font-monospace">
                                     </div>
                                     <div class="col-md-2 col-lg-2">
                                         <label class="form-label small text-muted fw-semibold mb-1">Hora Inicial:</label>
                                         <input type="time" id="log-start-time-input" class="form-control font-monospace" value="00:00">
                                     </div>
+                                    <div class="col-md-3 col-lg-2">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Data Final:</label>
+                                        <input type="date" id="log-end-date-input" class="form-control font-monospace">
+                                    </div>
                                     <div class="col-md-2 col-lg-2">
                                         <label class="form-label small text-muted fw-semibold mb-1">Hora Final:</label>
                                         <input type="time" id="log-end-time-input" class="form-control font-monospace" value="23:59">
                                     </div>
-                                    <div class="col-md-3 col-lg-3">
+                                    <div class="col-md-2 col-lg-2">
                                         <label class="form-label small text-muted fw-semibold mb-1">Lentes Rápidas:</label>
                                         <select id="log-quick-lens-select" class="form-select font-monospace">
                                             <option value="" selected>Nenhuma</option>
                                             <option value="smtp_attacks">Ataques SMTP (Bots/Exploits)</option>
                                             <option value="auth_failures">Falhas de Autenticação</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-2 col-lg-3">
-                                        <label class="form-label small text-muted fw-semibold mb-1">Status da Entrega:</label>
-                                        <select id="log-status-select" class="form-select font-monospace">
-                                            <option value="" selected>Todos os Status</option>
-                                            <option value="sent">Entregue (sent)</option>
-                                            <option value="bounced">Rejeitado (bounced)</option>
-                                            <option value="deferred">Adiado (deferred)</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-2 col-lg-2">
-                                        <label class="form-label small text-muted fw-semibold mb-1">Serviço:</label>
-                                        <select id="log-service-select" class="form-select font-monospace">
-                                            <option value="" selected>Todos os Serviços</option>
-                                            <option value="postfix">Postfix (MTA)</option>
-                                            <option value="amavis">Amavis (Antispam)</option>
-                                            <option value="dovecot">Dovecot (IMAP/POP3)</option>
                                         </select>
                                     </div>
                                     <div class="col-md-2 col-lg-2">
@@ -858,24 +844,39 @@
                                             <option value="2000">2000 linhas</option>
                                         </select>
                                     </div>
-                                    <div class="col-md-4 col-lg-4">
-                                        <label class="form-label small text-muted fw-semibold mb-1">Caixa Postal (De ou Para):</label>
-                                        <input type="text" id="log-mailbox-input" class="form-control font-monospace" placeholder="ex: usuario@empresa.com.br" onkeyup="if(event.key==='Enter') trackEmail()">
+                                    <div class="col-md-10 col-lg-10">
+                                        <label class="form-label small text-dark fw-bold mb-1">Power Query (Busca Avançada):</label>
+                                        <div class="input-group">
+                                            <span class="input-group-text bg-light text-primary border-primary-subtle fw-bold font-monospace"><i class="bi bi-search me-1"></i> Query</span>
+                                            <input type="text" id="log-power-query-input" class="form-control form-control-lg font-monospace border-primary-subtle fs-6" placeholder="from:usuario@empresa.com.br prot:smtpd status:bounced" onkeyup="if(event.key==='Enter') trackEmail()">
+                                        </div>
                                     </div>
-                                    <div class="col-md-4 col-lg-4">
-                                        <label class="form-label small text-muted fw-semibold mb-1">Termo de Busca Livre:</label>
-                                        <input type="text" id="log-search-term-input" class="form-control font-monospace" placeholder="ex: 250 OK, bounced, Connection reset, IP..." onkeyup="if(event.key==='Enter') trackEmail()">
-                                    </div>
-                                    <div class="col-md-4 col-lg-2">
-                                        <button class="btn btn-primary w-100 fw-bold" onclick="trackEmail()" title="Pesquisar Logs">
-                                            <i class="bi bi-search me-1"></i> Pesquisar
+                                    <div class="col-md-2 col-lg-2">
+                                        <button class="btn btn-primary btn-lg w-100 fw-bold fs-6" onclick="trackEmail()" title="Executar Power Query">
+                                            <i class="bi bi-play-fill me-1"></i> Executar
                                         </button>
                                     </div>
                                 </div>
 
                                 <!-- Terminal de Exibição de Logs com Fundo Escuro e Letras Claras -->
                                 <div id="track-results" class="log-terminal" style="background-color: #0a0a0a; color: #FFFFFF !important; font-family: monospace; padding: 15px; border-radius: 8px; min-height: 280px; max-height: 550px; overflow-y: auto; text-align: left !important; word-break: break-all; white-space: pre-wrap;">
-                                    <span style="color: #9ca3af !important; display: block;">Selecione a data e informe os termos para realizar a busca flexível nos logs do servidor...</span>
+                                    <span style="color: #9ca3af !important; display: block;">Selecione o intervalo de data/hora e digite sua Power Query para realizar a busca avançada nos logs do servidor...</span>
+                                </div>
+
+                                <!-- Cola de Comandos (Power Query Cheat Sheet) -->
+                                <div class="mt-3 p-2.5 px-3 bg-light rounded-3 border text-muted small font-monospace">
+                                    <div class="fw-bold text-dark mb-1 d-flex align-items-center gap-1">
+                                        <i class="bi bi-terminal-fill text-primary"></i> Como usar a Power Query:
+                                    </div>
+                                    <div class="d-flex flex-wrap gap-3 align-items-center my-1">
+                                        <div><code class="text-primary fw-bold">from:</code> <span class="text-secondary">(Ex: from:comercial@)</span></div>
+                                        <div><code class="text-primary fw-bold">to:</code> <span class="text-secondary">(Ex: to:cliente@)</span></div>
+                                        <div><code class="text-primary fw-bold">prot:</code> <span class="text-secondary">(Ex: prot:smtpd, prot:amavis, prot:dovecot)</span></div>
+                                        <div><code class="text-primary fw-bold">status:</code> <span class="text-secondary">(Ex: status:sent, status:bounced, status:deferred)</span></div>
+                                    </div>
+                                    <div class="text-secondary border-top pt-1 mt-1 fs-7">
+                                        <i class="bi bi-info-circle me-1 text-primary"></i> <strong>Busca livre:</strong> Qualquer termo digitado fora das chaves acima é pesquisado diretamente no texto do log (Ex: <code>164.92.189.151</code>, <code>Connection reset</code>).
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1813,15 +1814,15 @@
     async function fetchJson(url, options = {}) {
         let res;
         let lastErr;
-        for (let attempt = 0; attempt < 3; attempt++) {
+        for (let attempt = 0; attempt < 5; attempt++) {
             try {
                 res = await fetch(url, options);
                 lastErr = null;
                 break;
             } catch (netErr) {
                 lastErr = netErr;
-                if (attempt < 2) {
-                    await new Promise(r => setTimeout(r, (attempt + 1) * 400));
+                if (attempt < 4) {
+                    await new Promise(r => setTimeout(r, (attempt + 1) * 300));
                 }
             }
         }
@@ -2087,10 +2088,10 @@
                 }
             }
         } catch (e) {
-            console.error("Erro ao carregar telemetria:", e);
+            console.warn("Telemetria indisponível no momento:", e.message);
             const procTbody = document.getElementById('top-processes-tbody');
-            if (procTbody) {
-                procTbody.innerHTML = `<tr><td colspan="4" class="text-danger font-monospace text-center py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro de Telemetria (Python / psutil): ${e.message}</td></tr>`;
+            if (procTbody && procTbody.children.length === 0) {
+                procTbody.innerHTML = `<tr><td colspan="4" class="text-warning font-monospace text-center py-3"><i class="bi bi-arrow-repeat me-1 spin"></i> Conectando à telemetria (${e.message})...</td></tr>`;
             }
         }
     }
@@ -2121,12 +2122,12 @@
                 }
             }
         } catch (e) {
-            console.error("Erro ao carregar status de serviços:", e);
+            console.warn("Status de serviços indisponível no momento:", e.message);
             const dot = document.getElementById('global-status-dot');
             const txt = document.getElementById('global-status-text');
             if (dot && txt) {
-                dot.className = 'status-dot pulse-rose';
-                txt.textContent = 'Erro de Conexão API';
+                dot.className = 'status-dot pulse-amber';
+                txt.textContent = 'Conectando ao Servidor...';
             }
         }
     }
@@ -2486,61 +2487,61 @@
     }
 
     async function trackEmail() {
-        const dateEl = document.getElementById('log-date-input');
+        const startDateEl = document.getElementById('log-start-date-input') || document.getElementById('log-date-input');
+        const endDateEl = document.getElementById('log-end-date-input');
         const startTimeEl = document.getElementById('log-start-time-input');
         const endTimeEl = document.getElementById('log-end-time-input');
+        const powerQueryEl = document.getElementById('log-power-query-input');
         const quickLensEl = document.getElementById('log-quick-lens-select');
-        const statusEl = document.getElementById('log-status-select');
-        const serviceEl = document.getElementById('log-service-select');
-        const mailboxEl = document.getElementById('log-mailbox-input');
-        const searchTermEl = document.getElementById('log-search-term-input');
         const limitEl = document.getElementById('log-limit-select');
 
-        let dateVal = dateEl ? dateEl.value : '';
-        if (!dateVal) {
+        let startDateVal = startDateEl ? startDateEl.value : '';
+        if (!startDateVal) {
             const today = new Date().toISOString().split('T')[0];
-            dateVal = today;
-            if (dateEl) dateEl.value = today;
+            startDateVal = today;
+            if (startDateEl) startDateEl.value = today;
+        }
+
+        let endDateVal = endDateEl ? endDateEl.value : '';
+        if (!endDateVal) {
+            endDateVal = startDateVal;
+            if (endDateEl) endDateEl.value = startDateVal;
         }
 
         const start_time = startTimeEl ? startTimeEl.value : '00:00';
         const end_time = endTimeEl ? endTimeEl.value : '23:59';
+        const power_query = powerQueryEl ? powerQueryEl.value.trim() : '';
         const quick_lens = quickLensEl ? quickLensEl.value : '';
-        const delivery_status = statusEl ? statusEl.value : '';
-        const service = serviceEl ? serviceEl.value : '';
-        const mailbox = mailboxEl ? mailboxEl.value.trim() : '';
-        const search_term = searchTermEl ? searchTermEl.value.trim() : '';
         const limit = limitEl ? limitEl.value : '500';
 
         const container = document.getElementById('track-results');
         if (!container) return;
 
-        container.innerHTML = '<span style="color: #60a5fa !important;"><span class="spinner-border spinner-border-sm me-2"></span> Pesquisando registros nos logs do servidor...</span>';
+        container.innerHTML = '<span style="color: #60a5fa !important;"><span class="spinner-border spinner-border-sm me-2"></span> Processando Power Query nos logs do servidor...</span>';
 
         try {
             const data = await fetchJson('/api/troubleshooting/email-tracking', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    date: dateVal,
-                    data_busca: dateVal,
-                    period: dateVal,
+                    date: startDateVal,
+                    start_date: startDateVal,
+                    data_inicio: startDateVal,
+                    data_busca: startDateVal,
+                    end_date: endDateVal,
+                    data_fim: endDateVal,
                     start_time,
                     hora_inicial: start_time,
                     end_time,
                     hora_final: end_time,
+                    power_query,
+                    query: power_query,
+                    pq: power_query,
+                    search_term: power_query,
                     quick_lens,
                     event_lens: quick_lens,
                     lente: quick_lens,
-                    delivery_status,
-                    service,
-                    mailbox,
-                    search_term,
                     limit,
-                    status_entrega: delivery_status,
-                    servico: service,
-                    caixa_postal: mailbox,
-                    termo_busca: search_term,
                     limite: limit
                 })
             });

@@ -358,14 +358,28 @@ blacklist_from *@spammerdomain.net
   // Tracking de E-mail (/var/log/mail.log)
   app.all("/api/troubleshooting/email-tracking", (req, res) => {
     const data = req.method === "POST" ? (req.body || {}) : req.query;
-    const date = String(data.date || data.data_busca || data.period || data.periodo || new Date().toISOString().split("T")[0]).trim();
+    const powerQuery = String(data.power_query || data.query || data.pq || data.search_term || data.termo_busca || "").trim();
+
+    const fromMatch = powerQuery.match(/\bfrom:([^\s]+)/i);
+    const toMatch = powerQuery.match(/\bto:([^\s]+)/i);
+    const protMatch = powerQuery.match(/\b(?:prot|service|servico):([^\s]+)/i);
+    const statusMatch = powerQuery.match(/\bstatus:([^\s]+)/i);
+
+    const queryFrom = fromMatch ? fromMatch[1].toLowerCase() : String(data.mailbox || data.caixa_postal || "").trim().toLowerCase();
+    const queryTo = toMatch ? toMatch[1].toLowerCase() : "";
+    const queryProt = protMatch ? protMatch[1].toLowerCase() : String(data.service || data.servico || "").trim().toLowerCase();
+    const queryStatus = statusMatch ? statusMatch[1].toLowerCase() : String(data.delivery_status || data.status_entrega || "").trim().toLowerCase();
+
+    let cleanQuery = powerQuery;
+    [fromMatch, toMatch, protMatch, statusMatch].forEach(m => {
+      if (m) cleanQuery = cleanQuery.replace(m[0], "");
+    });
+    const freeTerms = cleanQuery.split(/\s+/).map(t => t.trim().toLowerCase()).filter(Boolean);
+
+    const date = String(data.start_date || data.data_inicio || data.date || data.data_busca || data.period || new Date().toISOString().split("T")[0]).trim();
     const startTime = String(data.start_time || data.hora_inicial || "00:00").trim();
     const endTime = String(data.end_time || data.hora_final || "23:59").trim();
-    const quickLens = String(data.quick_lens || data.event_lens || data.lente || data.lente_rapida || "").trim().toLowerCase();
-    const delivery_status = String(data.delivery_status || data.status_entrega || "").trim().toLowerCase();
-    const service = String(data.service || data.servico || "").trim().toLowerCase();
-    const mailbox = String(data.mailbox || data.caixa_postal || data.sender || data.recipient || "").trim().toLowerCase();
-    const search_term = String(data.search_term || data.termo_busca || "").trim().toLowerCase();
+    const quickLens = String(data.quick_lens || data.event_lens || data.lente || "").trim().toLowerCase();
     const limit = parseInt(String(data.limit || data.limite || "500"), 10) || 500;
 
     const parts = date.split("-");
@@ -374,8 +388,8 @@ blacklist_from *@spammerdomain.net
       formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
     }
 
-    const sendAddr = mailbox || "usuario@empresa.com.br";
-    const recvAddr = "destino@cliente.com.br";
+    const sendAddr = queryFrom || "usuario@empresa.com.br";
+    const recvAddr = queryTo || "destino@cliente.com.br";
 
     const mockLines = [
       `${date} 10:14:02 mailserver postfix/smtpd[14201]: connect from mail-out.parceiro.com.br[198.51.100.12]`,
@@ -442,10 +456,14 @@ blacklist_from *@spammerdomain.net
         if (terms.length && !terms.some(t => blkText.includes(t))) continue;
       }
 
-      if (mailbox && !blkText.includes(mailbox)) continue;
-      if (search_term && !blkText.includes(search_term)) continue;
-      if (delivery_status && !blkText.includes(delivery_status)) continue;
-      if (service && !blkText.includes(service)) continue;
+      if (queryFrom && !blkText.includes(queryFrom)) continue;
+      if (queryTo && !blkText.includes(queryTo)) continue;
+      if (queryProt && !blkText.includes(queryProt)) continue;
+      if (queryStatus && !blkText.includes(queryStatus)) continue;
+
+      if (freeTerms.length > 0) {
+        if (!freeTerms.every(term => blkText.includes(term))) continue;
+      }
 
       filteredLines.push(...blk.lines);
     }
@@ -454,10 +472,11 @@ blacklist_from *@spammerdomain.net
       success: true,
       period: date,
       period_label: `Data: ${formattedDate}`,
-      mailbox,
-      search_term,
-      delivery_status,
-      service,
+      power_query: powerQuery,
+      query_from: queryFrom,
+      query_to: queryTo,
+      query_prot: queryProt,
+      query_status: queryStatus,
       limit,
       total_matches: filteredLines.length,
       lines: filteredLines.slice(-limit),

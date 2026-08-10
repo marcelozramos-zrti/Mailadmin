@@ -36,22 +36,39 @@ def run_cmd(cmd_list):
 @troubleshooting_bp.route('/email-tracking', methods=['GET', 'POST'])
 @login_required
 def track_email():
-    """Explorador de logs flexível baseado em data (YYYY-MM-DD), intervalo de horas, caixa postal, termo de busca, agrupamento por Queue ID / PID e limite de linhas."""
+    """Explorador de logs com Power Query (from:, to:, prot:, status: + busca livre), suporte a intervalo de datas/horas e agrupamento por bloco."""
     try:
         if request.method == 'POST':
             data = request.get_json(silent=True) or request.form or {}
         else:
             data = request.args or {}
 
-        # 3. Validação de Variáveis e Valores Default
-        date_param = (data.get('date') or data.get('data_busca') or data.get('period') or data.get('periodo') or '').strip().lower()
+        # 1. Extração do Power Query
+        power_query = (data.get('power_query') or data.get('query') or data.get('pq') or data.get('search_term') or data.get('termo_busca') or '').strip()
+
+        from_match = re.search(r'\bfrom:([^\s]+)', power_query, re.IGNORECASE)
+        to_match = re.search(r'\bto:([^\s]+)', power_query, re.IGNORECASE)
+        prot_match = re.search(r'\b(?:prot|service|servico):([^\s]+)', power_query, re.IGNORECASE)
+        status_match = re.search(r'\bstatus:([^\s]+)', power_query, re.IGNORECASE)
+
+        query_from = from_match.group(1).lower() if from_match else (data.get('mailbox') or data.get('caixa_postal') or '').strip().lower()
+        query_to = to_match.group(1).lower() if to_match else ''
+        query_prot = prot_match.group(1).lower() if prot_match else (data.get('service') or data.get('servico') or '').strip().lower()
+        query_status = status_match.group(1).lower() if status_match else (data.get('delivery_status') or data.get('status_entrega') or '').strip().lower()
+
+        clean_query = power_query
+        for m in [from_match, to_match, prot_match, status_match]:
+            if m:
+                clean_query = clean_query.replace(m.group(0), '')
+
+        free_terms = [t.strip().lower() for t in clean_query.split() if t.strip()]
+
+        # 2. Configurações Temporais e Limite
+        start_date_param = (data.get('start_date') or data.get('data_inicio') or data.get('date') or data.get('data_busca') or data.get('period') or '').strip().lower()
+        end_date_param = (data.get('end_date') or data.get('data_fim') or start_date_param or '').strip().lower()
         start_time = (data.get('start_time') or data.get('hora_inicial') or '00:00').strip()
         end_time = (data.get('end_time') or data.get('hora_final') or '23:59').strip()
-        quick_lens = (data.get('quick_lens') or data.get('event_lens') or data.get('lente') or data.get('lente_rapida') or '').strip().lower()
-        mailbox = (data.get('mailbox') or data.get('caixa_postal') or data.get('sender') or data.get('recipient') or data.get('email') or '').strip().lower()
-        search_term = (data.get('search_term') or data.get('termo_busca') or data.get('term') or data.get('subject') or '').strip().lower()
-        delivery_status = (data.get('delivery_status') or data.get('status_entrega') or data.get('status') or '').strip().lower()
-        service = (data.get('service') or data.get('servico') or data.get('service_filter') or '').strip().lower()
+        quick_lens = (data.get('quick_lens') or data.get('event_lens') or data.get('lente') or '').strip().lower()
 
         try:
             limit = int(data.get('limit') or data.get('limite') or 500)
@@ -62,70 +79,58 @@ def track_email():
             limit = 500
 
         today_obj = datetime.date.today()
-        today_iso = today_obj.strftime('%Y-%m-%d')
-        yesterday_iso = (today_obj - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
 
-        if date_param in ['yesterday', 'ontem', 'mail.log.1']:
-            data_buscada = yesterday_iso
-        elif date_param in ['today', 'hoje', 'mail.log', '']:
-            data_buscada = today_iso
-        else:
+        def parse_date(d_str):
+            if d_str in ['yesterday', 'ontem']:
+                return today_obj - datetime.timedelta(days=1)
+            elif d_str in ['today', 'hoje', '']:
+                return today_obj
             try:
-                parsed_dt = datetime.datetime.strptime(date_param, '%Y-%m-%d').date()
-                data_buscada = parsed_dt.strftime('%Y-%m-%d')
-            except ValueError:
-                data_buscada = today_iso
+                return datetime.datetime.strptime(d_str, '%Y-%m-%d').date()
+            except Exception:
+                return today_obj
 
-        period = data_buscada
-        data_buscada_safe = re.sub(r'[^0-9a-zA-Z-]', '', data_buscada)
+        start_dt = parse_date(start_date_param)
+        end_dt = parse_date(end_date_param)
+        if end_dt < start_dt:
+            end_dt = start_dt
 
-        # Parse date for syslog prefix format (ex: "Aug 10" or "Aug  8")
-        try:
-            dt_obj = datetime.datetime.strptime(data_buscada, '%Y-%m-%d').date()
-            syslog_date_pattern = f"{dt_obj.strftime('%b')} {dt_obj.day:2d}"
-            formatted_date_br = dt_obj.strftime('%d/%m/%Y')
-        except Exception:
-            syslog_date_pattern = ""
-            formatted_date_br = data_buscada
+        curr_dt = start_dt
+        date_list = []
+        while curr_dt <= end_dt and len(date_list) < 31:
+            date_list.append(curr_dt.strftime('%Y-%m-%d'))
+            curr_dt += datetime.timedelta(days=1)
 
-        period_label = f"Data: {formatted_date_br}"
+        date_pattern = "|".join([re.sub(r'[^0-9-]', '', d) for d in date_list])
+        formatted_start_br = start_dt.strftime('%d/%m/%Y')
+        formatted_end_br = end_dt.strftime('%d/%m/%Y')
+        period_label = f"Período: {formatted_start_br}" if start_dt == end_dt else f"Período: {formatted_start_br} a {formatted_end_br}"
 
         log_lines = []
 
-        # 2. Correção do Subprocess (Anti-Crash) com zcat -f
-        comando = f"sudo bash -c 'zcat -f /var/log/mail.log* 2>/dev/null | grep \"{data_buscada_safe}\"'"
+        # Subprocess zcat / grep
+        comando = f"sudo bash -c 'zcat -f /var/log/mail.log* 2>/dev/null | grep -E \"{date_pattern}\"'"
         resultado = subprocess.run(comando, shell=True, capture_output=True, text=True)
         if resultado.stdout:
             log_lines = [line.strip() for line in resultado.stdout.splitlines() if line.strip()]
 
-        # Se não encontrou pelo formato ISO, tenta busca pelo padrão de data syslog
-        if not log_lines and syslog_date_pattern:
-            cmd_syslog = f"sudo bash -c 'zcat -f /var/log/mail.log* 2>/dev/null | grep \"{syslog_date_pattern}\"'"
-            res_sys = subprocess.run(cmd_syslog, shell=True, capture_output=True, text=True)
-            if res_sys.stdout:
-                log_lines = [line.strip() for line in res_sys.stdout.splitlines() if line.strip()]
-
-        # Fallback para journalctl se mail.log estiver ausente
+        # Fallback para journalctl se mail.log estiver indisponível
         if not log_lines:
             try:
                 res_j = run_cmd(['sudo', 'journalctl', '-u', 'postfix', '-u', 'amavis', '-n', '2000', '--no-pager'])
                 if res_j['stdout']:
                     all_lines = [line.strip() for line in res_j['stdout'].splitlines() if line.strip()]
-                    matching = [l for l in all_lines if data_buscada_safe in l or (syslog_date_pattern and syslog_date_pattern in l)]
-                    log_lines = matching if matching else all_lines
+                    log_lines = [l for l in all_lines if any(d in l for d in date_list)] or all_lines
             except Exception:
                 pass
 
         if not log_lines:
-            msg = f"Nenhum registro de log encontrado para a data {formatted_date_br}."
+            msg = f"Nenhum registro de log encontrado para o período informado ({period_label})."
             return jsonify({
                 'success': True,
-                'period': period,
+                'period': start_dt.strftime('%Y-%m-%d'),
                 'period_label': period_label,
-                'mailbox': mailbox,
-                'search_term': search_term,
-                'delivery_status': delivery_status,
-                'service': service,
+                'power_query': power_query,
                 'limit': limit,
                 'total_matches': 0,
                 'lines': [],
@@ -133,7 +138,7 @@ def track_email():
                 'raw_text': msg
             })
 
-        # 1. Corte de Tempo: Filtrar linhas dentro do intervalo de horário selecionado [start_time, end_time]
+        # 3. Corte de Tempo: Filtrar linhas dentro do intervalo de horário selecionado [start_time, end_time]
         time_filtered_lines = []
         for line in log_lines:
             tm_match = re.search(r'(?:[T\s])?(\d{2}:\d{2})(?::\d{2})?', line)
@@ -145,7 +150,7 @@ def track_email():
                     continue
             time_filtered_lines.append(line)
 
-        # 2. Agrupamento em blocos por Queue ID (ex: 4YtZ8b3K:) ou PID (ex: smtpd[14201]:)
+        # 4. Agrupamento em blocos por Queue ID ou PID
         def extract_group_key(line):
             qid_m = re.search(r'\b([0-9A-Za-z]{8,16}):', line)
             if not qid_m:
@@ -177,7 +182,7 @@ def track_email():
             else:
                 blocks.append({'key': None, 'lines': [line]})
 
-        # 3. Lente de Ataques & Aplicação de Filtros Cruzados no Bloco
+        # 5. Validação dos blocos contra Power Query e Lentes Rápidas
         filtered_lines = []
         smtp_attack_keywords = ["improper command pipelining", "non-smtp command", "unknown[", "warning: hostname", "lost connection after", "too many errors", "connect from unknown", "anvil"]
         auth_failure_keywords = ["authentication failed", "auth failed", "sasl", "password mismatch", "unknown user", "relay access denied", "554 5.7.1", "reject: rcp", "login failed"]
@@ -196,14 +201,18 @@ def track_email():
                 if terms and not any(t in blk_text for t in terms):
                     continue
 
-            if mailbox and mailbox not in blk_text:
+            if query_from and query_from not in blk_text:
                 continue
-            if search_term and search_term not in blk_text:
+            if query_to and query_to not in blk_text:
                 continue
-            if delivery_status and delivery_status not in blk_text:
+            if query_prot and query_prot not in blk_text:
                 continue
-            if service and service not in blk_text:
+            if query_status and query_status not in blk_text:
                 continue
+
+            if free_terms:
+                if not all(term in blk_text for term in free_terms):
+                    continue
 
             filtered_lines.extend(blk['lines'])
 
@@ -214,15 +223,12 @@ def track_email():
             result_lines = filtered_lines
 
         if not result_lines:
-            msg = "Nenhum registro de log encontrado para os filtros informados."
+            msg = "Nenhum registro de log encontrado para os critérios informados na Power Query."
             return jsonify({
                 'success': True,
-                'period': period,
+                'period': start_dt.strftime('%Y-%m-%d'),
                 'period_label': period_label,
-                'mailbox': mailbox,
-                'search_term': search_term,
-                'delivery_status': delivery_status,
-                'service': service,
+                'power_query': power_query,
                 'limit': limit,
                 'total_matches': 0,
                 'lines': [],
@@ -230,26 +236,25 @@ def track_email():
                 'raw_text': msg
             })
 
-        raw_text = "\n".join(result_lines)
-        events = [{'raw': l, 'type': 'INFO'} for l in result_lines]
-
         return jsonify({
             'success': True,
-            'period': period,
+            'period': start_dt.strftime('%Y-%m-%d'),
             'period_label': period_label,
-            'mailbox': mailbox,
-            'search_term': search_term,
-            'delivery_status': delivery_status,
-            'service': service,
+            'power_query': power_query,
             'limit': limit,
             'total_matches': total_matches,
             'lines': result_lines,
-            'events': events,
-            'raw_text': raw_text
+            'events': [{'raw': line, 'type': 'LOG'} for line in result_lines],
+            'raw_text': "\n".join(result_lines)
         })
 
     except Exception as e:
-        return f"[Erro Interno do Python]: {str(e)}", 500
+        logger.error(f"Erro em email-tracking: {e}")
+        return jsonify({
+            'success': False,
+            'error': f"[Erro Interno do Python]: {str(e)}",
+            'raw_text': f"[Erro Interno do Python]: {str(e)}"
+        }), 500
 
 
 # ==========================================
