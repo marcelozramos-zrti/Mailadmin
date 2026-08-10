@@ -180,17 +180,26 @@
             vertical-align: middle;
         }
 
-        /* Dark Terminals inside Light Cards */
+        /* Dark Terminals inside Light Cards (Hacker Terminal Style) */
         .log-terminal {
             font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
             font-size: 0.82rem;
+            line-height: 1.5;
             background-color: #090d16;
-            color: #38bdf8;
+            color: #22c55e;
             border: 1px solid #1e293b;
             border-radius: 10px;
             padding: 1rem;
             max-height: 480px;
             overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .log-terminal pre, .log-terminal div {
+            color: inherit;
+            margin: 0;
+            padding: 0;
             white-space: pre-wrap;
             word-break: break-all;
         }
@@ -772,15 +781,24 @@
                                 <h3 class="h6 mb-2 fw-bold text-dark d-flex align-items-center gap-2">
                                     <i class="bi bi-search text-primary"></i> Rastrear Jornada de Mensagens
                                 </h3>
-                                <p class="text-muted small mb-3">Filtra eventos em <code>/var/log/mail.log</code> por remetente ou destinatário.</p>
+                                <p class="text-muted small mb-3">Filtra eventos em <code>/var/log/mail.log</code> por remetente e/ou destinatário correlacionando Queue IDs do Postfix.</p>
 
-                                <div class="input-group mb-3">
-                                    <input type="email" id="track-email-input" class="form-control" placeholder="ex: contato@parceiro.com.br">
-                                    <button class="btn btn-primary" onclick="trackEmail()"><i class="bi bi-search"></i> Rastrear</button>
+                                <div class="row g-2 mb-3">
+                                    <div class="col-md-5">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Remetente (De):</label>
+                                        <input type="email" id="track-sender-input" class="form-control font-monospace" placeholder="remetente@parceiro.com.br" onkeyup="if(event.key==='Enter') trackEmail()">
+                                    </div>
+                                    <div class="col-md-5">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Destinatário (Para):</label>
+                                        <input type="email" id="track-recipient-input" class="form-control font-monospace" placeholder="destino@empresa.com.br" onkeyup="if(event.key==='Enter') trackEmail()">
+                                    </div>
+                                    <div class="col-md-2 d-flex align-items-end">
+                                        <button class="btn btn-primary w-100 fw-bold" onclick="trackEmail()"><i class="bi bi-search"></i></button>
+                                    </div>
                                 </div>
 
-                                <div id="track-results" class="log-terminal flex-grow-1 text-white" style="max-height: 250px;">
-                                    <span class="text-muted">Insira um endereço para consultar logs do Postfix...</span>
+                                <div id="track-results" class="log-terminal flex-grow-1" style="max-height: 280px;">
+                                    <span class="text-muted">Informe o remetente (De) ou destinatário (Para) para consultar os logs do Postfix...</span>
                                 </div>
                             </div>
                         </div>
@@ -2292,23 +2310,66 @@
         }
     }
 
+    function highlightLogLine(text) {
+        if (!text) return '';
+
+        let esc = text
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+
+        // Timestamps
+        esc = esc.replace(/^([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2})/g, '<span style="color: #94a3b8;">$1</span>');
+
+        // Queue IDs (ex: 4YtZ8b3K: ou (4YtZ8b3K))
+        esc = esc.replace(/\b([0-9A-Za-z]{8,16}):/g, '<span style="color: #c084fc; font-weight: bold;">$1:</span>');
+        esc = esc.replace(/\(([0-9A-Za-z]{8,16})\)/g, '(<span style="color: #c084fc; font-weight: bold;">$1</span>)');
+
+        // Emails (from=<...>, to=<...>)
+        esc = esc.replace(/(from|to)=&lt;([^&]+)&gt;/gi, '$1=&lt;<span style="color: #38bdf8; font-weight: 600;">$2</span>&gt;');
+
+        // Status Positivos (Sent / Delivered / Passed CLEAN / 250 OK / active)
+        esc = esc.replace(/\b(status=sent|DELIVERED|Passed CLEAN|250 2\.0\.0 OK|active|CLEAN)\b/gi, '<span style="color: #4ade80; font-weight: bold;">$1</span>');
+
+        // Status de Erro/Bloqueio (Bounced / Deferred / Rejected / Blocked / Error)
+        esc = esc.replace(/\b(status=bounced|status=deferred|BLOCKED|REJECT|REJECTED|Blocked|D_DISCARD|error|failed|denied|Connection refused)\b/gi, '<span style="color: #f87171; font-weight: bold;">$1</span>');
+
+        // Modulos/Servicos (postfix, amavis, dovecot, spamassassin, smtpd, qmgr, lmtp)
+        esc = esc.replace(/\b(postfix\/[a-z]+|amavis|dovecot|spamassassin|spamd|smtpd|qmgr|lmtp|cleanup)\b/gi, '<span style="color: #facc15; font-weight: bold;">$1</span>');
+
+        return esc;
+    }
+
     async function trackEmail() {
-        const email = document.getElementById('track-email-input').value;
+        const senderEl = document.getElementById('track-sender-input');
+        const recipientEl = document.getElementById('track-recipient-input');
+        const sender = senderEl ? senderEl.value.trim() : '';
+        const recipient = recipientEl ? recipientEl.value.trim() : '';
         const container = document.getElementById('track-results');
-        if (!email) {
-            container.innerHTML = '<span class="text-warning font-monospace"><i class="bi bi-exclamation-circle me-1"></i> Informe um endereço de e-mail para rastrear.</span>';
+
+        if (!sender && !recipient) {
+            container.innerHTML = '<span class="text-warning font-monospace"><i class="bi bi-exclamation-circle me-1"></i> Informe ao menos o e-mail de origem (De) ou destinatário (Para).</span>';
             return;
         }
+
+        container.innerHTML = '<span class="text-info font-monospace"><span class="spinner-border spinner-border-sm me-2"></span> Rastreando mensagens e correlacionando Queue IDs no Postfix...</span>';
+
         try {
             const data = await fetchJson('/api/troubleshooting/email-tracking', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: email })
+                body: JSON.stringify({ sender, recipient, email: sender || recipient })
             });
+
             if (data.events && data.events.length > 0) {
-                container.innerHTML = data.events.map(ev => `<div class="text-white text-light font-monospace small">${ev.raw}</div>`).join('');
+                let metaInfo = '';
+                if (data.found_queue_ids && data.found_queue_ids.length > 0) {
+                    metaInfo = `<div class="mb-2 pb-2 border-bottom border-secondary text-info small"><i class="bi bi-diagram-3-fill me-1"></i> Queue IDs Correlacionados: ${data.found_queue_ids.map(q => `<span class="badge bg-secondary-subtle text-info border border-info-subtle font-monospace me-1">${q}</span>`).join('')}</div>`;
+                }
+                container.innerHTML = metaInfo + data.events.map(ev => `<div class="py-0.5">${highlightLogLine(ev.raw)}</div>`).join('');
+                container.scrollTop = container.scrollHeight;
             } else {
-                container.innerHTML = '<span class="text-muted">Nenhum evento registrado no mail.log para este e-mail.</span>';
+                container.innerHTML = '<span class="text-muted"><i class="bi bi-info-circle me-1"></i> Nenhum evento ou Queue ID registrado no mail.log para os parâmetros informados.</span>';
             }
         } catch (e) {
             console.error("Erro no rastreamento:", e);
@@ -2503,12 +2564,15 @@
         const container = document.getElementById('logs-container');
         try {
             const data = await fetchJson('/api/services/logs');
-            if (data.logs) {
-                container.innerHTML = data.logs.join('\n');
+            if (data.logs && data.logs.length > 0) {
+                container.innerHTML = data.logs.map(line => `<div class="py-0.5">${highlightLogLine(line)}</div>`).join('');
+                container.scrollTop = container.scrollHeight;
+            } else {
+                container.innerHTML = '<span class="text-muted">Nenhum log retornado pelo servidor.</span>';
             }
         } catch (e) {
             console.error("Erro ao carregar logs:", e);
-            container.innerHTML = `[ERRO NA API DE LOGS DO SERVIDOR]: ${e.message}`;
+            container.innerHTML = `<span class="text-danger font-monospace">[ERRO NA API DE LOGS DO SERVIDOR]: ${e.message}</span>`;
         }
     }
 

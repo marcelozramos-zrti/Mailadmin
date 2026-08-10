@@ -357,18 +357,29 @@ blacklist_from *@spammerdomain.net
 
   // Tracking de E-mail (/var/log/mail.log)
   app.all("/api/troubleshooting/email-tracking", (req, res) => {
+    const sender = (req.body?.sender || req.query?.sender as string || "").toLowerCase();
+    const recipient = (req.body?.recipient || req.query?.recipient as string || "").toLowerCase();
     const email = (req.body?.email || req.query?.email as string || "").toLowerCase();
+
+    const sendAddr = sender || email || 'remetente@parceiro.com.br';
+    const recvAddr = recipient || 'destino@empresa.com.br';
+    const qid = '4YtZ8b3K';
+
     const mockEvents = [
       { raw: `Aug 09 10:14:02 mailserver postfix/smtpd[14201]: connect from mail-out.parceiro.com.br[198.51.100.12]`, type: "SMTP_CONNECT" },
-      { raw: `Aug 09 10:14:03 mailserver postfix/qmgr[1820]: 4YtZ8b3K: from=<${email || 'contato@parceiro.com.br'}>, size=2849, nrcpt=1`, type: "INFO" },
-      { raw: `Aug 09 10:14:04 mailserver amavis[1204]: (4YtZ8b3K) Passed CLEAN {RelayedInbound}, [198.51.100.12] <${email || 'contato@parceiro.com.br'}> -> <suporte@empresa.com.br>, Hits: -0.1`, type: "AMAVIS_SCAN" },
-      { raw: `Aug 09 10:14:05 mailserver postfix/lmtp[14220]: 4YtZ8b3K: to=<suporte@empresa.com.br>, relay=127.0.0.1[127.0.0.1]:24, status=sent (250 2.0.0 OK 1723198445)`, type: "DELIVERED" }
+      { raw: `Aug 09 10:14:02 mailserver postfix/smtpd[14201]: 4YtZ8b3K: client=mail-out.parceiro.com.br[198.51.100.12]`, type: "INFO" },
+      { raw: `Aug 09 10:14:03 mailserver postfix/cleanup[14205]: 4YtZ8b3K: message-id=<202608091014.4YtZ8b3K@parceiro.com.br>`, type: "INFO" },
+      { raw: `Aug 09 10:14:03 mailserver postfix/qmgr[1820]: 4YtZ8b3K: from=<${sendAddr}>, size=2849, nrcpt=1 (queue active)`, type: "INFO" },
+      { raw: `Aug 09 10:14:04 mailserver amavis[1204]: (4YtZ8b3K) Passed CLEAN {RelayedInbound}, [198.51.100.12] <${sendAddr}> -> <${recvAddr}>, Hits: -0.100, tag=2, tag2=5, kill=6.31`, type: "AMAVIS_SCAN" },
+      { raw: `Aug 09 10:14:05 mailserver postfix/lmtp[14220]: 4YtZ8b3K: to=<${recvAddr}>, relay=127.0.0.1[127.0.0.1]:24, delay=2.1, delays=0.1/0.01/0.01/2.0, dsn=2.0.0, status=sent (250 2.0.0 OK 1723198445 saved_to_mailbox)`, type: "DELIVERED" },
+      { raw: `Aug 09 10:14:05 mailserver postfix/qmgr[1820]: 4YtZ8b3K: removed`, type: "INFO" }
     ];
 
     res.json({
       success: true,
-      email: email || "todos",
-      found_queue_ids: ["4YtZ8b3K"],
+      sender: sendAddr,
+      recipient: recvAddr,
+      found_queue_ids: [qid],
       total_matches: mockEvents.length,
       events: mockEvents
     });

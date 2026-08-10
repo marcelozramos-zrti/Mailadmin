@@ -36,35 +36,82 @@ def run_cmd(cmd_list):
 def track_email():
     if request.method == 'POST':
         data = request.get_json(silent=True) or request.form or {}
+        sender = data.get('sender', '').strip()
+        recipient = data.get('recipient', '').strip()
         email_query = data.get('email', '').strip()
     else:
+        sender = request.args.get('sender', '').strip()
+        recipient = request.args.get('recipient', '').strip()
         email_query = request.args.get('email', '').strip()
 
-    if not email_query:
-        return jsonify({'success': False, 'message': 'E-mail de origem ou destino é necessário.'}), 400
+    # Fallback de compatibilidade se enviar o campo genérico 'email'
+    if not sender and not recipient and email_query:
+        sender = email_query
+
+    if not sender and not recipient:
+        return jsonify({'success': False, 'message': 'Informe o e-mail de origem (De) ou de destino (Para) para rastrear.'}), 400
 
     try:
-        # Grep estruturado no mail.log para encontrar IDs de fila associados ao e-mail
+        candidate_lines = []
+
+        # a) Executa grep no mail.log procurando por from=<remetente> ou to=<destinatário> (ou pesquisas pelos termos informados)
+        search_terms = []
+        if sender:
+            search_terms.extend([f"from=<{sender}>", sender])
+        if recipient:
+            search_terms.extend([f"to=<{recipient}>", recipient])
+
         if os.path.exists(MAIL_LOG_PATH):
-            res = run_cmd(['sudo', 'grep', '-i', email_query, MAIL_LOG_PATH])
-            lines = res['stdout'].split('\n') if res['stdout'] else []
+            for term in search_terms:
+                res = run_cmd(['sudo', 'grep', '-i', term, MAIL_LOG_PATH])
+                if res['stdout']:
+                    candidate_lines.extend(res['stdout'].split('\n'))
         else:
-            # Fallback journalctl
-            res = run_cmd(['sudo', 'journalctl', '-u', 'postfix', '-u', 'amavis', '-g', email_query, '-n', '200', '--no-pager'])
-            lines = res['stdout'].split('\n') if res['stdout'] else []
+            # Fallback via journalctl
+            for term in search_terms:
+                res = run_cmd(['sudo', 'journalctl', '-u', 'postfix', '-u', 'amavis', '-u', 'dovecot', '-g', term, '-n', '300', '--no-pager'])
+                if res['stdout']:
+                    candidate_lines.extend(res['stdout'].split('\n'))
 
-        # Extrai Queue-IDs únicos (8-12 chars hex ex: 4XkL9m0z)
-        queue_ids = set(re.findall(r'\b[0-9A-Fa-f]{8,12}\b', '\n'.join(lines)))
+        # Remove linhas duplicadas preservando ordem
+        unique_candidate_lines = list(dict.fromkeys([l for l in candidate_lines if l.strip()]))
+        candidate_text = '\n'.join(unique_candidate_lines)
 
+        # b) Extrai os Queue IDs usando regex no Python
+        # Padroes Postfix: " 4YtZ8b3K:", "(4YtZ8b3K)", "4XkL9m0z:"
+        qids_found = set(re.findall(r'\b([0-9A-Za-z]{8,16})\b:', candidate_text))
+        qids_found.update(re.findall(r'\(([0-9A-Za-z]{8,16})\)', candidate_text))
+
+        # Descarta palavras comuns de log de servicos
+        invalid_keywords = {'postfix', 'amavis', 'dovecot', 'status', 'passed', 'blocked', 'sent', 'queued', 'connect', 'disconnect'}
+        valid_qids = [q for q in qids_found if len(q) >= 6 and q.lower() not in invalid_keywords]
+
+        full_journey_lines = []
+
+        # c) Novo grep no log filtrando EXATAMENTE por esse(s) Queue ID(s) para obter a jornada completa
+        if valid_qids and os.path.exists(MAIL_LOG_PATH):
+            # Seleciona ate os 10 Queue IDs mais recentes para otimizacao
+            recent_qids = valid_qids[-10:]
+            pattern = '|'.join([re.escape(q) for q in recent_qids])
+            res_qid = run_cmd(['sudo', 'grep', '-E', pattern, MAIL_LOG_PATH])
+            if res_qid['stdout']:
+                full_journey_lines = res_qid['stdout'].split('\n')
+
+        if not full_journey_lines:
+            full_journey_lines = unique_candidate_lines
+
+        final_lines = list(dict.fromkeys([l for l in full_journey_lines if l.strip()]))
+
+        # d) Retorna esse bloco de texto estruturado para o frontend
         journey_events = []
-        for line in lines:
+        for line in final_lines:
             if not line.strip():
                 continue
-            
+
             event_type = 'INFO'
             if 'Passed' in line or 'status=sent' in line:
                 event_type = 'DELIVERED'
-            elif 'Blocked' in line or 'REJECT' in line or 'D_DISCARD' in line or 'status=bounced' in line:
+            elif 'Blocked' in line or 'REJECT' in line or 'D_DISCARD' in line or 'status=bounced' in line or 'status=deferred' in line:
                 event_type = 'BLOCKED'
             elif 'amavis' in line:
                 event_type = 'AMAVIS_SCAN'
@@ -78,10 +125,11 @@ def track_email():
 
         return jsonify({
             'success': True,
-            'email': email_query,
-            'found_queue_ids': list(queue_ids),
+            'sender': sender,
+            'recipient': recipient,
+            'found_queue_ids': valid_qids,
             'total_matches': len(journey_events),
-            'events': journey_events[-100:] # Últimos 100 eventos
+            'events': journey_events[-200:]
         })
 
     except Exception as e:
