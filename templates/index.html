@@ -1796,7 +1796,13 @@
         try {
             res = await fetch(url, options);
         } catch (netErr) {
-            throw new Error(`Erro de conexão/rede com o servidor (${netErr.message || 'Servidor inacessível'})`);
+            // Retry once after 500ms if initial fetch failed (e.g. server restart)
+            try {
+                await new Promise(r => setTimeout(r, 500));
+                res = await fetch(url, options);
+            } catch (retryErr) {
+                throw new Error(`Erro de conexão/rede com o servidor (${retryErr.message || 'Servidor inacessível'})`);
+            }
         }
 
         if (res.status === 401 && !url.includes('/api/auth/login') && !url.includes('/api/auth/me')) {
