@@ -690,14 +690,28 @@ blacklist_from *@spammerdomain.net
     res.json({ success: true, message: "Sintaxe OK! O arquivo de regras local.cf é válido." });
   });
 
-  app.get("/api/services/logs", (req, res) => {
+  app.all("/api/services/logs", (req, res) => {
+    const data = req.method === "POST" ? (req.body || {}) : req.query;
+    const mailbox = String(data.mailbox || data.caixa_postal || "").trim().toLowerCase();
+    const searchTerm = String(data.search_term || data.termo_busca || data.term || "").trim().toLowerCase();
+
     const now = new Date();
-    const mockLogs: string[] = [];
+    let mockLogs: string[] = [];
     for (let i = 50; i >= 1; i--) {
       const ts = new Date(now.getTime() - i * 30000).toISOString().replace("T", " ").substring(0, 19);
       mockLogs.push(`${ts} mailserver amavis[14022]: Passed CLEAN {RelayedInbound}, <user@gmail.com> -> <financeiro@empresa.com.br>, Hits: -0.1`);
       mockLogs.push(`${ts} mailserver postfix/qmgr[1820]: 4YtZ8b3K: from=<user@gmail.com>, size=1890, nrcpt=1`);
+      mockLogs.push(`${ts} mailserver postfix/cleanup[1822]: 4YtZ8b3K: message-id=<20260810103722@gmail.com>`);
+      mockLogs.push(`${ts} mailserver postfix/smtp[1825]: 4YtZ8b3K: to=<financeiro@empresa.com.br>, relay=127.0.0.1[127.0.0.1]:10024, delay=0.12, status=sent (250 2.0.0 Ok)`);
     }
+
+    if (mailbox) {
+      mockLogs = mockLogs.filter(l => l.toLowerCase().includes(mailbox));
+    }
+    if (searchTerm) {
+      mockLogs = mockLogs.filter(l => l.toLowerCase().includes(searchTerm));
+    }
+
     res.json({ success: true, logs: mockLogs });
   });
 

@@ -348,15 +348,15 @@
             </a>
             <a href="#troubleshooting" class="nav-link" data-target="tab-troubleshooting" data-tab="troubleshooting">
                 <i class="bi bi-tools fs-5"></i>
-                <span class="sidebar-text">Troubleshooting & DNS</span>
+                <span class="sidebar-text">Troubleshooting</span>
+            </a>
+            <a href="#dns" class="nav-link" data-target="tab-dns" data-tab="dns">
+                <i class="bi bi-globe fs-5"></i>
+                <span class="sidebar-text">Auditoria DNS</span>
             </a>
             <a href="#spam" class="nav-link" data-target="tab-spam" data-tab="spam">
                 <i class="bi bi-shield-lock fs-5"></i>
                 <span class="sidebar-text">Regras SpamAssassin</span>
-            </a>
-            <a href="#logs" class="nav-link" data-target="tab-logs" data-tab="logs">
-                <i class="bi bi-terminal fs-5"></i>
-                <span class="sidebar-text">Logs em Tempo Real</span>
             </a>
             <a href="#settings" class="nav-link" data-target="tab-settings" data-tab="settings">
                 <i class="bi bi-gear fs-5"></i>
@@ -775,7 +775,7 @@
 
                 </div>
 
-                <!-- 3. TROUBLESHOOTING & DNS TAB -->
+                <!-- 3. TROUBLESHOOTING TAB -->
                 <div class="tab-section d-none" id="tab-troubleshooting">
                     
                     <!-- Explorador de Logs Estilo Google Workspace Email Log Search -->
@@ -820,36 +820,52 @@
                             </div>
                         </div>
 
-                        <!-- Terminal de Exibição de Logs com Fundo Escuro da Coluna e Letras Claras -->
+                        <!-- Terminal de Exibição de Logs com Fundo Escuro e Letras Claras -->
                         <div id="track-results" class="log-terminal" style="background-color: #0a0a0a; color: #FFFFFF !important; font-family: monospace; padding: 15px; border-radius: 8px; min-height: 280px; max-height: 550px; overflow-y: auto; text-align: left !important; word-break: break-all; white-space: pre-wrap;">
                             <span style="color: #9ca3af !important; display: block;">Selecione o período e informe os termos para realizar a busca flexível nos logs do servidor...</span>
                         </div>
                     </div>
 
-                    <div class="row g-4 mb-4">
-                        <!-- DNS Check -->
-                        <div class="col-lg-12">
-                            <div class="card p-4">
-                                <h3 class="h6 mb-2 fw-bold text-dark d-flex align-items-center gap-2">
-                                    <i class="bi bi-shield-check text-success"></i> Validador DNS (MX, SPF, DKIM, DMARC)
+                    <!-- Logs em Tempo Real (Tail Live) -->
+                    <div class="card p-4 mb-4">
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <div>
+                                <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                    <i class="bi bi-terminal text-success"></i> Logs em Tempo Real (/var/log/mail.log)
                                 </h3>
-                                <p class="text-muted small mb-3">Executa consultas DNS ativas via biblioteca <code>dnspython</code>.</p>
+                                <small class="text-muted">Monitoramento ao vivo de eventos do MTA com filtros dinâmicos de caixa postal e busca rápida.</small>
+                            </div>
+                            <button class="btn btn-outline-success btn-sm rounded-3 fw-bold" onclick="loadLogs()">
+                                <i class="bi bi-arrow-clockwise me-1"></i> Atualizar Logs Live
+                            </button>
+                        </div>
 
-                                <div class="row g-2 mb-3">
-                                    <div class="col-md-8 col-lg-9">
-                                        <input type="text" id="dns-domain-input" class="form-control font-monospace" placeholder="ex: empresa.com.br" onkeyup="if(event.key==='Enter') checkDNS()">
-                                    </div>
-                                    <div class="col-md-4 col-lg-3">
-                                        <button class="btn btn-success w-100 fw-semibold" onclick="checkDNS()"><i class="bi bi-check-circle me-1"></i> Checar DNS</button>
-                                    </div>
-                                </div>
-
-                                <div id="dns-report-container">
-                                    <div class="alert alert-light border text-muted text-center small mb-0">
-                                        Insira um domínio para verificar registros DNS de autenticação.
-                                    </div>
+                        <!-- Filtros Live -->
+                        <div class="row g-2 mb-3 align-items-end">
+                            <div class="col-md-5 col-lg-5">
+                                <label class="form-label small text-muted fw-semibold mb-1">Filtro de Caixa Postal:</label>
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text bg-light border-light-subtle text-muted"><i class="bi bi-at"></i></span>
+                                    <input type="text" id="live-mailbox-input" class="form-control font-monospace" placeholder="ex: usuario@empresa.com.br" onkeyup="if(event.key==='Enter') loadLogs()">
                                 </div>
                             </div>
+                            <div class="col-md-5 col-lg-5">
+                                <label class="form-label small text-muted fw-semibold mb-1">Termo Específico:</label>
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text bg-light border-light-subtle text-muted"><i class="bi bi-funnel"></i></span>
+                                    <input type="text" id="live-search-term-input" class="form-control font-monospace" placeholder="ex: 250 OK, bounced, status=sent..." onkeyup="if(event.key==='Enter') loadLogs()">
+                                </div>
+                            </div>
+                            <div class="col-md-2 col-lg-2">
+                                <button class="btn btn-success btn-sm w-100 fw-bold py-1.5 rounded-3" onclick="loadLogs()">
+                                    <i class="bi bi-filter me-1"></i> Filtrar Live
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Terminal de Exibição de Logs em Tempo Real -->
+                        <div id="logs-container" class="log-terminal" style="background-color: #0a0a0a; color: #FFFFFF !important; font-family: monospace; padding: 15px; border-radius: 8px; min-height: 250px; max-height: 500px; overflow-y: auto; text-align: left !important; word-break: break-all; white-space: pre-wrap;">
+                            <span style="color: #9ca3af !important;">Carregando registros de log do servidor em tempo real...</span>
                         </div>
                     </div>
 
@@ -889,6 +905,34 @@
                                     <tr><td colspan="7" class="text-center text-muted py-3">Carregando fila Postfix...</td></tr>
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. AUDITORIA DNS TAB -->
+                <div class="tab-section d-none" id="tab-dns">
+                    <div class="card p-4">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                <i class="bi bi-globe text-success"></i> Validador DNS (MX, SPF, DKIM, DMARC)
+                            </h3>
+                            <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle font-monospace">Auditoria Ativa</span>
+                        </div>
+                        <p class="text-muted small mb-3">Executa consultas DNS ativas via biblioteca <code>dnspython</code> para verificação de registros MX, SPF, DKIM e DMARC do domínio.</p>
+
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-8 col-lg-9">
+                                <input type="text" id="dns-domain-input" class="form-control font-monospace" placeholder="ex: empresa.com.br" onkeyup="if(event.key==='Enter') checkDNS()">
+                            </div>
+                            <div class="col-md-4 col-lg-3">
+                                <button class="btn btn-success w-100 fw-semibold" onclick="checkDNS()"><i class="bi bi-check-circle me-1"></i> Checar DNS</button>
+                            </div>
+                        </div>
+
+                        <div id="dns-report-container">
+                            <div class="alert alert-light border text-muted text-center small mb-0">
+                                Insira um domínio para verificar registros DNS de autenticação.
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1025,26 +1069,7 @@
                     </div>
                 </div>
 
-                <!-- 5. LOGS AUDIT TAB -->
-                <div class="tab-section d-none" id="tab-logs">
-                    <div class="card p-4">
-                        <div class="d-flex align-items-center justify-content-between mb-3">
-                            <div>
-                                <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
-                                    <i class="bi bi-terminal text-primary"></i> Logs do Sistema (/var/log/mail.log)
-                                </h3>
-                                <small class="text-muted">Transmissão e auditoria em tempo real via tail / journalctl</small>
-                            </div>
-                            <button class="btn btn-outline-secondary btn-sm rounded-3" onclick="loadLogs()">
-                                <i class="bi bi-arrow-clockwise me-1"></i> Atualizar Logs
-                            </button>
-                        </div>
 
-                        <div id="logs-container" class="log-terminal" style="background-color: #0a0a0a; color: #00FF00 !important; font-family: monospace; padding: 15px; border-radius: 5px; max-height: 500px; overflow-y: auto;">
-                            <span style="color: #00FF00 !important;">Carregando registros de log do servidor...</span>
-                        </div>
-                    </div>
-                </div>
 
                 <!-- 6. CONFIGURAÇÕES DO SISTEMA TAB -->
                 <div class="tab-section d-none" id="tab-settings">
@@ -1836,9 +1861,8 @@
     function setActiveTab(tabName) {
         if (tabName === 'dashboard') loadTelemetry();
         else if (tabName === 'vmail') { loadDomains(); loadMailboxes(); loadAliases(); }
-        else if (tabName === 'troubleshooting') loadQueue();
+        else if (tabName === 'troubleshooting') { loadQueue(); loadLogs(); }
         else if (tabName === 'spam') loadSpamRules();
-        else if (tabName === 'logs') loadLogs();
         else if (tabName === 'settings') { loadDatabaseSettings(); loadAdmins(); }
     }
 
@@ -2657,18 +2681,40 @@
     }
 
     async function loadLogs() {
+        const mailboxEl = document.getElementById('live-mailbox-input');
+        const termEl = document.getElementById('live-search-term-input');
+        const mailbox = mailboxEl ? mailboxEl.value.trim() : '';
+        const search_term = termEl ? termEl.value.trim() : '';
         const container = document.getElementById('logs-container');
+        if (!container) return;
+
         try {
-            const data = await fetchJson('/api/services/logs');
+            const data = await fetchJson('/api/services/logs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    lines: 150,
+                    mailbox,
+                    search_term,
+                    caixa_postal: mailbox,
+                    termo_busca: search_term
+                })
+            });
+
             if (data.logs && data.logs.length > 0) {
-                container.innerHTML = data.logs.map(line => `<div style="color: #00FF00 !important; font-family: monospace; font-size: 0.82rem; line-height: 1.4;">${highlightLogLine(line)}</div>`).join('');
+                const formattedLines = data.logs.filter(l => l && l.trim()).map(line => `<div style="color: #FFFFFF !important; font-family: monospace; font-size: 0.82rem; line-height: 1.4;">${highlightLogLine(line)}</div>`).join('');
+                if (formattedLines) {
+                    container.innerHTML = formattedLines;
+                } else {
+                    container.innerHTML = '<span style="color: #facc15 !important; font-family: monospace;">Nenhum registro de log em tempo real encontrado para os filtros informados.</span>';
+                }
                 container.scrollTop = container.scrollHeight;
             } else {
-                container.innerHTML = '<span style="color: #00FF00 !important; font-family: monospace;">Nenhum log retornado pelo servidor.</span>';
+                container.innerHTML = '<span style="color: #facc15 !important; font-family: monospace;">Nenhum log retornado pelo servidor para os filtros informados.</span>';
             }
         } catch (e) {
-            console.error("Erro ao carregar logs:", e);
-            container.innerHTML = `<span style="color: #f87171 !important; font-family: monospace;">[ERRO NA API DE LOGS DO SERVIDOR]: ${e.message}</span>`;
+            console.error("Erro ao carregar logs em tempo real:", e);
+            container.innerHTML = `<span style="color: #f87171 !important; font-family: monospace;">[ERRO NA API DE LOGS]: ${e.message}</span>`;
         }
     }
 

@@ -449,22 +449,42 @@ def lint_rules():
 @login_required
 def get_logs():
     data = request.get_json(silent=True) or request.form or {}
-    lines_arg = data.get('lines') or request.args.get('lines', 100)
+    lines_arg = data.get('lines') or request.args.get('lines', 150)
+    mailbox = (data.get('mailbox') or data.get('caixa_postal') or request.args.get('mailbox') or request.args.get('caixa_postal') or '').strip()
+    search_term = (data.get('search_term') or data.get('termo_busca') or data.get('term') or request.args.get('search_term') or request.args.get('termo_busca') or request.args.get('term') or '').strip()
+
     try:
         lines_count = int(lines_arg)
     except (ValueError, TypeError):
-        lines_count = 100
+        lines_count = 150
+
+    raw_lines = []
 
     if os.path.exists(MAIL_LOG_PATH):
-        res = run_cmd(['sudo', 'tail', '-n', str(lines_count), MAIL_LOG_PATH])
-        if res['returncode'] == 0:
-            return jsonify({'success': True, 'logs': res['stdout'].split('\n')})
+        res = run_cmd(['sudo', 'tail', '-n', str(lines_count * 3), MAIL_LOG_PATH])
+        if res['returncode'] == 0 and res['stdout']:
+            raw_lines = res['stdout'].split('\n')
 
-    journal_res = run_cmd(['sudo', 'journalctl', '-u', 'postfix', '-u', 'amavis', '-n', str(lines_count), '--no-pager'])
-    if journal_res['returncode'] == 0:
-        return jsonify({'success': True, 'logs': journal_res['stdout'].split('\n')})
+    if not raw_lines:
+        journal_res = run_cmd(['sudo', 'journalctl', '-u', 'postfix', '-u', 'amavis', '-n', str(lines_count * 3), '--no-pager'])
+        if journal_res['returncode'] == 0 and journal_res['stdout']:
+            raw_lines = journal_res['stdout'].split('\n')
 
-    return jsonify({'success': False, 'logs': ['Logs inacessíveis.']}), 500
+    filtered_lines = []
+    mb_lower = mailbox.lower()
+    term_lower = search_term.lower()
+
+    for line in raw_lines:
+        if not line:
+            continue
+        line_lower = line.lower()
+        if mb_lower and mb_lower not in line_lower:
+            continue
+        if term_lower and term_lower not in line_lower:
+            continue
+        filtered_lines.append(line)
+
+    return jsonify({'success': True, 'logs': filtered_lines[-lines_count:] if lines_count > 0 and len(filtered_lines) > lines_count else filtered_lines})
 
 
 ENV_FILE_PATH = os.path.join(os.getcwd(), '.env')
