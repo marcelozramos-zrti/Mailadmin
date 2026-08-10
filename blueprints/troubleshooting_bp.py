@@ -78,43 +78,48 @@ def track_email():
                 'raw_text': 'Nenhuma jornada encontrada para estes parâmetros.'
             })
 
-        # Regex estrita para Queue ID do Postfix (código alfanumérico de 10 a 15 caracteres seguido de dois pontos)
-        qid_pattern = re.compile(r'\b([0-9A-Za-z]{10,15}):')
+        # 1. Agrupamento em Dicionário (Hash Map por Queue ID)
+        jornadas = {}
+        # Regex flexível para capturar Queue ID do Postfix / Amavis
+        # ex: " 4YtZ8b3K:", " 4hJJgV5Txsz4X: ", "(4YtZ8b3K)"
+        qid_regex = re.compile(r'(?:\s|^)([A-Za-z0-9]{8,16}):(?:\s|$)|(?:\s|^)\(([A-Za-z0-9]{8,16})\)(?:\s|$)')
 
-        sender_qids = set()
-        recipient_qids = set()
-
-        sender_lower = sender.lower()
-        recipient_lower = recipient.lower()
-
-        # PASSO A: Varre o log procurando "from=<remetente>" e "to=<destinatario>"
         for line in log_lines:
-            # Descarte de logs de login IMAP/POP3 do Dovecot
+            # Ignora ruídos irrelevantes de autenticação IMAP/POP3
             if 'imap-login' in line or 'pop3-login' in line:
                 continue
 
-            line_lower = line.lower()
+            match = qid_regex.search(line)
+            if match:
+                qid = match.group(1) or match.group(2)
+                if qid:
+                    if qid not in jornadas:
+                        jornadas[qid] = []
+                    jornadas[qid].append(line)
 
-            if sender_lower and f"from=<{sender_lower}>" in line_lower:
-                matches = qid_pattern.findall(line)
-                for q in matches:
-                    sender_qids.add(q)
+        # 2. Filtragem dos blocos de jornada
+        sender_lower = sender.lower() if sender else ""
+        recipient_lower = recipient.lower() if recipient else ""
 
-            if recipient_lower and f"to=<{recipient_lower}>" in line_lower:
-                matches = qid_pattern.findall(line)
-                for q in matches:
-                    recipient_qids.add(q)
+        approved_qids = []
+        approved_blocks = []
 
-        # Determina o conjunto de Queue IDs alvo
-        if sender and recipient:
-            # Interseção exata quando ambos são fornecidos
-            target_qids = sender_qids.intersection(recipient_qids)
-        elif sender:
-            target_qids = sender_qids
-        else:
-            target_qids = recipient_qids
+        for qid, linhas in jornadas.items():
+            bloco_texto = "\n".join(linhas).lower()
 
-        if not target_qids:
+            match_sender = True
+            if sender_lower:
+                match_sender = f"from=<{sender_lower}" in bloco_texto or f"<{sender_lower}>" in bloco_texto
+
+            match_recipient = True
+            if recipient_lower:
+                match_recipient = f"to=<{recipient_lower}" in bloco_texto or f"<{recipient_lower}>" in bloco_texto
+
+            if match_sender and match_recipient:
+                approved_qids.append(qid)
+                approved_blocks.append((qid, linhas))
+
+        if not approved_blocks:
             return jsonify({
                 'success': True,
                 'sender': sender,
@@ -125,52 +130,34 @@ def track_email():
                 'raw_text': 'Nenhuma jornada encontrada para estes parâmetros.'
             })
 
-        # PASSO B: Segunda varredura no log retornando apenas linhas com os Queue IDs alvo
-        journey_lines = []
-        for line in log_lines:
-            if 'imap-login' in line or 'pop3-login' in line:
-                continue
-
-            for qid in target_qids:
-                if f" {qid}:" in line or f"({qid})" in line or f": {qid}:" in line:
-                    journey_lines.append(line)
-                    break
-
-        if not journey_lines:
-            return jsonify({
-                'success': True,
-                'sender': sender,
-                'recipient': recipient,
-                'found_queue_ids': list(target_qids),
-                'total_matches': 0,
-                'events': [{'raw': 'Nenhuma jornada encontrada para estes parâmetros.', 'type': 'INFO'}],
-                'raw_text': 'Nenhuma jornada encontrada para estes parâmetros.'
-            })
-
-        raw_text_output = '\n'.join(journey_lines)
-
+        # 3. Formatação dos resultados finais com separadores visuais
         journey_events = []
-        for line in journey_lines:
-            event_type = 'INFO'
-            if 'Passed' in line or 'status=sent' in line:
-                event_type = 'DELIVERED'
-            elif 'Blocked' in line or 'REJECT' in line or 'D_DISCARD' in line or 'status=bounced' in line or 'status=deferred' in line:
-                event_type = 'BLOCKED'
-            elif 'amavis' in line:
-                event_type = 'AMAVIS_SCAN'
-            elif 'smtpd' in line or 'connect' in line:
-                event_type = 'SMTP_CONNECT'
+        raw_text_parts = []
 
-            journey_events.append({
-                'raw': line,
-                'type': event_type
-            })
+        for qid, linhas in approved_blocks:
+            raw_text_parts.append(f"=== [ Queue ID: {qid} ] ===")
+            journey_events.append({'raw': f"=== [ Queue ID: {qid} ] ===", 'type': 'HEADER'})
+
+            for line in linhas:
+                raw_text_parts.append(line)
+                event_type = 'INFO'
+                if 'Passed' in line or 'status=sent' in line:
+                    event_type = 'DELIVERED'
+                elif 'Blocked' in line or 'REJECT' in line or 'D_DISCARD' in line or 'status=bounced' in line or 'status=deferred' in line:
+                    event_type = 'BLOCKED'
+                elif 'amavis' in line:
+                    event_type = 'AMAVIS_SCAN'
+                journey_events.append({'raw': line, 'type': event_type})
+
+            raw_text_parts.append("") # linha em branco entre blocos
+
+        raw_text_output = "\n".join(raw_text_parts)
 
         return jsonify({
             'success': True,
             'sender': sender,
             'recipient': recipient,
-            'found_queue_ids': list(target_qids),
+            'found_queue_ids': approved_qids,
             'total_matches': len(journey_events),
             'events': journey_events[-300:],
             'raw_text': raw_text_output
