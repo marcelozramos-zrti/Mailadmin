@@ -194,6 +194,7 @@
             overflow-y: auto;
             white-space: pre-wrap;
             word-break: break-all;
+            text-align: left !important;
         }
 
         .log-terminal pre, .log-terminal div, .log-terminal span, .log-terminal code {
@@ -203,6 +204,7 @@
             padding: 0;
             white-space: pre-wrap;
             word-break: break-all;
+            text-align: left !important;
         }
 
         .code-editor {
@@ -802,8 +804,8 @@
                                     </div>
                                 </div>
 
-                                <div id="track-results" class="log-terminal flex-grow-1" style="background-color: #0a0a0a; color: #00FF00 !important; font-family: monospace; padding: 15px; border-radius: 5px; max-height: 500px; overflow-y: auto;">
-                                    <span style="color: #00FF00 !important;">Informe o remetente (De), destinatário (Para) ou assunto para consultar os logs do Postfix...</span>
+                                <div id="track-results" class="log-terminal flex-grow-1" style="background-color: #0a0a0a; color: #00FF00 !important; font-family: monospace; padding: 15px; border-radius: 5px; max-height: 500px; overflow-y: auto; text-align: left !important;">
+                                    <span style="color: #00FF00 !important; text-align: left !important; display: block;">Informe o remetente (De), destinatário (Para) ou assunto para consultar os logs do Postfix...</span>
                                 </div>
                             </div>
                         </div>
@@ -1446,6 +1448,29 @@
                         <i class="bi bi-check-circle-fill me-1"></i> Validar e Entrar no Painel
                     </button>
                 </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- DNS DETAILS MODAL -->
+<div class="modal fade" id="dnsDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-dark fw-bold d-flex align-items-center gap-2" id="dnsDetailsModalTitle">
+                    <i class="bi bi-shield-check text-primary"></i> Detalhes do Registro DNS
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-2">
+                    <label class="form-label text-muted small fw-semibold">Valor do Registro:</label>
+                    <textarea id="dnsDetailsModalContent" class="form-control font-monospace p-3 bg-dark text-success" rows="8" readonly style="resize: vertical; font-size: 0.85rem; text-align: left !important;"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Fechar</button>
             </div>
         </div>
     </div>
@@ -2355,7 +2380,7 @@
         const container = document.getElementById('track-results');
 
         if (!sender && !recipient && !subject) {
-            container.innerHTML = '<span style="color: #00FF00 !important;"><i class="bi bi-exclamation-circle me-1"></i> Informe ao menos o remetente (De), destinatário (Para) ou assunto.</span>';
+            container.innerHTML = '<span style="color: #00FF00 !important; text-align: left !important; display: block;"><i class="bi bi-exclamation-circle me-1"></i> Informe o remetente (De), destinatário (Para) ou assunto para consultar os logs do Postfix...</span>';
             return;
         }
 
@@ -2393,6 +2418,27 @@
         }
     }
 
+    function showDnsDetails(type) {
+        const titleEl = document.getElementById('dnsDetailsModalTitle');
+        const contentEl = document.getElementById('dnsDetailsModalContent');
+        if (titleEl) titleEl.innerText = `Detalhes do Registro DNS (${type})`;
+
+        let text = 'Nenhum registro encontrado.';
+        if (window.latestDnsReport) {
+            const key = type.toLowerCase();
+            const item = window.latestDnsReport[key];
+            if (item) {
+                text = item.record || (item.records ? item.records.join('\n') : '') || item.details || 'Nenhum registro encontrado.';
+            }
+        }
+        if (contentEl) contentEl.value = text;
+
+        const modalEl = document.getElementById('dnsDetailsModal');
+        if (modalEl) {
+            new bootstrap.Modal(modalEl).show();
+        }
+    }
+
     async function checkDNS() {
         const domain = document.getElementById('dns-domain-input').value;
         const container = document.getElementById('dns-report-container');
@@ -2404,23 +2450,33 @@
             const data = await fetchJson(`/api/troubleshooting/dns-check?domain=${encodeURIComponent(domain)}`);
             if (data.dns_report) {
                 const rep = data.dns_report;
+                window.latestDnsReport = rep;
                 container.innerHTML = `
                     <div class="list-group list-group-flush rounded-3 border">
                         <div class="list-group-item d-flex justify-content-between align-items-center">
                             <div><strong>MX:</strong> ${(rep.mx.records || []).join(', ') || 'Nenhum'}</div>
-                            <span class="badge bg-${rep.mx.status === 'OK' ? 'success' : 'danger'}">${rep.mx.status}</span>
+                            <span class="badge bg-${rep.mx.status === 'OK' ? 'success' : 'danger'}">${rep.mx.status === 'OK' ? 'OK' : 'Falha'}</span>
                         </div>
                         <div class="list-group-item d-flex justify-content-between align-items-center">
-                            <div><strong>SPF:</strong> <code class="text-primary">${rep.spf.record || 'Ausente'}</code></div>
-                            <span class="badge bg-${rep.spf.status === 'OK' ? 'success' : 'danger'}">${rep.spf.status}</span>
+                            <div><strong>SPF:</strong></div>
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="badge bg-${rep.spf.status === 'OK' ? 'success' : 'danger'}">${rep.spf.status === 'OK' ? 'OK' : 'Falha'}</span>
+                                <button class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size: 0.75rem;" onclick="showDnsDetails('SPF')">Detalhes</button>
+                            </div>
                         </div>
                         <div class="list-group-item d-flex justify-content-between align-items-center">
-                            <div><strong>DKIM:</strong> <code class="text-primary">${rep.dkim.record || 'Ausente'}</code></div>
-                            <span class="badge bg-${rep.dkim.status === 'OK' ? 'success' : 'warning'}">${rep.dkim.status}</span>
+                            <div><strong>DKIM:</strong></div>
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="badge bg-${rep.dkim.status === 'OK' ? 'success' : 'danger'}">${rep.dkim.status === 'OK' ? 'OK' : 'Falha'}</span>
+                                <button class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size: 0.75rem;" onclick="showDnsDetails('DKIM')">Detalhes</button>
+                            </div>
                         </div>
                         <div class="list-group-item d-flex justify-content-between align-items-center">
-                            <div><strong>DMARC:</strong> <code class="text-primary">${rep.dmarc.record || 'Ausente'}</code></div>
-                            <span class="badge bg-${rep.dmarc.status === 'OK' ? 'success' : 'danger'}">${rep.dmarc.status}</span>
+                            <div><strong>DMARC:</strong></div>
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="badge bg-${rep.dmarc.status === 'OK' ? 'success' : 'danger'}">${rep.dmarc.status === 'OK' ? 'OK' : 'Falha'}</span>
+                                <button class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size: 0.75rem;" onclick="showDnsDetails('DMARC')">Detalhes</button>
+                            </div>
                         </div>
                     </div>
                 `;
