@@ -778,94 +778,130 @@
                 <!-- 3. TROUBLESHOOTING TAB -->
                 <div class="tab-section d-none" id="tab-troubleshooting">
                     
-                    <!-- Explorador de Logs Estilo Google Workspace Email Log Search -->
-                    <div class="card p-4 mb-4">
-                        <div class="d-flex align-items-center justify-content-between mb-2">
-                            <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
-                                <i class="bi bi-search text-primary"></i> Explorador de Logs de E-mail (Log Search)
-                            </h3>
-                            <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle font-monospace">Google Workspace Style</span>
-                        </div>
-                        <p class="text-muted small mb-3">Pesquisa e filtragem flexível de logs do Postfix/Amavis por período, caixa postal, termos livres e limite de linhas.</p>
-
-                        <!-- Barra de Busca Flexível -->
-                        <div class="row g-2 mb-3 align-items-end">
-                            <div class="col-md-3 col-lg-2">
-                                <label class="form-label small text-muted fw-semibold mb-1">Período:</label>
-                                <select id="log-period-select" class="form-select font-monospace">
-                                    <option value="today" selected>Hoje (mail.log)</option>
-                                    <option value="yesterday">Ontem (mail.log.1)</option>
-                                </select>
-                            </div>
-                            <div class="col-md-3 col-lg-3">
-                                <label class="form-label small text-muted fw-semibold mb-1">Caixa Postal (De ou Para):</label>
-                                <input type="text" id="log-mailbox-input" class="form-control font-monospace" placeholder="ex: usuario@empresa.com.br" onkeyup="if(event.key==='Enter') trackEmail()">
-                            </div>
-                            <div class="col-md-3 col-lg-4">
-                                <label class="form-label small text-muted fw-semibold mb-1">Termo de Busca Livre:</label>
-                                <input type="text" id="log-search-term-input" class="form-control font-monospace" placeholder="ex: 250 OK, bounced, Connection reset, IP..." onkeyup="if(event.key==='Enter') trackEmail()">
-                            </div>
-                            <div class="col-md-2 col-lg-2">
-                                <label class="form-label small text-muted fw-semibold mb-1">Limite de Linhas:</label>
-                                <select id="log-limit-select" class="form-select font-monospace">
-                                    <option value="100">100 linhas</option>
-                                    <option value="500" selected>500 linhas</option>
-                                    <option value="1000">1000 linhas</option>
-                                </select>
-                            </div>
-                            <div class="col-md-1 col-lg-1">
-                                <button class="btn btn-primary w-100 fw-bold" onclick="trackEmail()" title="Pesquisar Logs">
-                                    <i class="bi bi-search"></i>
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Terminal de Exibição de Logs com Fundo Escuro e Letras Claras -->
-                        <div id="track-results" class="log-terminal" style="background-color: #0a0a0a; color: #FFFFFF !important; font-family: monospace; padding: 15px; border-radius: 8px; min-height: 280px; max-height: 550px; overflow-y: auto; text-align: left !important; word-break: break-all; white-space: pre-wrap;">
-                            <span style="color: #9ca3af !important; display: block;">Selecione o período e informe os termos para realizar a busca flexível nos logs do servidor...</span>
-                        </div>
-                    </div>
-
-                    <!-- Logs em Tempo Real (Tail Live) -->
-                    <div class="card p-4 mb-4">
-                        <div class="d-flex align-items-center justify-content-between mb-3">
-                            <div>
-                                <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
-                                    <i class="bi bi-terminal text-success"></i> Logs em Tempo Real (/var/log/mail.log)
-                                </h3>
-                                <small class="text-muted">Monitoramento ao vivo de eventos do MTA com filtros dinâmicos de caixa postal e busca rápida.</small>
-                            </div>
-                            <button class="btn btn-outline-success btn-sm rounded-3 fw-bold" onclick="loadLogs()">
-                                <i class="bi bi-arrow-clockwise me-1"></i> Atualizar Logs Live
+                    <!-- Nav Tabs de Troubleshooting -->
+                    <ul class="nav nav-tabs mb-4 border-bottom-0" id="troubleshootingTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active fw-semibold" id="historica-tab" data-bs-toggle="tab" data-bs-target="#tab-historica" type="button" role="tab" aria-controls="tab-historica" aria-selected="true">
+                                <i class="bi bi-clock-history me-1.5 text-primary"></i> Auditoria Histórica
                             </button>
-                        </div>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link fw-semibold" id="monitoramento-tab" data-bs-toggle="tab" data-bs-target="#tab-monitoramento" type="button" role="tab" aria-controls="tab-monitoramento" aria-selected="false">
+                                <i class="bi bi-activity me-1.5 text-success"></i> Monitoramento ao Vivo
+                            </button>
+                        </li>
+                    </ul>
 
-                        <!-- Filtros Live -->
-                        <div class="row g-2 mb-3 align-items-end">
-                            <div class="col-md-5 col-lg-5">
-                                <label class="form-label small text-muted fw-semibold mb-1">Filtro de Caixa Postal:</label>
-                                <div class="input-group input-group-sm">
-                                    <span class="input-group-text bg-light border-light-subtle text-muted"><i class="bi bi-at"></i></span>
-                                    <input type="text" id="live-mailbox-input" class="form-control font-monospace" placeholder="ex: usuario@empresa.com.br" onkeyup="if(event.key==='Enter') loadLogs()">
+                    <div class="tab-content" id="troubleshootingTabsContent">
+                        <!-- ABA 1: Auditoria Histórica -->
+                        <div class="tab-pane fade show active" id="tab-historica" role="tabpanel" aria-labelledby="historica-tab">
+                            <div class="card p-4 mb-4">
+                                <div class="d-flex align-items-center justify-content-between mb-2">
+                                    <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                        <i class="bi bi-search text-primary"></i> Explorador de Logs de E-mail (Log Search)
+                                    </h3>
+                                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle font-monospace">Auditoria Histórica</span>
+                                </div>
+                                <p class="text-muted small mb-3">Investigue incidentes passados, rastreie mensagens perdidas e analise o status de entrega de e-mails em períodos específicos.</p>
+
+                                <!-- Barra de Busca Flexível com Novos Filtros de Metadados -->
+                                <div class="row g-2 mb-3 align-items-end">
+                                    <div class="col-md-3 col-lg-2">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Período:</label>
+                                        <select id="log-period-select" class="form-select font-monospace">
+                                            <option value="today" selected>Hoje (mail.log)</option>
+                                            <option value="yesterday">Ontem (mail.log.1)</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3 col-lg-2">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Status da Entrega:</label>
+                                        <select id="log-status-select" class="form-select font-monospace">
+                                            <option value="" selected>Todos os Status</option>
+                                            <option value="sent">Entregue (sent)</option>
+                                            <option value="bounced">Rejeitado (bounced)</option>
+                                            <option value="deferred">Adiado (deferred)</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3 col-lg-2">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Serviço:</label>
+                                        <select id="log-service-select" class="form-select font-monospace">
+                                            <option value="" selected>Todos os Serviços</option>
+                                            <option value="postfix">Postfix (MTA)</option>
+                                            <option value="amavis">Amavis (Antispam)</option>
+                                            <option value="dovecot">Dovecot (IMAP/POP3)</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3 col-lg-2">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Limite de Linhas:</label>
+                                        <select id="log-limit-select" class="form-select font-monospace">
+                                            <option value="100">100 linhas</option>
+                                            <option value="500" selected>500 linhas</option>
+                                            <option value="1000">1000 linhas</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4 col-lg-4">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Caixa Postal (De ou Para):</label>
+                                        <input type="text" id="log-mailbox-input" class="form-control font-monospace" placeholder="ex: usuario@empresa.com.br" onkeyup="if(event.key==='Enter') trackEmail()">
+                                    </div>
+                                    <div class="col-md-8 col-lg-10">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Termo de Busca Livre:</label>
+                                        <input type="text" id="log-search-term-input" class="form-control font-monospace" placeholder="ex: 250 OK, bounced, Connection reset, IP..." onkeyup="if(event.key==='Enter') trackEmail()">
+                                    </div>
+                                    <div class="col-md-4 col-lg-2">
+                                        <button class="btn btn-primary w-100 fw-bold" onclick="trackEmail()" title="Pesquisar Logs">
+                                            <i class="bi bi-search me-1"></i> Pesquisar
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Terminal de Exibição de Logs com Fundo Escuro e Letras Claras -->
+                                <div id="track-results" class="log-terminal" style="background-color: #0a0a0a; color: #FFFFFF !important; font-family: monospace; padding: 15px; border-radius: 8px; min-height: 280px; max-height: 550px; overflow-y: auto; text-align: left !important; word-break: break-all; white-space: pre-wrap;">
+                                    <span style="color: #9ca3af !important; display: block;">Selecione o período e informe os termos para realizar a busca flexível nos logs do servidor...</span>
                                 </div>
                             </div>
-                            <div class="col-md-5 col-lg-5">
-                                <label class="form-label small text-muted fw-semibold mb-1">Termo Específico:</label>
-                                <div class="input-group input-group-sm">
-                                    <span class="input-group-text bg-light border-light-subtle text-muted"><i class="bi bi-funnel"></i></span>
-                                    <input type="text" id="live-search-term-input" class="form-control font-monospace" placeholder="ex: 250 OK, bounced, status=sent..." onkeyup="if(event.key==='Enter') loadLogs()">
-                                </div>
-                            </div>
-                            <div class="col-md-2 col-lg-2">
-                                <button class="btn btn-success btn-sm w-100 fw-bold py-1.5 rounded-3" onclick="loadLogs()">
-                                    <i class="bi bi-filter me-1"></i> Filtrar Live
-                                </button>
-                            </div>
                         </div>
 
-                        <!-- Terminal de Exibição de Logs em Tempo Real -->
-                        <div id="logs-container" class="log-terminal" style="background-color: #0a0a0a; color: #FFFFFF !important; font-family: monospace; padding: 15px; border-radius: 8px; min-height: 250px; max-height: 500px; overflow-y: auto; text-align: left !important; word-break: break-all; white-space: pre-wrap;">
-                            <span style="color: #9ca3af !important;">Carregando registros de log do servidor em tempo real...</span>
+                        <!-- ABA 2: Monitoramento ao Vivo -->
+                        <div class="tab-pane fade" id="tab-monitoramento" role="tabpanel" aria-labelledby="monitoramento-tab">
+                            <div class="card p-4 mb-4">
+                                <div class="d-flex align-items-center justify-content-between mb-2">
+                                    <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                        <i class="bi bi-terminal text-success"></i> Logs em Tempo Real (/var/log/mail.log)
+                                    </h3>
+                                    <button class="btn btn-outline-success btn-sm rounded-3 fw-bold" onclick="loadLogs()">
+                                        <i class="bi bi-arrow-clockwise me-1"></i> Atualizar Logs Live
+                                    </button>
+                                </div>
+                                <p class="text-muted small mb-3">Acompanhe o tráfego do servidor no exato momento em que ocorre. Ideal para diagnosticar gargalos instantâneos e validar testes de envio.</p>
+
+                                <!-- Filtros Live -->
+                                <div class="row g-2 mb-3 align-items-end">
+                                    <div class="col-md-5 col-lg-5">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Filtro de Caixa Postal:</label>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light border-light-subtle text-muted"><i class="bi bi-at"></i></span>
+                                            <input type="text" id="live-mailbox-input" class="form-control font-monospace" placeholder="ex: usuario@empresa.com.br" onkeyup="if(event.key==='Enter') loadLogs()">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-5 col-lg-5">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Termo Específico:</label>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light border-light-subtle text-muted"><i class="bi bi-funnel"></i></span>
+                                            <input type="text" id="live-search-term-input" class="form-control font-monospace" placeholder="ex: 250 OK, bounced, status=sent..." onkeyup="if(event.key==='Enter') loadLogs()">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-2 col-lg-2">
+                                        <button class="btn btn-success btn-sm w-100 fw-bold py-1.5 rounded-3" onclick="loadLogs()">
+                                            <i class="bi bi-filter me-1"></i> Filtrar Live
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Terminal de Exibição de Logs em Tempo Real -->
+                                <div id="logs-container" class="log-terminal" style="background-color: #0a0a0a; color: #FFFFFF !important; font-family: monospace; padding: 15px; border-radius: 8px; min-height: 250px; max-height: 500px; overflow-y: auto; text-align: left !important; word-break: break-all; white-space: pre-wrap;">
+                                    <span style="color: #9ca3af !important;">Carregando registros de log do servidor em tempo real...</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -2413,11 +2449,15 @@
 
     async function trackEmail() {
         const periodEl = document.getElementById('log-period-select');
+        const statusEl = document.getElementById('log-status-select');
+        const serviceEl = document.getElementById('log-service-select');
         const mailboxEl = document.getElementById('log-mailbox-input');
         const searchTermEl = document.getElementById('log-search-term-input');
         const limitEl = document.getElementById('log-limit-select');
 
         const period = periodEl ? periodEl.value : 'today';
+        const delivery_status = statusEl ? statusEl.value : '';
+        const service = serviceEl ? serviceEl.value : '';
         const mailbox = mailboxEl ? mailboxEl.value.trim() : '';
         const search_term = searchTermEl ? searchTermEl.value.trim() : '';
         const limit = limitEl ? limitEl.value : '500';
@@ -2433,10 +2473,14 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     period,
+                    delivery_status,
+                    service,
                     mailbox,
                     search_term,
                     limit,
                     periodo: period,
+                    status_entrega: delivery_status,
+                    servico: service,
                     caixa_postal: mailbox,
                     termo_busca: search_term,
                     limite: limit

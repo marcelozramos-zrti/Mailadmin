@@ -44,6 +44,8 @@ def track_email():
     period = (data.get('period') or data.get('periodo') or 'today').strip().lower()
     mailbox = (data.get('mailbox') or data.get('caixa_postal') or data.get('sender') or data.get('recipient') or data.get('email') or '').strip().lower()
     search_term = (data.get('search_term') or data.get('termo_busca') or data.get('term') or data.get('subject') or '').strip().lower()
+    delivery_status = (data.get('delivery_status') or data.get('status_entrega') or data.get('status') or '').strip().lower()
+    service = (data.get('service') or data.get('servico') or data.get('service_filter') or '').strip().lower()
 
     try:
         limit = int(data.get('limit') or data.get('limite') or 500)
@@ -91,6 +93,8 @@ def track_email():
             'period_label': period_label,
             'mailbox': mailbox,
             'search_term': search_term,
+            'delivery_status': delivery_status,
+            'service': service,
             'limit': limit,
             'total_matches': 0,
             'lines': [],
@@ -112,6 +116,14 @@ def track_email():
         if search_term and search_term not in line_lower:
             continue
 
+        # Filtro de Status da Entrega (sent, bounced, deferred)
+        if delivery_status and delivery_status not in line_lower:
+            continue
+
+        # Filtro de Serviço (postfix, amavis, dovecot)
+        if service and service not in line_lower:
+            continue
+
         filtered_lines.append(line)
 
     # 3. Limite de Linhas (pegando as mais recentes = do final do array)
@@ -129,6 +141,8 @@ def track_email():
             'period_label': period_label,
             'mailbox': mailbox,
             'search_term': search_term,
+            'delivery_status': delivery_status,
+            'service': service,
             'limit': limit,
             'total_matches': 0,
             'lines': [],
@@ -145,6 +159,8 @@ def track_email():
         'period_label': period_label,
         'mailbox': mailbox,
         'search_term': search_term,
+        'delivery_status': delivery_status,
+        'service': service,
         'limit': limit,
         'total_matches': total_matches,
         'lines': result_lines,
