@@ -78,14 +78,16 @@ def track_email():
                 'raw_text': 'Nenhuma jornada encontrada para estes parâmetros.'
             })
 
-        # 1. Agrupamento em Dicionário (Hash Map por Queue ID)
-        jornadas = {}
-        # Regex flexível para capturar Queue ID do Postfix / Amavis
-        # ex: " 4YtZ8b3K:", " 4hJJgV5Txsz4X: ", "(4YtZ8b3K)"
-        qid_regex = re.compile(r'(?:\s|^)([A-Za-z0-9]{8,16}):(?:\s|$)|(?:\s|^)\(([A-Za-z0-9]{8,16})\)(?:\s|$)')
+        # 1. Mapeamento Total (Agrupamento por Queue ID e extração de Message-ID)
+        linhas_por_qid = {}
+        msgid_por_qid = {}
+
+        # Regex flexível para capturar Queue ID do Postfix e Amavis (suportando a-z minúsculo, ex: 4hJJgV5Txsz4X)
+        qid_regex = re.compile(r'(?:\s|^)([a-zA-Z0-9]{8,16}):(?:\s|$)|(?:\s|^)\(([a-zA-Z0-9]{8,16})\)(?:\s|$)')
+        msgid_regex = re.compile(r'message-id=<([^>]+)>', re.IGNORECASE)
 
         for line in log_lines:
-            # Ignora ruídos irrelevantes de autenticação IMAP/POP3
+            # Descarte de logs de autenticação IMAP/POP3 do Dovecot
             if 'imap-login' in line or 'pop3-login' in line:
                 continue
 
@@ -93,33 +95,60 @@ def track_email():
             if match:
                 qid = match.group(1) or match.group(2)
                 if qid:
-                    if qid not in jornadas:
-                        jornadas[qid] = []
-                    jornadas[qid].append(line)
+                    if qid not in linhas_por_qid:
+                        linhas_por_qid[qid] = []
+                    linhas_por_qid[qid].append(line)
 
-        # 2. Filtragem dos blocos de jornada
+                    # Tenta extrair Message-ID se presente na linha
+                    m_msg = msgid_regex.search(line)
+                    if m_msg:
+                        msgid_por_qid[qid] = m_msg.group(1).lower().strip()
+
         sender_lower = sender.lower() if sender else ""
         recipient_lower = recipient.lower() if recipient else ""
 
-        approved_qids = []
-        approved_blocks = []
+        # 2. Busca Inicial (Filtragem por remetente/destinatário)
+        qids_alvo = set()
 
-        for qid, linhas in jornadas.items():
-            bloco_texto = "\n".join(linhas).lower()
+        for qid, linhas in linhas_por_qid.items():
+            bloco_lower = "\n".join(linhas).lower()
 
             match_sender = True
             if sender_lower:
-                match_sender = f"from=<{sender_lower}" in bloco_texto or f"<{sender_lower}>" in bloco_texto
+                match_sender = (f"from=<{sender_lower}" in bloco_lower or 
+                                f"<{sender_lower}>" in bloco_lower or 
+                                f"from={sender_lower}" in bloco_lower)
 
             match_recipient = True
             if recipient_lower:
-                match_recipient = f"to=<{recipient_lower}" in bloco_texto or f"<{recipient_lower}>" in bloco_texto
+                match_recipient = (f"to=<{recipient_lower}" in bloco_lower or 
+                                   f"<{recipient_lower}>" in bloco_lower or 
+                                   f"to={recipient_lower}" in bloco_lower)
 
             if match_sender and match_recipient:
-                approved_qids.append(qid)
-                approved_blocks.append((qid, linhas))
+                qids_alvo.add(qid)
 
-        if not approved_blocks:
+        # 3. A Ponte do Amavis (Integração via Message-ID)
+        target_msg_ids = set()
+        for qid in qids_alvo:
+            if qid in msgid_por_qid:
+                target_msg_ids.add(msgid_por_qid[qid])
+
+        if target_msg_ids:
+            # Adiciona todos os QIDs que compartilham do mesmo Message-ID
+            for qid, msgid in msgid_por_qid.items():
+                if msgid in target_msg_ids:
+                    qids_alvo.add(qid)
+
+            # Adiciona QIDs onde o Message-ID apareça no bloco de texto
+            for qid, linhas in linhas_por_qid.items():
+                bloco_lower = "\n".join(linhas).lower()
+                for mid in target_msg_ids:
+                    if mid in bloco_lower:
+                        qids_alvo.add(qid)
+                        break
+
+        if not qids_alvo:
             return jsonify({
                 'success': True,
                 'sender': sender,
@@ -130,11 +159,15 @@ def track_email():
                 'raw_text': 'Nenhuma jornada encontrada para estes parâmetros.'
             })
 
-        # 3. Formatação dos resultados finais com separadores visuais
+        # Preserva a ordem cronológica de aparição dos QIDs
+        ordered_approved_qids = [q for q in linhas_por_qid.keys() if q in qids_alvo]
+
+        # 4. Renderização com separadores visuais
         journey_events = []
         raw_text_parts = []
 
-        for qid, linhas in approved_blocks:
+        for qid in ordered_approved_qids:
+            linhas = linhas_por_qid[qid]
             raw_text_parts.append(f"=== [ Queue ID: {qid} ] ===")
             journey_events.append({'raw': f"=== [ Queue ID: {qid} ] ===", 'type': 'HEADER'})
 
@@ -149,7 +182,7 @@ def track_email():
                     event_type = 'AMAVIS_SCAN'
                 journey_events.append({'raw': line, 'type': event_type})
 
-            raw_text_parts.append("") # linha em branco entre blocos
+            raw_text_parts.append("") # Linha em branco entre blocos
 
         raw_text_output = "\n".join(raw_text_parts)
 
@@ -157,7 +190,7 @@ def track_email():
             'success': True,
             'sender': sender,
             'recipient': recipient,
-            'found_queue_ids': approved_qids,
+            'found_queue_ids': ordered_approved_qids,
             'total_matches': len(journey_events),
             'events': journey_events[-300:],
             'raw_text': raw_text_output
