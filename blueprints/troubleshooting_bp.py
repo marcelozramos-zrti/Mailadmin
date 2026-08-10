@@ -28,178 +28,129 @@ def run_cmd(cmd_list):
 
 
 # ==========================================
-# 1. TRACKING DE E-MAIL (JORNADA NO MAIL.LOG)
+# 1. EXPLORADOR FLEXÍVEL DE LOGS DE E-MAIL
 # ==========================================
 
 @troubleshooting_bp.route('/email-tracking', methods=['GET', 'POST'])
 @login_required
 def track_email():
+    """Explorador de logs flexível baseado em período, caixa postal, termo de busca e limite de linhas."""
     if request.method == 'POST':
         data = request.get_json(silent=True) or request.form or {}
-        sender = (data.get('sender') or '').strip()
-        recipient = (data.get('recipient') or '').strip()
-        subject = (data.get('subject') or '').strip()
-        email_query = (data.get('email') or '').strip()
     else:
-        sender = (request.args.get('sender') or '').strip()
-        recipient = (request.args.get('recipient') or '').strip()
-        subject = (request.args.get('subject') or '').strip()
-        email_query = (request.args.get('email') or '').strip()
+        data = request.args or {}
 
-    # Fallback de compatibilidade
-    if not sender and not recipient and not subject and email_query:
-        sender = email_query
-
-    if not sender and not recipient and not subject:
-        return jsonify({'success': False, 'message': 'Informe o remetente (De), destinatário (Para) ou assunto para rastrear.'}), 400
+    # Leitura dos parâmetros com múltiplos aliases para compatibilidade
+    period = (data.get('period') or data.get('periodo') or 'today').strip().lower()
+    mailbox = (data.get('mailbox') or data.get('caixa_postal') or data.get('sender') or data.get('recipient') or data.get('email') or '').strip().lower()
+    search_term = (data.get('search_term') or data.get('termo_busca') or data.get('term') or data.get('subject') or '').strip().lower()
 
     try:
-        # 1. Leitura de Logs (Anti-Logrotate)
-        log_lines = []
-        try:
-            resultado = subprocess.run(
-                ['sudo', 'sh', '-c', 'cat /var/log/mail.log.1 /var/log/mail.log 2>/dev/null'],
-                capture_output=True, text=True, errors='ignore', timeout=25
-            )
-            if resultado.stdout:
-                log_lines = [line.strip() for line in resultado.stdout.split('\n') if line.strip()]
-        except Exception:
-            log_lines = []
+        limit = int(data.get('limit') or data.get('limite') or 500)
+    except (ValueError, TypeError):
+        limit = 500
 
-        # Fallback para journalctl se mail.log estiver vazio
-        if not log_lines:
-            res = run_cmd(['sudo', 'journalctl', '-u', 'postfix', '-u', 'amavis', '-n', '4000', '--no-pager'])
+    if limit <= 0:
+        limit = 500
+
+    # 1. Seleção do Arquivo de Log com base no Período
+    if period in ['yesterday', 'ontem', 'mail.log.1']:
+        log_file = '/var/log/mail.log.1'
+        period_label = 'Ontem (mail.log.1)'
+    else:
+        log_file = '/var/log/mail.log'
+        period_label = 'Hoje (mail.log)'
+
+    log_lines = []
+
+    # Leitura do log usando subprocess com sudo cat
+    try:
+        cmd_res = subprocess.run(
+            ['sudo', 'cat', log_file],
+            capture_output=True, text=True, errors='ignore', timeout=20
+        )
+        if cmd_res.stdout:
+            log_lines = [line.strip() for line in cmd_res.stdout.splitlines() if line.strip()]
+    except Exception:
+        log_lines = []
+
+    # Fallback para journalctl se mail.log estiver vazio / ausente
+    if not log_lines:
+        try:
+            res = run_cmd(['sudo', 'journalctl', '-u', 'postfix', '-u', 'amavis', '-n', '2000', '--no-pager'])
             if res['stdout']:
                 log_lines = [line.strip() for line in res['stdout'].splitlines() if line.strip()]
+        except Exception:
+            pass
 
-        if not log_lines:
-            return jsonify({
-                'success': True,
-                'sender': sender,
-                'recipient': recipient,
-                'subject': subject,
-                'found_queue_ids': [],
-                'total_matches': 0,
-                'events': [{'raw': 'Nenhuma jornada encontrada para estes parâmetros.', 'type': 'INFO'}],
-                'raw_text': 'Nenhuma jornada encontrada para estes parâmetros.'
-            })
-
-        # 2. Extração e Filtro Inicial (bloco_por_qid e msgid_por_qid)
-        bloco_por_qid = {}
-        msgid_por_qid = {}
-
-        for linha in log_lines:
-            # Descarte de ruído: imap-login, pop3-login, dovecot
-            if 'imap-login' in linha or 'pop3-login' in linha or 'dovecot' in linha.lower():
-                continue
-
-            match_qid = re.search(r'\s([a-zA-Z0-9]{10,15}):\s', ' ' + linha + ' ')
-            if match_qid:
-                qid = match_qid.group(1)
-                if qid not in bloco_por_qid:
-                    bloco_por_qid[qid] = []
-                bloco_por_qid[qid].append(linha)
-
-                m_msg = re.search(r'message-id=<([^>]+)>', linha, re.IGNORECASE)
-                if m_msg:
-                    msgid_por_qid[qid] = m_msg.group(1).lower().strip()
-
-        sender_lower = sender.lower() if sender else ""
-        recipient_lower = recipient.lower() if recipient else ""
-        subject_lower = subject.lower() if subject else ""
-
-        qids_alvo = set()
-
-        for qid, linhas in bloco_por_qid.items():
-            bloco_texto = "\n".join(linhas)
-            bloco_lower = bloco_texto.lower()
-
-            match_sender = True
-            if sender_lower:
-                match_sender = (f"from=<{sender_lower}" in bloco_lower or f"from={sender_lower}" in bloco_lower or f"<{sender_lower}>" in bloco_lower)
-
-            match_recipient = True
-            if recipient_lower:
-                match_recipient = (f"to=<{recipient_lower}" in bloco_lower or f"to={recipient_lower}" in bloco_lower or f"<{recipient_lower}>" in bloco_lower)
-
-            match_subject = True
-            if subject_lower:
-                match_subject = (subject_lower in bloco_lower)
-
-            if match_sender and match_recipient and match_subject:
-                qids_alvo.add(qid)
-
-        # 3. A Ponte do Amavis (Transação Completa)
-        target_msg_ids = set()
-        for qid in list(qids_alvo):
-            if qid in msgid_por_qid:
-                target_msg_ids.add(msgid_por_qid[qid])
-
-        if target_msg_ids:
-            for qid, msgid in msgid_por_qid.items():
-                if msgid in target_msg_ids:
-                    qids_alvo.add(qid)
-
-            for qid, linhas in bloco_por_qid.items():
-                bloco_lower = "\n".join(linhas).lower()
-                for mid in target_msg_ids:
-                    if mid in bloco_lower:
-                        qids_alvo.add(qid)
-                        break
-
-        if not qids_alvo:
-            return jsonify({
-                'success': True,
-                'sender': sender,
-                'recipient': recipient,
-                'subject': subject,
-                'found_queue_ids': [],
-                'total_matches': 0,
-                'events': [{'raw': 'Nenhuma jornada encontrada para estes parâmetros.', 'type': 'INFO'}],
-                'raw_text': 'Nenhuma jornada encontrada para estes parâmetros.'
-            })
-
-        ordered_approved_qids = [q for q in bloco_por_qid.keys() if q in qids_alvo]
-
-        # 4. Retorno ao Frontend
-        journey_events = []
-        raw_text_parts = []
-
-        for qid in ordered_approved_qids:
-            linhas = bloco_por_qid[qid]
-            raw_text_parts.append(f"=== [ Queue ID: {qid} ] ===")
-            journey_events.append({'raw': f"=== [ Queue ID: {qid} ] ===", 'type': 'HEADER'})
-
-            for line in linhas:
-                if 'dovecot' in line.lower():
-                    continue
-                raw_text_parts.append(line)
-                event_type = 'INFO'
-                if 'Passed' in line or 'status=sent' in line:
-                    event_type = 'DELIVERED'
-                elif 'Blocked' in line or 'REJECT' in line or 'D_DISCARD' in line or 'status=bounced' in line or 'status=deferred' in line:
-                    event_type = 'BLOCKED'
-                elif 'amavis' in line:
-                    event_type = 'AMAVIS_SCAN'
-                journey_events.append({'raw': line, 'type': event_type})
-
-            raw_text_parts.append("")
-
-        raw_text_output = "\n".join(raw_text_parts)
-
+    if not log_lines:
+        msg = f"Nenhum registro de log encontrado em {log_file}."
         return jsonify({
             'success': True,
-            'sender': sender,
-            'recipient': recipient,
-            'subject': subject,
-            'found_queue_ids': ordered_approved_qids,
-            'total_matches': len(journey_events),
-            'events': journey_events[-300:],
-            'raw_text': raw_text_output
+            'period': period,
+            'period_label': period_label,
+            'mailbox': mailbox,
+            'search_term': search_term,
+            'limit': limit,
+            'total_matches': 0,
+            'lines': [],
+            'events': [{'raw': msg, 'type': 'INFO'}],
+            'raw_text': msg
         })
 
-    except Exception as e:
-        return jsonify({'success': False, 'message': f'Erro ao rastrear e-mail: {str(e)}'}), 500
+    # 2. Lógica de Filtragem no Python
+    filtered_lines = []
+
+    for line in log_lines:
+        line_lower = line.lower()
+
+        # Filtro de Caixa Postal (De ou Para)
+        if mailbox and mailbox not in line_lower:
+            continue
+
+        # Filtro de Termo de Busca Livre (Assunto, IP, Porta, Status, Erro)
+        if search_term and search_term not in line_lower:
+            continue
+
+        filtered_lines.append(line)
+
+    # 3. Limite de Linhas (pegando as mais recentes = do final do array)
+    total_matches = len(filtered_lines)
+    if total_matches > limit:
+        result_lines = filtered_lines[-limit:]
+    else:
+        result_lines = filtered_lines
+
+    if not result_lines:
+        msg = "Nenhum registro de log encontrado para os filtros informados."
+        return jsonify({
+            'success': True,
+            'period': period,
+            'period_label': period_label,
+            'mailbox': mailbox,
+            'search_term': search_term,
+            'limit': limit,
+            'total_matches': 0,
+            'lines': [],
+            'events': [{'raw': msg, 'type': 'INFO'}],
+            'raw_text': msg
+        })
+
+    raw_text = "\n".join(result_lines)
+    events = [{'raw': l, 'type': 'INFO'} for l in result_lines]
+
+    return jsonify({
+        'success': True,
+        'period': period,
+        'period_label': period_label,
+        'mailbox': mailbox,
+        'search_term': search_term,
+        'limit': limit,
+        'total_matches': total_matches,
+        'lines': result_lines,
+        'events': events,
+        'raw_text': raw_text
+    })
 
 
 # ==========================================

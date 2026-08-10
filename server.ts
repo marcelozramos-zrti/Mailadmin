@@ -546,11 +546,32 @@ blacklist_from *@spammerdomain.net
     });
   });
 
+  let systemdAvailable: boolean | null = null;
+
   app.get("/api/services/status", async (req, res) => {
     const services = ["postfix", "amavis", "clamav-daemon", "spamassassin"];
     const statusResult: Record<string, any> = {};
 
+    if (systemdAvailable === false) {
+      for (const svc of services) {
+        statusResult[svc] = virtualServices[svc] || { active: true, state: "active" };
+      }
+      return res.json({ success: true, services: statusResult });
+    }
+
     try {
+      if (systemdAvailable === null) {
+        const check = await runCmd("systemctl is-system-running");
+        systemdAvailable = check.code === 0 || check.stdout.includes("running") || check.stdout.includes("degraded");
+      }
+
+      if (!systemdAvailable) {
+        for (const svc of services) {
+          statusResult[svc] = virtualServices[svc] || { active: true, state: "active" };
+        }
+        return res.json({ success: true, services: statusResult });
+      }
+
       const promises = services.map(async (svc) => {
         try {
           const cmdRes = await runCmd(`sudo systemctl is-active ${svc}`);

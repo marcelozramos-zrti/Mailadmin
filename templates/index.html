@@ -777,58 +777,75 @@
 
                 <!-- 3. TROUBLESHOOTING & DNS TAB -->
                 <div class="tab-section d-none" id="tab-troubleshooting">
-                    <div class="row g-4 mb-4">
-                        <!-- Tracking -->
-                        <div class="col-lg-6">
-                            <div class="card p-4 h-100">
-                                <h3 class="h6 mb-2 fw-bold text-dark d-flex align-items-center gap-2">
-                                    <i class="bi bi-search text-primary"></i> Rastrear Jornada de Mensagens
-                                </h3>
-                                <p class="text-muted small mb-3">Filtra eventos em <code>/var/log/mail.log</code> por remetente e/ou destinatário correlacionando Queue IDs do Postfix.</p>
+                    
+                    <!-- Explorador de Logs Estilo Google Workspace Email Log Search -->
+                    <div class="card p-4 mb-4">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                <i class="bi bi-search text-primary"></i> Explorador de Logs de E-mail (Log Search)
+                            </h3>
+                            <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle font-monospace">Google Workspace Style</span>
+                        </div>
+                        <p class="text-muted small mb-3">Pesquisa e filtragem flexível de logs do Postfix/Amavis por período, caixa postal, termos livres e limite de linhas.</p>
 
-                                <div class="row g-2 mb-3">
-                                    <div class="col-md-4">
-                                        <label class="form-label small text-muted fw-semibold mb-1">Remetente (De):</label>
-                                        <input type="email" id="track-sender-input" class="form-control font-monospace" placeholder="remetente@parceiro.com.br" onkeyup="if(event.key==='Enter') trackEmail()">
-                                    </div>
-                                    <div class="col-md-4">
-                                        <label class="form-label small text-muted fw-semibold mb-1">Destinatário (Para):</label>
-                                        <input type="email" id="track-recipient-input" class="form-control font-monospace" placeholder="destino@empresa.com.br" onkeyup="if(event.key==='Enter') trackEmail()">
-                                    </div>
-                                    <div class="col-md-3">
-                                        <label class="form-label small text-muted fw-semibold mb-1">Assunto Contém (Opcional):</label>
-                                        <input type="text" id="track-subject-input" class="form-control font-monospace" placeholder="ex: Reunião..." onkeyup="if(event.key==='Enter') trackEmail()">
-                                    </div>
-                                    <div class="col-md-1 d-flex align-items-end">
-                                        <button class="btn btn-primary w-100 fw-bold" onclick="trackEmail()"><i class="bi bi-search"></i></button>
-                                    </div>
-                                </div>
-
-                                <div id="track-results" class="log-terminal flex-grow-1" style="background-color: #0a0a0a; color: #00FF00 !important; font-family: monospace; padding: 15px; border-radius: 5px; max-height: 500px; overflow-y: auto; text-align: left !important;">
-                                    <span style="color: #00FF00 !important; text-align: left !important; display: block;">Informe o remetente (De), destinatário (Para) ou assunto para consultar os logs do Postfix...</span>
-                                </div>
+                        <!-- Barra de Busca Flexível -->
+                        <div class="row g-2 mb-3 align-items-end">
+                            <div class="col-md-3 col-lg-2">
+                                <label class="form-label small text-muted fw-semibold mb-1">Período:</label>
+                                <select id="log-period-select" class="form-select font-monospace">
+                                    <option value="today" selected>Hoje (mail.log)</option>
+                                    <option value="yesterday">Ontem (mail.log.1)</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3 col-lg-3">
+                                <label class="form-label small text-muted fw-semibold mb-1">Caixa Postal (De ou Para):</label>
+                                <input type="text" id="log-mailbox-input" class="form-control font-monospace" placeholder="ex: usuario@empresa.com.br" onkeyup="if(event.key==='Enter') trackEmail()">
+                            </div>
+                            <div class="col-md-3 col-lg-4">
+                                <label class="form-label small text-muted fw-semibold mb-1">Termo de Busca Livre:</label>
+                                <input type="text" id="log-search-term-input" class="form-control font-monospace" placeholder="ex: 250 OK, bounced, Connection reset, IP..." onkeyup="if(event.key==='Enter') trackEmail()">
+                            </div>
+                            <div class="col-md-2 col-lg-2">
+                                <label class="form-label small text-muted fw-semibold mb-1">Limite de Linhas:</label>
+                                <select id="log-limit-select" class="form-select font-monospace">
+                                    <option value="100">100 linhas</option>
+                                    <option value="500" selected>500 linhas</option>
+                                    <option value="1000">1000 linhas</option>
+                                </select>
+                            </div>
+                            <div class="col-md-1 col-lg-1">
+                                <button class="btn btn-primary w-100 fw-bold" onclick="trackEmail()" title="Pesquisar Logs">
+                                    <i class="bi bi-search"></i>
+                                </button>
                             </div>
                         </div>
 
+                        <!-- Terminal de Exibição de Logs com Fundo Escuro da Coluna e Letras Claras -->
+                        <div id="track-results" class="log-terminal" style="background-color: #0a0a0a; color: #FFFFFF !important; font-family: monospace; padding: 15px; border-radius: 8px; min-height: 280px; max-height: 550px; overflow-y: auto; text-align: left !important; word-break: break-all; white-space: pre-wrap;">
+                            <span style="color: #9ca3af !important; display: block;">Selecione o período e informe os termos para realizar a busca flexível nos logs do servidor...</span>
+                        </div>
+                    </div>
+
+                    <div class="row g-4 mb-4">
                         <!-- DNS Check -->
-                        <div class="col-lg-6">
-                            <div class="card p-4 h-100">
+                        <div class="col-lg-12">
+                            <div class="card p-4">
                                 <h3 class="h6 mb-2 fw-bold text-dark d-flex align-items-center gap-2">
                                     <i class="bi bi-shield-check text-success"></i> Validador DNS (MX, SPF, DKIM, DMARC)
                                 </h3>
                                 <p class="text-muted small mb-3">Executa consultas DNS ativas via biblioteca <code>dnspython</code>.</p>
 
                                 <div class="row g-2 mb-3">
-                                    <div class="col-8">
-                                        <input type="text" id="dns-domain-input" class="form-control" placeholder="ex: empresa.com.br">
+                                    <div class="col-md-8 col-lg-9">
+                                        <input type="text" id="dns-domain-input" class="form-control font-monospace" placeholder="ex: empresa.com.br" onkeyup="if(event.key==='Enter') checkDNS()">
                                     </div>
-                                    <div class="col-4">
-                                        <button class="btn btn-success w-100" onclick="checkDNS()"><i class="bi bi-check-circle"></i> Checar</button>
+                                    <div class="col-md-4 col-lg-3">
+                                        <button class="btn btn-success w-100 fw-semibold" onclick="checkDNS()"><i class="bi bi-check-circle me-1"></i> Checar DNS</button>
                                     </div>
                                 </div>
 
                                 <div id="dns-report-container">
-                                    <div class="alert alert-light border text-muted text-center small">
+                                    <div class="alert alert-light border text-muted text-center small mb-0">
                                         Insira um domínio para verificar registros DNS de autenticação.
                                     </div>
                                 </div>
@@ -2371,50 +2388,57 @@
     }
 
     async function trackEmail() {
-        const senderEl = document.getElementById('track-sender-input');
-        const recipientEl = document.getElementById('track-recipient-input');
-        const subjectEl = document.getElementById('track-subject-input');
-        const sender = senderEl ? senderEl.value.trim() : '';
-        const recipient = recipientEl ? recipientEl.value.trim() : '';
-        const subject = subjectEl ? subjectEl.value.trim() : '';
+        const periodEl = document.getElementById('log-period-select');
+        const mailboxEl = document.getElementById('log-mailbox-input');
+        const searchTermEl = document.getElementById('log-search-term-input');
+        const limitEl = document.getElementById('log-limit-select');
+
+        const period = periodEl ? periodEl.value : 'today';
+        const mailbox = mailboxEl ? mailboxEl.value.trim() : '';
+        const search_term = searchTermEl ? searchTermEl.value.trim() : '';
+        const limit = limitEl ? limitEl.value : '500';
+
         const container = document.getElementById('track-results');
+        if (!container) return;
 
-        if (!sender && !recipient && !subject) {
-            container.innerHTML = '<span style="color: #00FF00 !important; text-align: left !important; display: block;"><i class="bi bi-exclamation-circle me-1"></i> Informe o remetente (De), destinatário (Para) ou assunto para consultar os logs do Postfix...</span>';
-            return;
-        }
-
-        container.innerHTML = '<span style="color: #00FF00 !important;"><span class="spinner-border spinner-border-sm me-2"></span> Rastreando mensagens e correlacionando Queue IDs no Postfix...</span>';
+        container.innerHTML = '<span style="color: #60a5fa !important;"><span class="spinner-border spinner-border-sm me-2"></span> Pesquisando registros nos logs do servidor...</span>';
 
         try {
             const data = await fetchJson('/api/troubleshooting/email-tracking', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sender, recipient, subject, email: sender || recipient || subject })
+                body: JSON.stringify({
+                    period,
+                    mailbox,
+                    search_term,
+                    limit,
+                    periodo: period,
+                    caixa_postal: mailbox,
+                    termo_busca: search_term,
+                    limite: limit
+                })
             });
 
-            const rawContent = data.raw_text || (data.events ? data.events.map(ev => ev.raw).join('\n') : '');
+            const rawContent = data.raw_text || (data.lines ? data.lines.join('\n') : '');
 
-            if (!rawContent || rawContent.includes("Nenhuma jornada encontrada para estes parâmetros.") || (data.events && data.events.length === 1 && data.events[0].raw.includes("Nenhuma jornada"))) {
-                container.innerHTML = '<pre style="color: #00FF00 !important; background-color: transparent; font-family: monospace; font-size: 0.85rem; margin: 0; white-space: pre-wrap;">Nenhuma jornada encontrada para estes parâmetros.</pre>';
+            if (!rawContent || data.total_matches === 0 || rawContent.includes("Nenhum registro")) {
+                container.innerHTML = '<span style="color: #facc15 !important;">Nenhum registro de log encontrado para os filtros informados.</span>';
                 return;
             }
 
-            let metaInfo = '';
-            if (data.found_queue_ids && data.found_queue_ids.length > 0) {
-                metaInfo = `<div class="mb-2 pb-2 border-bottom border-secondary" style="color: #00FF00 !important; font-size: 0.85rem;"><i class="bi bi-diagram-3-fill me-1"></i> Queue IDs Correlacionados: ${data.found_queue_ids.map(q => `<span class="badge bg-dark text-success border border-success font-monospace me-1">${q}</span>`).join('')}</div>`;
-            }
+            const periodText = data.period_label || (period === 'yesterday' ? 'Ontem (mail.log.1)' : 'Hoje (mail.log)');
+            const headerInfo = `<div class="mb-2 pb-2 border-bottom border-secondary text-muted small"><i class="bi bi-info-circle me-1"></i> Período: <strong>${periodText}</strong> | Exibindo <strong>${data.lines ? data.lines.length : 0}</strong> de <strong>${data.total_matches || 0}</strong> linhas encontradas</div>`;
 
-            if (data.events && data.events.length > 0) {
-                const formattedEvents = data.events.map(ev => `<div style="color: #00FF00 !important; font-family: monospace; font-size: 0.82rem; line-height: 1.4;">${highlightLogLine(ev.raw)}</div>`).join('');
-                container.innerHTML = metaInfo + formattedEvents;
+            if (data.lines && data.lines.length > 0) {
+                const formattedLines = data.lines.map(line => `<div style="color: #FFFFFF !important; font-family: monospace; font-size: 0.82rem; line-height: 1.4;">${highlightLogLine(line)}</div>`).join('');
+                container.innerHTML = headerInfo + formattedLines;
             } else {
-                container.innerHTML = metaInfo + `<pre style="color: #00FF00 !important; background-color: transparent; font-family: monospace; font-size: 0.85rem; line-height: 1.5; margin: 0; white-space: pre-wrap; word-break: break-all;">${rawContent}</pre>`;
+                container.innerHTML = headerInfo + `<pre style="color: #FFFFFF !important; background-color: transparent; font-family: monospace; font-size: 0.82rem; line-height: 1.5; margin: 0; white-space: pre-wrap; word-break: break-all;">${rawContent}</pre>`;
             }
             container.scrollTop = container.scrollHeight;
         } catch (e) {
-            console.error("Erro no rastreamento:", e);
-            container.innerHTML = `<span style="color: #f87171 !important; font-family: monospace;">[ERRO NO RASTREAMENTO]: ${e.message}</span>`;
+            console.error("Erro no explorador de logs:", e);
+            container.innerHTML = `<span style="color: #f87171 !important; font-family: monospace;">[ERRO AO PESQUISAR LOGS]: ${e.message}</span>`;
         }
     }
 
