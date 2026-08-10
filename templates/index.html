@@ -182,22 +182,23 @@
 
         /* Dark Terminals inside Light Cards (Hacker Terminal Style) */
         .log-terminal {
-            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-            font-size: 0.82rem;
+            font-family: monospace !important;
+            font-size: 0.85rem;
             line-height: 1.5;
-            background-color: #090d16;
-            color: #22c55e;
+            background-color: #0a0a0a !important;
+            color: #00FF00 !important;
             border: 1px solid #1e293b;
-            border-radius: 10px;
-            padding: 1rem;
-            max-height: 480px;
+            border-radius: 5px;
+            padding: 15px;
+            max-height: 500px;
             overflow-y: auto;
             white-space: pre-wrap;
             word-break: break-all;
         }
 
-        .log-terminal pre, .log-terminal div {
-            color: inherit;
+        .log-terminal pre, .log-terminal div, .log-terminal span, .log-terminal code {
+            color: #00FF00 !important;
+            background-color: transparent !important;
             margin: 0;
             padding: 0;
             white-space: pre-wrap;
@@ -797,8 +798,8 @@
                                     </div>
                                 </div>
 
-                                <div id="track-results" class="log-terminal flex-grow-1" style="max-height: 280px;">
-                                    <span class="text-muted">Informe o remetente (De) ou destinatário (Para) para consultar os logs do Postfix...</span>
+                                <div id="track-results" class="log-terminal flex-grow-1" style="background-color: #0a0a0a; color: #00FF00 !important; font-family: monospace; padding: 15px; border-radius: 5px; max-height: 500px; overflow-y: auto;">
+                                    <span style="color: #00FF00 !important;">Informe o remetente (De) ou destinatário (Para) para consultar os logs do Postfix...</span>
                                 </div>
                             </div>
                         </div>
@@ -1016,8 +1017,8 @@
                             </button>
                         </div>
 
-                        <div id="logs-container" class="log-terminal">
-                            Carregando registros de log do servidor...
+                        <div id="logs-container" class="log-terminal" style="background-color: #0a0a0a; color: #00FF00 !important; font-family: monospace; padding: 15px; border-radius: 5px; max-height: 500px; overflow-y: auto;">
+                            <span style="color: #00FF00 !important;">Carregando registros de log do servidor...</span>
                         </div>
                     </div>
                 </div>
@@ -2348,11 +2349,11 @@
         const container = document.getElementById('track-results');
 
         if (!sender && !recipient) {
-            container.innerHTML = '<span class="text-warning font-monospace"><i class="bi bi-exclamation-circle me-1"></i> Informe ao menos o e-mail de origem (De) ou destinatário (Para).</span>';
+            container.innerHTML = '<span style="color: #00FF00 !important;"><i class="bi bi-exclamation-circle me-1"></i> Informe ao menos o e-mail de origem (De) ou destinatário (Para).</span>';
             return;
         }
 
-        container.innerHTML = '<span class="text-info font-monospace"><span class="spinner-border spinner-border-sm me-2"></span> Rastreando mensagens e correlacionando Queue IDs no Postfix...</span>';
+        container.innerHTML = '<span style="color: #00FF00 !important;"><span class="spinner-border spinner-border-sm me-2"></span> Rastreando mensagens e correlacionando Queue IDs no Postfix...</span>';
 
         try {
             const data = await fetchJson('/api/troubleshooting/email-tracking', {
@@ -2361,19 +2362,28 @@
                 body: JSON.stringify({ sender, recipient, email: sender || recipient })
             });
 
-            if (data.events && data.events.length > 0) {
-                let metaInfo = '';
-                if (data.found_queue_ids && data.found_queue_ids.length > 0) {
-                    metaInfo = `<div class="mb-2 pb-2 border-bottom border-secondary text-info small"><i class="bi bi-diagram-3-fill me-1"></i> Queue IDs Correlacionados: ${data.found_queue_ids.map(q => `<span class="badge bg-secondary-subtle text-info border border-info-subtle font-monospace me-1">${q}</span>`).join('')}</div>`;
-                }
-                container.innerHTML = metaInfo + data.events.map(ev => `<div class="py-0.5">${highlightLogLine(ev.raw)}</div>`).join('');
-                container.scrollTop = container.scrollHeight;
-            } else {
-                container.innerHTML = '<span class="text-muted"><i class="bi bi-info-circle me-1"></i> Nenhum evento ou Queue ID registrado no mail.log para os parâmetros informados.</span>';
+            const rawContent = data.raw_text || (data.events ? data.events.map(ev => ev.raw).join('\n') : '');
+
+            if (!rawContent || rawContent.includes("Nenhuma jornada encontrada para estes parâmetros.") || (data.events && data.events.length === 1 && data.events[0].raw.includes("Nenhuma jornada"))) {
+                container.innerHTML = '<pre style="color: #00FF00 !important; background-color: transparent; font-family: monospace; font-size: 0.85rem; margin: 0; white-space: pre-wrap;">Nenhuma jornada encontrada para estes parâmetros.</pre>';
+                return;
             }
+
+            let metaInfo = '';
+            if (data.found_queue_ids && data.found_queue_ids.length > 0) {
+                metaInfo = `<div class="mb-2 pb-2 border-bottom border-secondary" style="color: #00FF00 !important; font-size: 0.85rem;"><i class="bi bi-diagram-3-fill me-1"></i> Queue IDs Correlacionados: ${data.found_queue_ids.map(q => `<span class="badge bg-dark text-success border border-success font-monospace me-1">${q}</span>`).join('')}</div>`;
+            }
+
+            if (data.events && data.events.length > 0) {
+                const formattedEvents = data.events.map(ev => `<div style="color: #00FF00 !important; font-family: monospace; font-size: 0.82rem; line-height: 1.4;">${highlightLogLine(ev.raw)}</div>`).join('');
+                container.innerHTML = metaInfo + formattedEvents;
+            } else {
+                container.innerHTML = metaInfo + `<pre style="color: #00FF00 !important; background-color: transparent; font-family: monospace; font-size: 0.85rem; line-height: 1.5; margin: 0; white-space: pre-wrap; word-break: break-all;">${rawContent}</pre>`;
+            }
+            container.scrollTop = container.scrollHeight;
         } catch (e) {
             console.error("Erro no rastreamento:", e);
-            container.innerHTML = `<span class="text-danger font-monospace"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao rastrear e-mail: ${e.message}</span>`;
+            container.innerHTML = `<span style="color: #f87171 !important; font-family: monospace;">[ERRO NO RASTREAMENTO]: ${e.message}</span>`;
         }
     }
 
@@ -2565,14 +2575,14 @@
         try {
             const data = await fetchJson('/api/services/logs');
             if (data.logs && data.logs.length > 0) {
-                container.innerHTML = data.logs.map(line => `<div class="py-0.5">${highlightLogLine(line)}</div>`).join('');
+                container.innerHTML = data.logs.map(line => `<div style="color: #00FF00 !important; font-family: monospace; font-size: 0.82rem; line-height: 1.4;">${highlightLogLine(line)}</div>`).join('');
                 container.scrollTop = container.scrollHeight;
             } else {
-                container.innerHTML = '<span class="text-muted">Nenhum log retornado pelo servidor.</span>';
+                container.innerHTML = '<span style="color: #00FF00 !important; font-family: monospace;">Nenhum log retornado pelo servidor.</span>';
             }
         } catch (e) {
             console.error("Erro ao carregar logs:", e);
-            container.innerHTML = `<span class="text-danger font-monospace">[ERRO NA API DE LOGS DO SERVIDOR]: ${e.message}</span>`;
+            container.innerHTML = `<span style="color: #f87171 !important; font-family: monospace;">[ERRO NA API DE LOGS DO SERVIDOR]: ${e.message}</span>`;
         }
     }
 
