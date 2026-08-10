@@ -192,6 +192,28 @@ def get_status():
     for svc in svcs:
         res = run_cmd(['sudo', 'systemctl', 'is-active', svc])
         state = res['stdout'] if res['returncode'] == 0 else (res['stdout'] or 'inactive')
+
+        # Fallback para SpamAssassin: se systemctl retornar inativo, verifica via psutil se o processo 'spamd' está rodando
+        if svc in ['spamassassin', 'spamd'] and state != 'active':
+            spamd_running = False
+            if HAS_PSUTIL:
+                try:
+                    for p in psutil.process_iter(['name', 'cmdline']):
+                        pname = (p.info.get('name') or '').lower()
+                        cmdline = ' '.join(p.info.get('cmdline') or []).lower()
+                        if 'spamd' in pname or 'spamd' in cmdline:
+                            spamd_running = True
+                            break
+                except Exception:
+                    pass
+            if not spamd_running:
+                pg_res = run_cmd(['pgrep', 'spamd'])
+                if pg_res['returncode'] == 0 and pg_res['stdout']:
+                    spamd_running = True
+
+            if spamd_running:
+                state = 'active'
+
         result_data[svc] = {
             'active': state == 'active',
             'state': state

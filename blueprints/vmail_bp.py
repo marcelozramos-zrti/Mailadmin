@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
-from flask_login import login_required
-from sqlalchemy import func
+from flask_login import login_required, current_user
+from sqlalchemy import func, text
 from models import db, Domain, Mailbox, Alias, UsedQuota
 
 vmail_bp = Blueprint('vmail', __name__, url_prefix='/api/vmail')
@@ -248,28 +248,36 @@ def handle_aliases():
         domain_name = address.split('@')[-1]
 
         try:
-            existing = Alias.query.filter_by(address=address).first()
-            if existing:
+            check_res = db.session.execute(text("SELECT address FROM alias WHERE address = :addr"), {'addr': address}).fetchone()
+            if check_res:
                 return jsonify({'success': False, 'message': 'Este alias já está registrado.'}), 400
 
-            new_alias = Alias(
-                address=address,
-                goto=goto,
-                domain=domain_name,
-                active=True
+            db.session.execute(
+                text("INSERT INTO alias (address, `goto`, domain, active, created) VALUES (:address, :goto, :domain, 1, NOW())"),
+                {'address': address, 'goto': goto, 'domain': domain_name}
             )
-            db.session.add(new_alias)
             db.session.commit()
             return jsonify({'success': True, 'message': f'Alias {address} -> {goto} criado com sucesso!'})
         except Exception as e:
             db.session.rollback()
+            print(e)
             return jsonify({'success': False, 'message': f'Erro ao criar alias: {str(e)}'}), 500
     else:
         try:
-            aliases = Alias.query.all()
-            return jsonify({'success': True, 'aliases': [a.to_dict() for a in aliases]})
+            result = db.session.execute(text("SELECT address, `goto`, domain FROM alias"))
+            rows = result.fetchall()
+            aliases = []
+            for r in rows:
+                aliases.append({
+                    'address': r[0],
+                    'goto': r[1],
+                    'domain': r[2],
+                    'active': True
+                })
+            return jsonify({'success': True, 'aliases': aliases, 'data': aliases})
         except Exception as e:
-            return jsonify({'success': False, 'message': f'Erro ao consultar aliases: {str(e)}'}), 500
+            print(e)
+            return jsonify({"status": "error", "message": "Erro ao ler aliases", "data": []}), 200
 
 @vmail_bp.route('/aliases/<path:address>', methods=['GET', 'POST', 'DELETE'])
 @login_required
@@ -278,13 +286,10 @@ def delete_alias(address):
         return jsonify({'success': False, 'message': 'Acesso negado: Perfil de Usuário não possui permissão de exclusão de aliases.'}), 403
 
     try:
-        al = Alias.query.filter_by(address=address).first()
-        if not al:
-            return jsonify({'success': False, 'message': 'Alias não encontrado.'}), 404
-
-        db.session.delete(al)
+        db.session.execute(text("DELETE FROM alias WHERE address = :addr"), {'addr': address})
         db.session.commit()
         return jsonify({'success': True, 'message': f'Alias {address} removido!'})
     except Exception as e:
         db.session.rollback()
+        print(e)
         return jsonify({'success': False, 'message': f'Erro ao excluir alias: {str(e)}'}), 500

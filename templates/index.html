@@ -779,7 +779,7 @@
                                     <button class="btn btn-primary" onclick="trackEmail()"><i class="bi bi-search"></i> Rastrear</button>
                                 </div>
 
-                                <div id="track-results" class="log-terminal flex-grow-1" style="max-height: 250px;">
+                                <div id="track-results" class="log-terminal flex-grow-1 text-white" style="max-height: 250px;">
                                     <span class="text-muted">Insira um endereço para consultar logs do Postfix...</span>
                                 </div>
                             </div>
@@ -2184,23 +2184,23 @@
         const tbody = document.getElementById('aliases-table-body');
         try {
             const data = await fetchJson('/api/vmail/aliases');
-            if (data.aliases) {
-                if (data.aliases.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Nenhum alias cadastrado.</td></tr>';
-                    return;
-                }
-                tbody.innerHTML = data.aliases.map(a => `
-                    <tr>
-                        <td class="fw-bold text-dark">${a.address}</td>
-                        <td class="font-monospace text-warning-emphasis small">${a.goto}</td>
-                        <td>${a.domain}</td>
-                        <td>
-                            <button class="btn btn-sm btn-outline-danger p-1 border-0" onclick="deleteAlias('${encodeURIComponent(a.address)}')" title="Excluir"><i class="bi bi-trash"></i></button>
-                        </td>
-                    </tr>
-                `).join('');
-                filterTableRows('search-aliases-input', 'aliases-table-body');
+            const aliasList = data.aliases || data.data || [];
+            if (aliasList.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Nenhum alias cadastrado.</td></tr>';
+                return;
             }
+            tbody.innerHTML = aliasList.map(a => `
+                <tr>
+                    <td class="fw-bold text-dark">${a.address}</td>
+                    <td class="font-monospace text-warning-emphasis small">${a.goto}</td>
+                    <td>${a.domain}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-danger p-1 border-0 btn-delete-rbac" onclick="deleteAlias('${encodeURIComponent(a.address)}')" title="Excluir"><i class="bi bi-trash"></i></button>
+                    </td>
+                </tr>
+            `).join('');
+            filterTableRows('search-aliases-input', 'aliases-table-body');
+            applyRbacPermissions();
         } catch (e) {
             console.error("Erro ao carregar aliases:", e);
             tbody.innerHTML = `<tr><td colspan="4" class="text-danger font-monospace text-center py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar aliases: ${e.message}</td></tr>`;
@@ -2306,7 +2306,7 @@
                 body: JSON.stringify({ email: email })
             });
             if (data.events && data.events.length > 0) {
-                container.innerHTML = data.events.map(ev => `<div>${ev.raw}</div>`).join('');
+                container.innerHTML = data.events.map(ev => `<div class="text-white text-light font-monospace small">${ev.raw}</div>`).join('');
             } else {
                 container.innerHTML = '<span class="text-muted">Nenhum evento registrado no mail.log para este e-mail.</span>';
             }
