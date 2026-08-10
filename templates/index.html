@@ -815,7 +815,23 @@
                                         <label class="form-label small text-muted fw-semibold mb-1">Data da Busca:</label>
                                         <input type="date" id="log-date-input" class="form-control font-monospace">
                                     </div>
-                                    <div class="col-md-3 col-lg-2">
+                                    <div class="col-md-2 col-lg-2">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Hora Inicial:</label>
+                                        <input type="time" id="log-start-time-input" class="form-control font-monospace" value="00:00">
+                                    </div>
+                                    <div class="col-md-2 col-lg-2">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Hora Final:</label>
+                                        <input type="time" id="log-end-time-input" class="form-control font-monospace" value="23:59">
+                                    </div>
+                                    <div class="col-md-3 col-lg-3">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Lentes Rápidas:</label>
+                                        <select id="log-quick-lens-select" class="form-select font-monospace">
+                                            <option value="" selected>Nenhuma</option>
+                                            <option value="smtp_attacks">Ataques SMTP (Bots/Exploits)</option>
+                                            <option value="auth_failures">Falhas de Autenticação</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2 col-lg-3">
                                         <label class="form-label small text-muted fw-semibold mb-1">Status da Entrega:</label>
                                         <select id="log-status-select" class="form-select font-monospace">
                                             <option value="" selected>Todos os Status</option>
@@ -824,7 +840,7 @@
                                             <option value="deferred">Adiado (deferred)</option>
                                         </select>
                                     </div>
-                                    <div class="col-md-3 col-lg-2">
+                                    <div class="col-md-2 col-lg-2">
                                         <label class="form-label small text-muted fw-semibold mb-1">Serviço:</label>
                                         <select id="log-service-select" class="form-select font-monospace">
                                             <option value="" selected>Todos os Serviços</option>
@@ -833,19 +849,20 @@
                                             <option value="dovecot">Dovecot (IMAP/POP3)</option>
                                         </select>
                                     </div>
-                                    <div class="col-md-3 col-lg-2">
+                                    <div class="col-md-2 col-lg-2">
                                         <label class="form-label small text-muted fw-semibold mb-1">Limite de Linhas:</label>
                                         <select id="log-limit-select" class="form-select font-monospace">
                                             <option value="100">100 linhas</option>
                                             <option value="500" selected>500 linhas</option>
                                             <option value="1000">1000 linhas</option>
+                                            <option value="2000">2000 linhas</option>
                                         </select>
                                     </div>
                                     <div class="col-md-4 col-lg-4">
                                         <label class="form-label small text-muted fw-semibold mb-1">Caixa Postal (De ou Para):</label>
                                         <input type="text" id="log-mailbox-input" class="form-control font-monospace" placeholder="ex: usuario@empresa.com.br" onkeyup="if(event.key==='Enter') trackEmail()">
                                     </div>
-                                    <div class="col-md-8 col-lg-10">
+                                    <div class="col-md-4 col-lg-4">
                                         <label class="form-label small text-muted fw-semibold mb-1">Termo de Busca Livre:</label>
                                         <input type="text" id="log-search-term-input" class="form-control font-monospace" placeholder="ex: 250 OK, bounced, Connection reset, IP..." onkeyup="if(event.key==='Enter') trackEmail()">
                                     </div>
@@ -2470,6 +2487,9 @@
 
     async function trackEmail() {
         const dateEl = document.getElementById('log-date-input');
+        const startTimeEl = document.getElementById('log-start-time-input');
+        const endTimeEl = document.getElementById('log-end-time-input');
+        const quickLensEl = document.getElementById('log-quick-lens-select');
         const statusEl = document.getElementById('log-status-select');
         const serviceEl = document.getElementById('log-service-select');
         const mailboxEl = document.getElementById('log-mailbox-input');
@@ -2483,6 +2503,9 @@
             if (dateEl) dateEl.value = today;
         }
 
+        const start_time = startTimeEl ? startTimeEl.value : '00:00';
+        const end_time = endTimeEl ? endTimeEl.value : '23:59';
+        const quick_lens = quickLensEl ? quickLensEl.value : '';
         const delivery_status = statusEl ? statusEl.value : '';
         const service = serviceEl ? serviceEl.value : '';
         const mailbox = mailboxEl ? mailboxEl.value.trim() : '';
@@ -2502,6 +2525,13 @@
                     date: dateVal,
                     data_busca: dateVal,
                     period: dateVal,
+                    start_time,
+                    hora_inicial: start_time,
+                    end_time,
+                    hora_final: end_time,
+                    quick_lens,
+                    event_lens: quick_lens,
+                    lente: quick_lens,
                     delivery_status,
                     service,
                     mailbox,

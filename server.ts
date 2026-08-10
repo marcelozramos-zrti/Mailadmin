@@ -359,6 +359,9 @@ blacklist_from *@spammerdomain.net
   app.all("/api/troubleshooting/email-tracking", (req, res) => {
     const data = req.method === "POST" ? (req.body || {}) : req.query;
     const date = String(data.date || data.data_busca || data.period || data.periodo || new Date().toISOString().split("T")[0]).trim();
+    const startTime = String(data.start_time || data.hora_inicial || "00:00").trim();
+    const endTime = String(data.end_time || data.hora_final || "23:59").trim();
+    const quickLens = String(data.quick_lens || data.event_lens || data.lente || data.lente_rapida || "").trim().toLowerCase();
     const delivery_status = String(data.delivery_status || data.status_entrega || "").trim().toLowerCase();
     const service = String(data.service || data.servico || "").trim().toLowerCase();
     const mailbox = String(data.mailbox || data.caixa_postal || data.sender || data.recipient || "").trim().toLowerCase();
@@ -373,7 +376,6 @@ blacklist_from *@spammerdomain.net
 
     const sendAddr = mailbox || "usuario@empresa.com.br";
     const recvAddr = "destino@cliente.com.br";
-    const qid = "4YtZ8b3K";
 
     const mockLines = [
       `${date} 10:14:02 mailserver postfix/smtpd[14201]: connect from mail-out.parceiro.com.br[198.51.100.12]`,
@@ -383,14 +385,70 @@ blacklist_from *@spammerdomain.net
       `${date} 10:14:04 mailserver amavis[1204]: (4YtZ8b3K) Passed CLEAN {RelayedInbound}, [198.51.100.12] <${sendAddr}> -> <${recvAddr}>, Hits: -0.100`,
       `${date} 10:14:05 mailserver postfix/lmtp[14220]: 4YtZ8b3K: to=<${recvAddr}>, relay=127.0.0.1[127.0.0.1]:24, delay=2.1, dsn=2.0.0, status=sent (250 2.0.0 OK saved_to_mailbox)`,
       `${date} 10:14:05 mailserver dovecot: lda(${recvAddr}): msgid=<202608091014.4YtZ8b3K@parceiro.com.br>: saved mail to INBOX`,
-      `${date} 10:14:05 mailserver postfix/qmgr[1820]: 4YtZ8b3K: removed`
+      `${date} 10:14:05 mailserver postfix/qmgr[1820]: 4YtZ8b3K: removed`,
+      `${date} 11:20:10 mailserver postfix/smtpd[14500]: warning: improper command pipelining after HELO from unknown[185.220.101.5]`,
+      `${date} 11:20:11 mailserver postfix/smtpd[14500]: disconnect from unknown[185.220.101.5] ehlo=1 commands=1`,
+      `${date} 11:25:00 mailserver dovecot: auth-worker(14550): password mismatch for user user1@domain.com from 192.168.1.50`,
+      `${date} 11:25:01 mailserver postfix/smtpd[14560]: warning: SASL authentication failure: Password verification failed`
     ];
 
-    let filtered = mockLines;
-    if (mailbox) filtered = filtered.filter(l => l.toLowerCase().includes(mailbox));
-    if (search_term) filtered = filtered.filter(l => l.toLowerCase().includes(search_term));
-    if (delivery_status) filtered = filtered.filter(l => l.toLowerCase().includes(delivery_status));
-    if (service) filtered = filtered.filter(l => l.toLowerCase().includes(service));
+    // Filter by time window
+    const timeFiltered = mockLines.filter(line => {
+      const match = line.match(/(?:[T\s])?(\d{2}:\d{2})/);
+      if (match) {
+        const t = match[1];
+        if (startTime && t < startTime) return false;
+        if (endTime && t > endTime) return false;
+      }
+      return true;
+    });
+
+    // Group into blocks
+    const blocks: { key: string | null; lines: string[] }[] = [];
+    const keyMap = new Map<string, number>();
+
+    for (const line of timeFiltered) {
+      const qidMatch = line.match(/\b([0-9A-Za-z]{8,16}):/) || line.match(/\(([0-9A-Za-z]{8,16})\)/);
+      const pidMatch = line.match(/\b([a-zA-Z0-9_\-/]+\[\d+\]):/);
+      let key: string | null = null;
+      if (qidMatch) key = `qid:${qidMatch[1]}`;
+      else if (pidMatch) key = `pid:${pidMatch[1]}`;
+
+      if (key) {
+        if (keyMap.has(key)) {
+          blocks[keyMap.get(key)!].lines.push(line);
+        } else {
+          keyMap.set(key, blocks.length);
+          blocks.push({ key, lines: [line] });
+        }
+      } else {
+        blocks.push({ key: null, lines: [line] });
+      }
+    }
+
+    const smtpAttackKeywords = ["improper command pipelining", "non-smtp command", "unknown[", "warning: hostname", "lost connection after", "too many errors", "connect from unknown", "anvil"];
+    const authFailureKeywords = ["authentication failed", "auth failed", "sasl", "password mismatch", "unknown user", "relay access denied", "554 5.7.1", "reject: rcp", "login failed"];
+
+    let filteredLines: string[] = [];
+    for (const blk of blocks) {
+      const blkText = blk.lines.join("\n").toLowerCase();
+
+      if (quickLens === 'smtp_attacks') {
+        if (!smtpAttackKeywords.some(kw => blkText.includes(kw))) continue;
+      } else if (quickLens === 'auth_failures') {
+        if (!authFailureKeywords.some(kw => blkText.includes(kw))) continue;
+      } else if (quickLens) {
+        const terms = quickLens.split('|').map(t => t.trim()).filter(Boolean);
+        if (terms.length && !terms.some(t => blkText.includes(t))) continue;
+      }
+
+      if (mailbox && !blkText.includes(mailbox)) continue;
+      if (search_term && !blkText.includes(search_term)) continue;
+      if (delivery_status && !blkText.includes(delivery_status)) continue;
+      if (service && !blkText.includes(service)) continue;
+
+      filteredLines.push(...blk.lines);
+    }
 
     res.json({
       success: true,
@@ -401,9 +459,9 @@ blacklist_from *@spammerdomain.net
       delivery_status,
       service,
       limit,
-      total_matches: filtered.length,
-      lines: filtered.slice(-limit),
-      raw_text: filtered.join("\n")
+      total_matches: filteredLines.length,
+      lines: filteredLines.slice(-limit),
+      raw_text: filteredLines.join("\n")
     });
   });
 

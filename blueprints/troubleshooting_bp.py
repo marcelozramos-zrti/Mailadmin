@@ -36,7 +36,7 @@ def run_cmd(cmd_list):
 @troubleshooting_bp.route('/email-tracking', methods=['GET', 'POST'])
 @login_required
 def track_email():
-    """Explorador de logs flexível baseado em data (YYYY-MM-DD), caixa postal, termo de busca e limite de linhas."""
+    """Explorador de logs flexível baseado em data (YYYY-MM-DD), intervalo de horas, caixa postal, termo de busca, agrupamento por Queue ID / PID e limite de linhas."""
     try:
         if request.method == 'POST':
             data = request.get_json(silent=True) or request.form or {}
@@ -45,6 +45,9 @@ def track_email():
 
         # 3. Validação de Variáveis e Valores Default
         date_param = (data.get('date') or data.get('data_busca') or data.get('period') or data.get('periodo') or '').strip().lower()
+        start_time = (data.get('start_time') or data.get('hora_inicial') or '00:00').strip()
+        end_time = (data.get('end_time') or data.get('hora_final') or '23:59').strip()
+        quick_lens = (data.get('quick_lens') or data.get('event_lens') or data.get('lente') or data.get('lente_rapida') or '').strip().lower()
         mailbox = (data.get('mailbox') or data.get('caixa_postal') or data.get('sender') or data.get('recipient') or data.get('email') or '').strip().lower()
         search_term = (data.get('search_term') or data.get('termo_busca') or data.get('term') or data.get('subject') or '').strip().lower()
         delivery_status = (data.get('delivery_status') or data.get('status_entrega') or data.get('status') or '').strip().lower()
@@ -130,22 +133,79 @@ def track_email():
                 'raw_text': msg
             })
 
-        # Lógica de Filtragem no Python
-        filtered_lines = []
-
+        # 1. Corte de Tempo: Filtrar linhas dentro do intervalo de horário selecionado [start_time, end_time]
+        time_filtered_lines = []
         for line in log_lines:
-            line_lower = line.lower()
+            tm_match = re.search(r'(?:[T\s])?(\d{2}:\d{2})(?::\d{2})?', line)
+            if tm_match:
+                line_time = tm_match.group(1)
+                if start_time and line_time < start_time:
+                    continue
+                if end_time and line_time > end_time:
+                    continue
+            time_filtered_lines.append(line)
 
-            if mailbox and mailbox not in line_lower:
+        # 2. Agrupamento em blocos por Queue ID (ex: 4YtZ8b3K:) ou PID (ex: smtpd[14201]:)
+        def extract_group_key(line):
+            qid_m = re.search(r'\b([0-9A-Za-z]{8,16}):', line)
+            if not qid_m:
+                qid_m = re.search(r'\(([0-9A-Za-z]{8,16})\)', line)
+            if qid_m:
+                qid = qid_m.group(1)
+                if not qid.isdigit():
+                    return f"qid:{qid}"
+
+            pid_m = re.search(r'\b([a-zA-Z0-9_\-/]+\[\d+\]):', line)
+            if pid_m:
+                return f"pid:{pid_m.group(1)}"
+
+            return None
+
+        blocks = []
+        key_to_block_idx = {}
+
+        for line in time_filtered_lines:
+            key = extract_group_key(line)
+            if key:
+                if key in key_to_block_idx:
+                    idx = key_to_block_idx[key]
+                    blocks[idx]['lines'].append(line)
+                else:
+                    new_idx = len(blocks)
+                    key_to_block_idx[key] = new_idx
+                    blocks.append({'key': key, 'lines': [line]})
+            else:
+                blocks.append({'key': None, 'lines': [line]})
+
+        # 3. Lente de Ataques & Aplicação de Filtros Cruzados no Bloco
+        filtered_lines = []
+        smtp_attack_keywords = ["improper command pipelining", "non-smtp command", "unknown[", "warning: hostname", "lost connection after", "too many errors", "connect from unknown", "anvil"]
+        auth_failure_keywords = ["authentication failed", "auth failed", "sasl", "password mismatch", "unknown user", "relay access denied", "554 5.7.1", "reject: rcp", "login failed"]
+
+        for blk in blocks:
+            blk_text = "\n".join(blk['lines']).lower()
+
+            if quick_lens == 'smtp_attacks':
+                if not any(kw in blk_text for kw in smtp_attack_keywords):
+                    continue
+            elif quick_lens == 'auth_failures':
+                if not any(kw in blk_text for kw in auth_failure_keywords):
+                    continue
+            elif quick_lens:
+                terms = [t.strip() for t in quick_lens.split('|') if t.strip()]
+                if terms and not any(t in blk_text for t in terms):
+                    continue
+
+            if mailbox and mailbox not in blk_text:
                 continue
-            if search_term and search_term not in line_lower:
+            if search_term and search_term not in blk_text:
                 continue
-            if delivery_status and delivery_status not in line_lower:
+            if delivery_status and delivery_status not in blk_text:
                 continue
-            if service and service not in line_lower:
+            if service and service not in blk_text:
                 continue
 
-            filtered_lines.append(line)
+            filtered_lines.extend(blk['lines'])
 
         total_matches = len(filtered_lines)
         if total_matches > limit:
