@@ -357,31 +357,53 @@ blacklist_from *@spammerdomain.net
 
   // Tracking de E-mail (/var/log/mail.log)
   app.all("/api/troubleshooting/email-tracking", (req, res) => {
-    const sender = (req.body?.sender || req.query?.sender as string || "").toLowerCase();
-    const recipient = (req.body?.recipient || req.query?.recipient as string || "").toLowerCase();
-    const email = (req.body?.email || req.query?.email as string || "").toLowerCase();
+    const data = req.method === "POST" ? (req.body || {}) : req.query;
+    const date = String(data.date || data.data_busca || data.period || data.periodo || new Date().toISOString().split("T")[0]).trim();
+    const delivery_status = String(data.delivery_status || data.status_entrega || "").trim().toLowerCase();
+    const service = String(data.service || data.servico || "").trim().toLowerCase();
+    const mailbox = String(data.mailbox || data.caixa_postal || data.sender || data.recipient || "").trim().toLowerCase();
+    const search_term = String(data.search_term || data.termo_busca || "").trim().toLowerCase();
+    const limit = parseInt(String(data.limit || data.limite || "500"), 10) || 500;
 
-    const sendAddr = sender || email || 'remetente@parceiro.com.br';
-    const recvAddr = recipient || 'destino@empresa.com.br';
-    const qid = '4YtZ8b3K';
+    const parts = date.split("-");
+    let formattedDate = date;
+    if (parts.length === 3) {
+      formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
 
-    const mockEvents = [
-      { raw: `Aug 09 10:14:02 mailserver postfix/smtpd[14201]: connect from mail-out.parceiro.com.br[198.51.100.12]`, type: "SMTP_CONNECT" },
-      { raw: `Aug 09 10:14:02 mailserver postfix/smtpd[14201]: 4YtZ8b3K: client=mail-out.parceiro.com.br[198.51.100.12]`, type: "INFO" },
-      { raw: `Aug 09 10:14:03 mailserver postfix/cleanup[14205]: 4YtZ8b3K: message-id=<202608091014.4YtZ8b3K@parceiro.com.br>`, type: "INFO" },
-      { raw: `Aug 09 10:14:03 mailserver postfix/qmgr[1820]: 4YtZ8b3K: from=<${sendAddr}>, size=2849, nrcpt=1 (queue active)`, type: "INFO" },
-      { raw: `Aug 09 10:14:04 mailserver amavis[1204]: (4YtZ8b3K) Passed CLEAN {RelayedInbound}, [198.51.100.12] <${sendAddr}> -> <${recvAddr}>, Hits: -0.100, tag=2, tag2=5, kill=6.31`, type: "AMAVIS_SCAN" },
-      { raw: `Aug 09 10:14:05 mailserver postfix/lmtp[14220]: 4YtZ8b3K: to=<${recvAddr}>, relay=127.0.0.1[127.0.0.1]:24, delay=2.1, delays=0.1/0.01/0.01/2.0, dsn=2.0.0, status=sent (250 2.0.0 OK 1723198445 saved_to_mailbox)`, type: "DELIVERED" },
-      { raw: `Aug 09 10:14:05 mailserver postfix/qmgr[1820]: 4YtZ8b3K: removed`, type: "INFO" }
+    const sendAddr = mailbox || "usuario@empresa.com.br";
+    const recvAddr = "destino@cliente.com.br";
+    const qid = "4YtZ8b3K";
+
+    const mockLines = [
+      `${date} 10:14:02 mailserver postfix/smtpd[14201]: connect from mail-out.parceiro.com.br[198.51.100.12]`,
+      `${date} 10:14:02 mailserver postfix/smtpd[14201]: 4YtZ8b3K: client=mail-out.parceiro.com.br[198.51.100.12]`,
+      `${date} 10:14:03 mailserver postfix/cleanup[14205]: 4YtZ8b3K: message-id=<202608091014.4YtZ8b3K@parceiro.com.br>`,
+      `${date} 10:14:03 mailserver postfix/qmgr[1820]: 4YtZ8b3K: from=<${sendAddr}>, size=2849, nrcpt=1 (queue active)`,
+      `${date} 10:14:04 mailserver amavis[1204]: (4YtZ8b3K) Passed CLEAN {RelayedInbound}, [198.51.100.12] <${sendAddr}> -> <${recvAddr}>, Hits: -0.100`,
+      `${date} 10:14:05 mailserver postfix/lmtp[14220]: 4YtZ8b3K: to=<${recvAddr}>, relay=127.0.0.1[127.0.0.1]:24, delay=2.1, dsn=2.0.0, status=sent (250 2.0.0 OK saved_to_mailbox)`,
+      `${date} 10:14:05 mailserver dovecot: lda(${recvAddr}): msgid=<202608091014.4YtZ8b3K@parceiro.com.br>: saved mail to INBOX`,
+      `${date} 10:14:05 mailserver postfix/qmgr[1820]: 4YtZ8b3K: removed`
     ];
+
+    let filtered = mockLines;
+    if (mailbox) filtered = filtered.filter(l => l.toLowerCase().includes(mailbox));
+    if (search_term) filtered = filtered.filter(l => l.toLowerCase().includes(search_term));
+    if (delivery_status) filtered = filtered.filter(l => l.toLowerCase().includes(delivery_status));
+    if (service) filtered = filtered.filter(l => l.toLowerCase().includes(service));
 
     res.json({
       success: true,
-      sender: sendAddr,
-      recipient: recvAddr,
-      found_queue_ids: [qid],
-      total_matches: mockEvents.length,
-      events: mockEvents
+      period: date,
+      period_label: `Data: ${formattedDate}`,
+      mailbox,
+      search_term,
+      delivery_status,
+      service,
+      limit,
+      total_matches: filtered.length,
+      lines: filtered.slice(-limit),
+      raw_text: filtered.join("\n")
     });
   });
 
@@ -680,21 +702,26 @@ blacklist_from *@spammerdomain.net
 
   app.all("/api/services/logs", (req, res) => {
     const data = req.method === "POST" ? (req.body || {}) : req.query;
-    const mailbox = String(data.mailbox || data.caixa_postal || "").trim().toLowerCase();
+    const eventLens = String(data.event_lens || data.lente || data.mailbox || data.caixa_postal || "").trim().toLowerCase();
     const searchTerm = String(data.search_term || data.termo_busca || data.term || "").trim().toLowerCase();
 
     const now = new Date();
     let mockLogs: string[] = [];
     for (let i = 50; i >= 1; i--) {
       const ts = new Date(now.getTime() - i * 30000).toISOString().replace("T", " ").substring(0, 19);
+      mockLogs.push(`${ts} mailserver postfix/smtpd[14010]: connect from unknown[192.168.1.50]`);
+      mockLogs.push(`${ts} mailserver postfix/anvil[14011]: statistics: max connection rate 2/60s for (smtpd:192.168.1.50)`);
       mockLogs.push(`${ts} mailserver amavis[14022]: Passed CLEAN {RelayedInbound}, <user@gmail.com> -> <financeiro@empresa.com.br>, Hits: -0.1`);
       mockLogs.push(`${ts} mailserver postfix/qmgr[1820]: 4YtZ8b3K: from=<user@gmail.com>, size=1890, nrcpt=1`);
       mockLogs.push(`${ts} mailserver postfix/cleanup[1822]: 4YtZ8b3K: message-id=<20260810103722@gmail.com>`);
       mockLogs.push(`${ts} mailserver postfix/smtp[1825]: 4YtZ8b3K: to=<financeiro@empresa.com.br>, relay=127.0.0.1[127.0.0.1]:10024, delay=0.12, status=sent (250 2.0.0 Ok)`);
     }
 
-    if (mailbox) {
-      mockLogs = mockLogs.filter(l => l.toLowerCase().includes(mailbox));
+    if (eventLens) {
+      const parts = eventLens.split("|").map(p => p.trim()).filter(Boolean);
+      if (parts.length > 0) {
+        mockLogs = mockLogs.filter(l => parts.some(p => l.toLowerCase().includes(p)));
+      }
     }
     if (searchTerm) {
       mockLogs = mockLogs.filter(l => l.toLowerCase().includes(searchTerm));

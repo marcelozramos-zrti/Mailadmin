@@ -812,11 +812,8 @@
                                 <!-- Barra de Busca Flexível com Novos Filtros de Metadados -->
                                 <div class="row g-2 mb-3 align-items-end">
                                     <div class="col-md-3 col-lg-2">
-                                        <label class="form-label small text-muted fw-semibold mb-1">Período:</label>
-                                        <select id="log-period-select" class="form-select font-monospace">
-                                            <option value="today" selected>Hoje (mail.log)</option>
-                                            <option value="yesterday">Ontem (mail.log.1)</option>
-                                        </select>
+                                        <label class="form-label small text-muted fw-semibold mb-1">Data da Busca:</label>
+                                        <input type="date" id="log-date-input" class="form-control font-monospace">
                                     </div>
                                     <div class="col-md-3 col-lg-2">
                                         <label class="form-label small text-muted fw-semibold mb-1">Status da Entrega:</label>
@@ -861,7 +858,7 @@
 
                                 <!-- Terminal de Exibição de Logs com Fundo Escuro e Letras Claras -->
                                 <div id="track-results" class="log-terminal" style="background-color: #0a0a0a; color: #FFFFFF !important; font-family: monospace; padding: 15px; border-radius: 8px; min-height: 280px; max-height: 550px; overflow-y: auto; text-align: left !important; word-break: break-all; white-space: pre-wrap;">
-                                    <span style="color: #9ca3af !important; display: block;">Selecione o período e informe os termos para realizar a busca flexível nos logs do servidor...</span>
+                                    <span style="color: #9ca3af !important; display: block;">Selecione a data e informe os termos para realizar a busca flexível nos logs do servidor...</span>
                                 </div>
                             </div>
                         </div>
@@ -882,10 +879,15 @@
                                 <!-- Filtros Live -->
                                 <div class="row g-2 mb-3 align-items-end">
                                     <div class="col-md-5 col-lg-5">
-                                        <label class="form-label small text-muted fw-semibold mb-1">Filtro de Caixa Postal:</label>
+                                        <label class="form-label small text-muted fw-semibold mb-1">Lente de Monitoramento (Eventos):</label>
                                         <div class="input-group input-group-sm">
-                                            <span class="input-group-text bg-light border-light-subtle text-muted"><i class="bi bi-at"></i></span>
-                                            <input type="text" id="live-mailbox-input" class="form-control font-monospace" placeholder="ex: usuario@empresa.com.br" onkeyup="if(event.key==='Enter') loadLogs()">
+                                            <span class="input-group-text bg-light border-light-subtle text-muted"><i class="bi bi-eye"></i></span>
+                                            <select id="live-event-lens-select" class="form-select font-monospace" onchange="loadLogs()">
+                                                <option value="" selected>Visão Global</option>
+                                                <option value="smtpd|anvil">Conexões e Ataques (smtpd)</option>
+                                                <option value="amavis">Radar Antispam (Amavis)</option>
+                                                <option value="status=">Status de Entrega</option>
+                                            </select>
                                         </div>
                                     </div>
                                     <div class="col-md-5 col-lg-5">
@@ -2461,14 +2463,20 @@
     }
 
     async function trackEmail() {
-        const periodEl = document.getElementById('log-period-select');
+        const dateEl = document.getElementById('log-date-input');
         const statusEl = document.getElementById('log-status-select');
         const serviceEl = document.getElementById('log-service-select');
         const mailboxEl = document.getElementById('log-mailbox-input');
         const searchTermEl = document.getElementById('log-search-term-input');
         const limitEl = document.getElementById('log-limit-select');
 
-        const period = periodEl ? periodEl.value : 'today';
+        let dateVal = dateEl ? dateEl.value : '';
+        if (!dateVal) {
+            const today = new Date().toISOString().split('T')[0];
+            dateVal = today;
+            if (dateEl) dateEl.value = today;
+        }
+
         const delivery_status = statusEl ? statusEl.value : '';
         const service = serviceEl ? serviceEl.value : '';
         const mailbox = mailboxEl ? mailboxEl.value.trim() : '';
@@ -2485,13 +2493,14 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    period,
+                    date: dateVal,
+                    data_busca: dateVal,
+                    period: dateVal,
                     delivery_status,
                     service,
                     mailbox,
                     search_term,
                     limit,
-                    periodo: period,
                     status_entrega: delivery_status,
                     servico: service,
                     caixa_postal: mailbox,
@@ -2507,8 +2516,10 @@
                 return;
             }
 
-            const periodText = data.period_label || (period === 'yesterday' ? 'Ontem (mail.log.1)' : 'Hoje (mail.log)');
-            const headerInfo = `<div class="mb-2 pb-2 border-bottom border-secondary text-muted small"><i class="bi bi-info-circle me-1"></i> Período: <strong>${periodText}</strong> | Exibindo <strong>${data.lines ? data.lines.length : 0}</strong> de <strong>${data.total_matches || 0}</strong> linhas encontradas</div>`;
+            const parts = dateVal.split('-');
+            const formattedDateStr = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : dateVal;
+            const periodText = data.period_label || `Data: ${formattedDateStr}`;
+            const headerInfo = `<div class="mb-2 pb-2 border-bottom border-secondary text-muted small"><i class="bi bi-info-circle me-1"></i> Data: <strong>${periodText}</strong> | Exibindo <strong>${data.lines ? data.lines.length : 0}</strong> de <strong>${data.total_matches || 0}</strong> linhas encontradas</div>`;
 
             if (data.lines && data.lines.length > 0) {
                 const formattedLines = data.lines.map(line => `<div style="color: #FFFFFF !important; font-family: monospace; font-size: 0.82rem; line-height: 1.4;">${highlightLogLine(line)}</div>`).join('');
@@ -2738,9 +2749,9 @@
     }
 
     async function loadLogs() {
-        const mailboxEl = document.getElementById('live-mailbox-input');
+        const lensEl = document.getElementById('live-event-lens-select');
         const termEl = document.getElementById('live-search-term-input');
-        const mailbox = mailboxEl ? mailboxEl.value.trim() : '';
+        const event_lens = lensEl ? lensEl.value : '';
         const search_term = termEl ? termEl.value.trim() : '';
         const container = document.getElementById('logs-container');
         if (!container) return;
@@ -2751,9 +2762,9 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     lines: 150,
-                    mailbox,
+                    event_lens,
+                    lente: event_lens,
                     search_term,
-                    caixa_postal: mailbox,
                     termo_busca: search_term
                 })
             });

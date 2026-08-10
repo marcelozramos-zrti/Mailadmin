@@ -450,7 +450,7 @@ def lint_rules():
 def get_logs():
     data = request.get_json(silent=True) or request.form or {}
     lines_arg = data.get('lines') or request.args.get('lines', 150)
-    mailbox = (data.get('mailbox') or data.get('caixa_postal') or request.args.get('mailbox') or request.args.get('caixa_postal') or '').strip()
+    event_lens = (data.get('event_lens') or data.get('lente') or data.get('mailbox') or data.get('caixa_postal') or request.args.get('event_lens') or request.args.get('lente') or request.args.get('mailbox') or '').strip()
     search_term = (data.get('search_term') or data.get('termo_busca') or data.get('term') or request.args.get('search_term') or request.args.get('termo_busca') or request.args.get('term') or '').strip()
 
     try:
@@ -471,15 +471,16 @@ def get_logs():
             raw_lines = journal_res['stdout'].split('\n')
 
     filtered_lines = []
-    mb_lower = mailbox.lower()
+    lens_parts = [p.strip().lower() for p in event_lens.split('|') if p.strip()] if event_lens else []
     term_lower = search_term.lower()
 
     for line in raw_lines:
         if not line:
             continue
         line_lower = line.lower()
-        if mb_lower and mb_lower not in line_lower:
-            continue
+        if lens_parts:
+            if not any(part in line_lower for part in lens_parts):
+                continue
         if term_lower and term_lower not in line_lower:
             continue
         filtered_lines.append(line)
