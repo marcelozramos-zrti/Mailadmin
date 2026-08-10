@@ -86,15 +86,16 @@ def track_email():
         bloco_por_qid = {}
         msgid_por_qid = {}
 
-        qid_regex = re.compile(r'\s([a-zA-Z0-9]{10,15}):\s')
+        # Regex estrito para capturar Queue ID apenas do Postfix e Amavis (ex: postfix/qmgr[123]: 4hJJgV5Txsz4X: ou amavis[123]: 4hJJgV5Txsz4X:)
+        qid_regex = re.compile(r'(?:postfix\/[a-zA-Z0-9_-]+|amavis)\[\d+\]:.*?\b([A-Za-z0-9]{10,15}):', re.IGNORECASE)
         msgid_regex = re.compile(r'message-id=<([^>]+)>', re.IGNORECASE)
 
         for line in log_lines:
-            # Exclui linhas de ruído do dovecot (imap-login / pop3-login)
-            if 'imap-login' in line or 'pop3-login' in line:
+            # 1. Descarte Imediato de Ruído (IGNORA 100% DO DOVECOT)
+            if 'dovecot' in line.lower():
                 continue
 
-            match = qid_regex.search(' ' + line + ' ')
+            match = qid_regex.search(line)
             if match:
                 qid = match.group(1)
                 if qid:
