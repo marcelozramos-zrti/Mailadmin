@@ -1795,16 +1795,22 @@
     // HELPER PADRÃO PARA FETCH TRATANDO ERROS DE FORMA VISÍVEL
     async function fetchJson(url, options = {}) {
         let res;
-        try {
-            res = await fetch(url, options);
-        } catch (netErr) {
-            // Retry once after 500ms if initial fetch failed (e.g. server restart)
+        let lastErr;
+        for (let attempt = 0; attempt < 3; attempt++) {
             try {
-                await new Promise(r => setTimeout(r, 500));
                 res = await fetch(url, options);
-            } catch (retryErr) {
-                throw new Error(`Erro de conexão/rede com o servidor (${retryErr.message || 'Servidor inacessível'})`);
+                lastErr = null;
+                break;
+            } catch (netErr) {
+                lastErr = netErr;
+                if (attempt < 2) {
+                    await new Promise(r => setTimeout(r, (attempt + 1) * 400));
+                }
             }
+        }
+
+        if (lastErr || !res) {
+            throw new Error(`Erro de conexão/rede com o servidor (${lastErr?.message || 'Servidor inacessível'})`);
         }
 
         if (res.status === 401 && !url.includes('/api/auth/login') && !url.includes('/api/auth/me')) {
