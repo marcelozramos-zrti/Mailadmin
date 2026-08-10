@@ -79,6 +79,9 @@ def toggle_domain(domain_name):
 @vmail_bp.route('/domains/<domain_name>', methods=['GET', 'POST', 'DELETE'])
 @login_required
 def delete_domain(domain_name):
+    if current_user.role == 'user':
+        return jsonify({'success': False, 'message': 'Acesso negado: Perfil de Usuário não possui permissão de exclusão de domínios.'}), 403
+
     try:
         domain = Domain.query.filter_by(domain=domain_name).first()
         if not domain:
@@ -207,6 +210,9 @@ def update_mailbox_quota(email):
 @vmail_bp.route('/mailboxes/<path:email>', methods=['GET', 'POST', 'DELETE'])
 @login_required
 def delete_mailbox(email):
+    if current_user.role == 'user':
+        return jsonify({'success': False, 'message': 'Acesso negado: Perfil de Usuário não possui permissão de exclusão de caixas postais.'}), 403
+
     try:
         mb = Mailbox.query.filter_by(username=email).first()
         if not mb:
@@ -268,6 +274,9 @@ def handle_aliases():
 @vmail_bp.route('/aliases/<path:address>', methods=['GET', 'POST', 'DELETE'])
 @login_required
 def delete_alias(address):
+    if current_user.role == 'user':
+        return jsonify({'success': False, 'message': 'Acesso negado: Perfil de Usuário não possui permissão de exclusão de aliases.'}), 403
+
     try:
         al = Alias.query.filter_by(address=address).first()
         if not al:

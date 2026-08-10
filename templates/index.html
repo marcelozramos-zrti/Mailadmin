@@ -386,6 +386,7 @@
             </div>
 
             <div class="d-flex align-items-center gap-2">
+                <span id="user-role-badge"></span>
                 <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2 d-none d-md-inline-flex align-items-center gap-1.5" id="nav-system-badge">
                     <span class="status-dot pulse-emerald"></span>
                     <span>Debian 12 / Linux</span>
@@ -1137,14 +1138,15 @@
                                         <thead>
                                             <tr>
                                                 <th>ID</th>
-                                                <th>Usuário Administrador</th>
-                                                <th>Status Autenticador (MFA/TOTP)</th>
+                                                <th>Usuário</th>
+                                                <th>Perfil (Role)</th>
+                                                <th>Status Autenticador (MFA)</th>
                                                 <th>Data de Cadastro</th>
                                                 <th>Ações</th>
                                             </tr>
                                         </thead>
                                         <tbody id="admins-table-body">
-                                            <tr><td colspan="5" class="text-center text-muted py-3">Carregando administradores...</td></tr>
+                                            <tr><td colspan="6" class="text-center text-muted py-3">Carregando usuários...</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -1302,6 +1304,16 @@
                         </div>
                     </div>
                     <div class="mb-3">
+                        <label class="form-label text-muted small fw-semibold">Nível de Acesso (Perfil RBAC)</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-person-badge text-muted"></i></span>
+                            <select id="create-admin-role" class="form-select font-monospace">
+                                <option value="admin">Administrador (Acesso Total)</option>
+                                <option value="user">Usuário (Apenas Leitura/Criação, sem Exclusão)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
                         <label class="form-label text-muted small fw-semibold">Senha (mínimo 6 caracteres)</label>
                         <div class="input-group">
                             <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-key text-muted"></i></span>
@@ -1372,6 +1384,50 @@
     </div>
 </div>
 
+<!-- FORCED MFA SETUP MODAL (Obrigatório no Primeiro Acesso) -->
+<div class="modal fade" id="forcedMfaModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content shadow-lg border-0 rounded-4">
+            <div class="modal-header bg-danger text-white rounded-top-4">
+                <h5 class="modal-title fw-bold d-flex align-items-center gap-2">
+                    <i class="bi bi-shield-lock-fill fs-4"></i> MFA Obrigatório no Primeiro Acesso
+                </h5>
+            </div>
+            <div class="modal-body text-center p-4">
+                <div class="alert alert-warning border-0 small text-start mb-3">
+                    <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                    <strong>Ativação de Segurança Exigida:</strong> Por políticas corporativas de acesso externo, você deve ativar o autenticador (2FA/MFA) antes de acessar o painel.
+                </div>
+                
+                <p class="text-muted small mb-2">Digitalize o código QR abaixo com o aplicativo <strong>Google Authenticator</strong> ou <strong>Authy</strong>:</p>
+                
+                <div id="forced-qr-wrapper" class="p-3 bg-white rounded-3 d-inline-block border shadow-sm mb-3">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+
+                <div class="mb-3 text-start">
+                    <label class="form-label small text-muted fw-semibold">Chave de Configuração Manual:</label>
+                    <div class="input-group">
+                        <input type="text" id="forced-mfa-secret" class="form-control bg-light text-primary text-center font-monospace fw-bold" readonly>
+                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="navigator.clipboard.writeText(document.getElementById('forced-mfa-secret').value); showAlert('Chave copiada!', 'success');"><i class="bi bi-clipboard"></i> Copiar</button>
+                    </div>
+                </div>
+
+                <form onsubmit="submitForcedMfa(event)">
+                    <div class="mb-3 text-start">
+                        <label class="form-label small text-dark fw-semibold">Digite o código de 6 dígitos gerado no app:</label>
+                        <input type="text" id="forced-mfa-token" class="form-control text-center fs-4 font-monospace border-primary" placeholder="000000" maxlength="6" required autocomplete="off">
+                    </div>
+                    <div id="forced-mfa-alert"></div>
+                    <button type="submit" id="forced-mfa-submit-btn" class="btn btn-success w-100 py-2 fw-bold rounded-3">
+                        <i class="bi bi-check-circle-fill me-1"></i> Validar e Entrar no Painel
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Bootstrap 5 Bundle JS -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
@@ -1389,6 +1445,10 @@
         checkAuthSession();
     });
 
+    let currentUserRole = 'admin';
+    let currentUsername = 'admin';
+    let tempMfaUserId = null;
+
     // CONTROLE DE AUTENTICAÇÃO E SESSÃO DA SPA
     async function checkAuthSession() {
         try {
@@ -1396,7 +1456,10 @@
             if (res.ok) {
                 const data = await res.json();
                 if (data && data.authenticated) {
+                    currentUserRole = data.role || 'admin';
+                    currentUsername = data.username || 'admin';
                     showPanelScreen();
+                    applyRbacPermissions();
                     loadTelemetry();
                     loadServiceStatus();
                     return;
@@ -1406,6 +1469,43 @@
         } catch (e) {
             showLoginScreen();
         }
+    }
+
+    function applyRbacPermissions() {
+        const isUser = (currentUserRole === 'user');
+
+        // Badge de papel no topo
+        const badgeContainer = document.getElementById('user-role-badge');
+        if (badgeContainer) {
+            if (isUser) {
+                badgeContainer.innerHTML = `<span class="badge bg-info-subtle text-info border border-info-subtle px-2.5 py-1.5 font-monospace"><i class="bi bi-person-fill me-1"></i> USUÁRIO (${currentUsername})</span>`;
+            } else {
+                badgeContainer.innerHTML = `<span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2.5 py-1.5 font-monospace"><i class="bi bi-shield-lock-fill me-1"></i> ADMIN (${currentUsername})</span>`;
+            }
+        }
+
+        // Esconder aba de configurações para usuário comum
+        const settingsTab = document.querySelector('[data-tab="settings"]');
+        if (settingsTab) {
+            if (isUser) {
+                settingsTab.classList.add('d-none');
+                if (settingsTab.classList.contains('active')) {
+                    const dashTab = document.querySelector('[data-tab="dashboard"]');
+                    if (dashTab) dashTab.click();
+                }
+            } else {
+                settingsTab.classList.remove('d-none');
+            }
+        }
+
+        // Esconder todos os botões de exclusão nas tabelas para perfil 'user'
+        document.querySelectorAll('.btn-delete-rbac, [title*="Excluir"], [title*="Remover"]').forEach(btn => {
+            if (isUser) {
+                btn.style.setProperty('display', 'none', 'important');
+            } else {
+                btn.style.display = '';
+            }
+        });
     }
 
     function showLoginScreen() {
@@ -1447,11 +1547,25 @@
         submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Autenticando...';
 
         try {
-            const data = await fetchJson('/api/auth/login', {
+            const res = await fetch('/api/auth/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password, token })
             });
+
+            const data = await res.json();
+
+            if (data.require_mfa_setup) {
+                tempMfaUserId = data.temp_user_id;
+                document.getElementById('forced-qr-wrapper').innerHTML = `<img src="${data.qr_code_base64}" alt="QR Code" class="img-fluid" style="max-width:180px;">`;
+                document.getElementById('forced-mfa-secret').value = data.otp_secret || '';
+                document.getElementById('forced-mfa-token').value = '';
+                document.getElementById('forced-mfa-alert').innerHTML = '';
+
+                const forcedModal = new bootstrap.Modal(document.getElementById('forcedMfaModal'));
+                forcedModal.show();
+                return;
+            }
 
             if (data.mfa_required) {
                 document.getElementById('login-mfa-container').classList.remove('d-none');
@@ -1462,7 +1576,10 @@
             }
 
             if (data.success) {
+                currentUserRole = (data.user && data.user.role) || 'admin';
+                currentUsername = (data.user && data.user.username) || username;
                 showPanelScreen();
+                applyRbacPermissions();
                 refreshCurrentTab();
             } else {
                 alertContainer.innerHTML = `<div class="alert alert-danger py-2 px-3 small border-0 mb-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> ${data.message || 'Falha ao autenticar.'}</div>`;
@@ -1472,6 +1589,47 @@
         } finally {
             submitBtn.disabled = false;
             submitBtn.innerHTML = '<i class="bi bi-box-arrow-in-right me-1"></i> Entrar no Sistema';
+        }
+    }
+
+    async function submitForcedMfa(event) {
+        event.preventDefault();
+        const token = document.getElementById('forced-mfa-token').value.trim();
+        const alertBox = document.getElementById('forced-mfa-alert');
+        const submitBtn = document.getElementById('forced-mfa-submit-btn');
+
+        if (!token) return;
+
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Validando Código...';
+
+        try {
+            const res = await fetch('/api/auth/mfa/enable', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token, temp_user_id: tempMfaUserId })
+            });
+
+            const data = await res.json();
+            if (data.success) {
+                currentUserRole = (data.user && data.user.role) || 'admin';
+                currentUsername = (data.user && data.user.username) || 'admin';
+
+                const modalInst = bootstrap.Modal.getInstance(document.getElementById('forcedMfaModal'));
+                if (modalInst) modalInst.hide();
+
+                showAlert(data.message, 'success');
+                showPanelScreen();
+                applyRbacPermissions();
+                refreshCurrentTab();
+            } else {
+                alertBox.innerHTML = `<div class="alert alert-danger py-2 px-3 small border-0 mb-3"><i class="bi bi-exclamation-circle me-1"></i> ${data.message || 'Código inválido.'}</div>`;
+            }
+        } catch (e) {
+            alertBox.innerHTML = `<div class="alert alert-danger py-2 px-3 small border-0 mb-3"><i class="bi bi-exclamation-circle me-1"></i> ${e.message}</div>`;
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> Validar e Entrar no Painel';
         }
     }
 
@@ -2433,7 +2591,7 @@
                 if (countSpan) countSpan.textContent = data.admins.length;
 
                 if (data.admins.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Nenhum administrador cadastrado no banco.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Nenhum usuário cadastrado no banco.</td></tr>';
                     return;
                 }
 
@@ -2441,6 +2599,12 @@
                     <tr>
                         <td class="font-monospace text-muted small">#${a.id}</td>
                         <td class="fw-bold text-dark font-monospace"><i class="bi bi-person-fill text-primary me-1"></i> ${a.username}</td>
+                        <td>
+                            ${a.role === 'user'
+                                ? `<span class="badge bg-info-subtle text-info border border-info-subtle px-2.5 py-1 font-monospace"><i class="bi bi-person me-1"></i> Usuário</span>`
+                                : `<span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2.5 py-1 font-monospace"><i class="bi bi-shield-check me-1"></i> Admin</span>`
+                            }
+                        </td>
                         <td>
                             ${a.otp_enabled
                                 ? `<span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1 font-monospace"><i class="bi bi-shield-lock-fill me-1"></i> MFA Ativado</span>`
@@ -2450,10 +2614,10 @@
                         <td class="font-monospace text-secondary small">${a.created_at || '-'}</td>
                         <td>
                             <div class="d-flex gap-1">
-                                <button class="btn btn-sm btn-outline-warning text-dark border-0 p-1.5" onclick="showChangeAdminPasswordModal(${a.id}, '${a.username}')" title="Trocar Senha">
+                                <button class="btn btn-sm btn-outline-warning text-dark border-0 p-1.5 btn-delete-rbac" onclick="showChangeAdminPasswordModal(${a.id}, '${a.username}')" title="Trocar Senha">
                                     <i class="bi bi-key-fill"></i>
                                 </button>
-                                <button class="btn btn-sm btn-outline-danger border-0 p-1.5" onclick="deleteAdminUser(${a.id}, '${a.username}')" title="Excluir Administrador">
+                                <button class="btn btn-sm btn-outline-danger border-0 p-1.5 btn-delete-rbac" onclick="deleteAdminUser(${a.id}, '${a.username}')" title="Excluir Administrador">
                                     <i class="bi bi-trash-fill"></i>
                                 </button>
                             </div>
@@ -2462,10 +2626,11 @@
                 `).join('');
 
                 filterTableRows('search-admins-input', 'admins-table-body');
+                applyRbacPermissions();
             }
         } catch (e) {
             console.error("Erro ao carregar administradores:", e);
-            tbody.innerHTML = `<tr><td colspan="5" class="text-danger font-monospace text-center py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar administradores: ${e.message}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="6" class="text-danger font-monospace text-center py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar administradores: ${e.message}</td></tr>`;
         }
     }
 
@@ -2475,6 +2640,8 @@
         document.getElementById('create-admin-username').value = '';
         document.getElementById('create-admin-password').value = '';
         document.getElementById('create-admin-password-confirm').value = '';
+        const roleSel = document.getElementById('create-admin-role');
+        if (roleSel) roleSel.value = 'admin';
         new bootstrap.Modal(document.getElementById('createAdminModal')).show();
     }
 
@@ -2483,6 +2650,8 @@
         const username = document.getElementById('create-admin-username').value.trim();
         const password = document.getElementById('create-admin-password').value.trim();
         const confirmPass = document.getElementById('create-admin-password-confirm').value.trim();
+        const roleSelect = document.getElementById('create-admin-role');
+        const role = roleSelect ? roleSelect.value : 'admin';
         const alertBox = document.getElementById('create-admin-alert');
 
         if (password !== confirmPass) {
@@ -2494,7 +2663,7 @@
             const data = await fetchJson('/api/auth/admins', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
+                body: JSON.stringify({ username, password, role })
             });
 
             showAlert(data.message, 'success');

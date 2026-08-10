@@ -202,6 +202,9 @@ def get_status():
 @services_bp.route('/restart', methods=['GET', 'POST'])
 @login_required
 def restart_service():
+    if current_user.role == 'user':
+        return jsonify({'success': False, 'message': 'Acesso negado: Perfil de Usuário não possui permissão para reiniciar serviços.'}), 403
+
     data = request.get_json(silent=True) or request.form or {}
     service = data.get('service') or request.args.get('service')
     allowed = ['postfix', 'amavis', 'clamav-daemon', 'spamassassin']
@@ -343,6 +346,9 @@ def delete_visual_rule_endpoint():
 
 
 def delete_visual_rule_logic():
+    if current_user.role == 'user':
+        return jsonify({'success': False, 'message': 'Acesso negado: Perfil de Usuário não possui permissão para excluir regras de Spam.'}), 403
+
     data = request.get_json(silent=True) or request.form or {}
     raw = data.get('raw')
     action = data.get('action')
@@ -492,6 +498,9 @@ def database_settings():
     db_port = env_vars.get('DB_PORT') or os.environ.get('DB_PORT', '3306')
 
     if request.method == 'POST':
+        if current_user.role == 'user':
+            return jsonify({'success': False, 'message': 'Acesso negado: Perfil de Usuário não possui permissão para alterar configurações do sistema.'}), 403
+
         data = request.get_json(silent=True) or request.form or {}
         new_user = data.get('DB_USER', db_user).strip()
         new_pass = data.get('DB_PASS', db_pass).strip()

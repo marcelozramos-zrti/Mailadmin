@@ -22,26 +22,63 @@ def login():
     if not admin or not admin.check_password(password):
         return jsonify({'success': False, 'message': 'Usuário ou senha inválidos.'}), 401
 
-    # Verifica MFA se ativado
-    if admin.otp_enabled:
-        if not token:
-            return jsonify({
-                'success': False,
-                'mfa_required': True,
-                'message': 'Código Autenticador TOTP de 6 dígitos é necessário.'
-            }), 200
+    # REGRA DE NEGÓCIO: MFA Obrigatório no Primeiro Acesso
+    # Se a senha estiver correta mas otp_enabled for False, o usuário NÃO é logado.
+    # A API retorna require_mfa_setup e o QR Code para o frontend forçar a configuração.
+    if not admin.otp_enabled:
+        if not admin.otp_secret:
+            admin.otp_secret = pyotp.random_base32()
+            db.session.commit()
 
         totp = pyotp.TOTP(admin.otp_secret)
-        if not totp.verify(token, valid_window=1):
-            return jsonify({'success': False, 'message': 'Código TOTP incorreto ou expirado.'}), 401
+        provision_url = totp.provisioning_uri(
+            name=admin.username,
+            issuer_name="MailAdmin Suite"
+        )
+
+        img = qrcode.make(provision_url)
+        buffered = io.BytesIO()
+        img.save(buffered, format="PNG")
+        qr_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+        session['temp_mfa_user_id'] = admin.id
+
+        return jsonify({
+            'success': False,
+            'require_mfa_setup': True,
+            'temp_user_id': admin.id,
+            'username': admin.username,
+            'otp_secret': admin.otp_secret,
+            'provision_url': provision_url,
+            'qr_code_base64': f"data:image/png;base64,{qr_base64}",
+            'message': 'Configuração do Autenticador MFA é OBRIGATÓRIA no primeiro acesso ao painel.'
+        }), 200
+
+    # Se MFA ativado, verifica token de 6 dígitos
+    if not token:
+        return jsonify({
+            'success': False,
+            'mfa_required': True,
+            'message': 'Código Autenticador TOTP de 6 dígitos é necessário.'
+        }), 200
+
+    totp = pyotp.TOTP(admin.otp_secret)
+    if not totp.verify(token, valid_window=1):
+        return jsonify({'success': False, 'message': 'Código TOTP incorreto ou expirado.'}), 401
 
     login_user(admin)
     session['user_id'] = admin.id
+    session.pop('temp_mfa_user_id', None)
 
     return jsonify({
         'success': True,
         'message': 'Login realizado com sucesso!',
-        'user': {'id': admin.id, 'username': admin.username, 'mfa_enabled': admin.otp_enabled}
+        'user': {
+            'id': admin.id,
+            'username': admin.username,
+            'role': admin.role or 'admin',
+            'mfa_enabled': admin.otp_enabled
+        }
     })
 
 @auth_bp.route('/logout', methods=['GET', 'POST'])
@@ -52,20 +89,26 @@ def logout():
     return jsonify({'success': True, 'message': 'Sessão encerrada com sucesso.'})
 
 @auth_bp.route('/mfa/setup', methods=['GET', 'POST'])
-@login_required
 def mfa_setup():
     """Gera chave TOTP e imagem QR Code base64 para configuração no Google Authenticator."""
-    if not current_user.otp_secret:
-        current_user.otp_secret = pyotp.random_base32()
+    user = current_user if current_user.is_authenticated else None
+    temp_user_id = session.get('temp_mfa_user_id') or request.args.get('temp_user_id')
+    if not user and temp_user_id:
+        user = AdminUser.query.get(temp_user_id)
+
+    if not user:
+        return jsonify({'success': False, 'message': 'Sessão ou usuário não encontrado.'}), 401
+
+    if not user.otp_secret:
+        user.otp_secret = pyotp.random_base32()
         db.session.commit()
 
-    totp = pyotp.TOTP(current_user.otp_secret)
+    totp = pyotp.TOTP(user.otp_secret)
     provision_url = totp.provisioning_uri(
-        name=current_user.username,
+        name=user.username,
         issuer_name="MailAdmin Suite"
     )
 
-    # Gera imagem do QR Code
     img = qrcode.make(provision_url)
     buffered = io.BytesIO()
     img.save(buffered, format="PNG")
@@ -73,28 +116,50 @@ def mfa_setup():
 
     return jsonify({
         'success': True,
-        'otp_secret': current_user.otp_secret,
+        'otp_secret': user.otp_secret,
         'qr_code_base64': f"data:image/png;base64,{qr_base64}",
         'provision_url': provision_url
     })
 
 @auth_bp.route('/mfa/enable', methods=['GET', 'POST'])
-@login_required
 def mfa_enable():
-    """Valida o primeiro código TOTP de 6 dígitos e habilita o MFA para a conta admin."""
+    """Valida o primeiro código TOTP de 6 dígitos, habilita o MFA e efetua o login no primeiro acesso."""
     data = request.get_json(silent=True) or request.form or {}
     token = data.get('token') or request.args.get('token')
+    temp_user_id = data.get('temp_user_id') or session.get('temp_mfa_user_id') or request.args.get('temp_user_id')
 
-    if not token or not current_user.otp_secret:
+    user = current_user if current_user.is_authenticated else None
+    if not user and temp_user_id:
+        user = AdminUser.query.get(temp_user_id)
+
+    if not user or not user.otp_secret:
+        return jsonify({'success': False, 'message': 'Sessão expirada ou usuário não configurado.'}), 400
+
+    if not token:
         return jsonify({'success': False, 'message': 'Código TOTP de 6 dígitos é obrigatório.'}), 400
 
-    totp = pyotp.TOTP(current_user.otp_secret)
+    totp = pyotp.TOTP(user.otp_secret)
     if totp.verify(token, valid_window=1):
-        current_user.otp_enabled = True
+        user.otp_enabled = True
         db.session.commit()
-        return jsonify({'success': True, 'message': 'MFA ativado com sucesso!'})
+
+        # Efetua o login oficial do usuário no sistema
+        login_user(user)
+        session['user_id'] = user.id
+        session.pop('temp_mfa_user_id', None)
+
+        return jsonify({
+            'success': True,
+            'message': 'MFA ativado com sucesso! Seja bem-vindo ao painel.',
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'role': user.role or 'admin',
+                'mfa_enabled': True
+            }
+        })
     else:
-        return jsonify({'success': False, 'message': 'Código inválido. Verifique o horário do celular.'}), 400
+        return jsonify({'success': False, 'message': 'Código inválido. Verifique o aplicativo e o horário do celular.'}), 400
 
 @auth_bp.route('/me', methods=['GET', 'POST'])
 def get_current_user_info():
@@ -102,6 +167,7 @@ def get_current_user_info():
         return jsonify({
             'authenticated': True,
             'username': current_user.username,
+            'role': current_user.role or 'admin',
             'mfa_enabled': current_user.otp_enabled
         })
     return jsonify({'authenticated': False})
@@ -126,10 +192,17 @@ def list_admins():
 @auth_bp.route('/admins', methods=['POST'])
 @login_required
 def create_admin():
-    """Criação de novo administrador. OBRIGATÓRIO uso de set_password()."""
+    """Criação de novo administrador. OBRIGATÓRIO uso de set_password(). Protegido por RBAC."""
+    if current_user.role != 'admin':
+        return jsonify({'success': False, 'message': 'Acesso negado: Apenas administradores com perfil "admin" podem criar contas.'}), 403
+
     data = request.get_json(silent=True) or request.form or {}
     username = (data.get('username') or '').strip()
     password = (data.get('password') or '').strip()
+    role = (data.get('role') or 'admin').strip().lower()
+
+    if role not in ['admin', 'user']:
+        role = 'admin'
 
     if not username or not password:
         return jsonify({'success': False, 'message': 'Nome de usuário e senha são obrigatórios.'}), 400
@@ -139,10 +212,10 @@ def create_admin():
 
     existing = AdminUser.query.filter_by(username=username).first()
     if existing:
-        return jsonify({'success': False, 'message': f'O administrador "{username}" já está cadastrado.'}), 400
+        return jsonify({'success': False, 'message': f'O usuário "{username}" já está cadastrado.'}), 400
 
     try:
-        new_admin = AdminUser(username=username)
+        new_admin = AdminUser(username=username, role=role)
         # SEGURANÇA CRÍTICA: Gera hash seguro via sha512_crypt no model AdminUser
         new_admin.set_password(password)
         db.session.add(new_admin)
@@ -150,7 +223,7 @@ def create_admin():
 
         return jsonify({
             'success': True,
-            'message': f'Administrador "{username}" criado com sucesso!',
+            'message': f'Usuário "{username}" ({role}) criado com sucesso!',
             'admin': new_admin.to_dict()
         })
     except Exception as e:
@@ -160,7 +233,10 @@ def create_admin():
 @auth_bp.route('/admins/<int:admin_id>/password', methods=['PUT', 'POST'])
 @login_required
 def change_admin_password(admin_id):
-    """Alteração de senha de um administrador. OBRIGATÓRIO uso de set_password()."""
+    """Alteração de senha de um administrador. OBRIGATÓRIO uso de set_password(). Protegido por RBAC."""
+    if current_user.role != 'admin':
+        return jsonify({'success': False, 'message': 'Acesso negado: Apenas administradores com perfil "admin" podem alterar senhas.'}), 403
+
     data = request.get_json(silent=True) or request.form or {}
     password = (data.get('password') or '').strip()
 
@@ -191,7 +267,10 @@ def change_admin_password(admin_id):
 @auth_bp.route('/admins/<int:admin_id>/delete', methods=['POST'])
 @login_required
 def delete_admin(admin_id):
-    """Exclusão de administrador com Trava de Segurança contra exclusão do único usuário."""
+    """Exclusão de administrador com Trava de Segurança contra exclusão do único usuário. Protegido por RBAC."""
+    if current_user.role != 'admin':
+        return jsonify({'success': False, 'message': 'Acesso negado: Perfil de Usuário não possui permissão para excluir administradores.'}), 403
+
     admin = AdminUser.query.get(admin_id)
     if not admin:
         return jsonify({'success': False, 'message': 'Administrador não encontrado.'}), 404
@@ -216,4 +295,5 @@ def delete_admin(admin_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': f'Erro ao excluir administrador: {str(e)}'}), 500
+
 

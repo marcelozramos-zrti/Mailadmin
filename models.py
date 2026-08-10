@@ -16,6 +16,7 @@ class AdminUser(UserMixin, db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     otp_secret = db.Column(db.String(32), nullable=True) # Segredo TOTP (pyotp)
     otp_enabled = db.Column(db.Boolean, default=False)
+    role = db.Column(db.String(50), default='admin') # 'admin' (Acesso total) ou 'user' (Sem exclusão/configurações)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
 
     def set_password(self, password):
@@ -30,6 +31,7 @@ class AdminUser(UserMixin, db.Model):
         return {
             'id': self.id,
             'username': self.username,
+            'role': self.role or 'admin',
             'otp_enabled': self.otp_enabled,
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None
         }

@@ -15,12 +15,13 @@ async function startServer() {
     username: "admin",
     password: "senha_segura_123",
     otp_secret: "JBSWY3DPEHPK3PXP",
-    otp_enabled: false
+    otp_enabled: false,
+    role: "admin"
   };
 
   let virtualAdminsList = [
-    { id: 1, username: "admin", otp_enabled: false, created_at: "2026-01-15 10:00:00" },
-    { id: 2, username: "analista_suporte", otp_enabled: true, created_at: "2026-02-10 14:30:00" }
+    { id: 1, username: "admin", role: "admin", otp_enabled: false, created_at: "2026-01-15 10:00:00" },
+    { id: 2, username: "analista_suporte", role: "user", otp_enabled: true, created_at: "2026-02-10 14:30:00" }
   ];
 
   let virtualDomains = [
@@ -100,20 +101,31 @@ blacklist_from *@spammerdomain.net
       return res.status(401).json({ success: false, message: "Usuário ou senha incorretos." });
     }
 
-    if (virtualAdmin.otp_enabled) {
-      if (!token) {
-        return res.json({ success: false, mfa_required: true, message: "Insira o código TOTP de 6 dígitos do Google Authenticator." });
-      }
-      // Demo validation accept any 6 digit token or 123456
-      if (token.length !== 6) {
-        return res.status(401).json({ success: false, message: "Código TOTP inválido." });
-      }
+    if (!virtualAdmin.otp_enabled) {
+      const qrDemo = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'><rect width='200' height='200' fill='%23f8fafc'/><rect x='20' y='20' width='60' height='60' fill='%230f172a'/><rect x='30' y='30' width='40' height='40' fill='%23ffffff'/><rect x='40' y='40' width='20' height='20' fill='%230f172a'/><rect x='120' y='20' width='60' height='60' fill='%230f172a'/><rect x='130' y='30' width='40' height='40' fill='%23ffffff'/><rect x='140' y='40' width='20' height='20' fill='%230f172a'/><rect x='20' y='120' width='60' height='60' fill='%230f172a'/><rect x='30' y='130' width='40' height='40' fill='%23ffffff'/><rect x='40' y='140' width='20' height='20' fill='%230f172a'/><path d='M100 20h10v30h-10zM100 80h30v20h-30zM120 120h40v20h-40zM150 150h30v30h-30z' fill='%230f172a'/></svg>";
+      return res.json({
+        success: false,
+        require_mfa_setup: true,
+        temp_user_id: 1,
+        username: virtualAdmin.username,
+        otp_secret: virtualAdmin.otp_secret,
+        provision_url: `otpauth://totp/MailAdmin%20Suite:${virtualAdmin.username}?secret=${virtualAdmin.otp_secret}&issuer=MailAdmin%20Suite`,
+        qr_code_base64: qrDemo,
+        message: "Configuração do Autenticador MFA é OBRIGATÓRIA no primeiro acesso ao painel."
+      });
+    }
+
+    if (!token) {
+      return res.json({ success: false, mfa_required: true, message: "Insira o código TOTP de 6 dígitos do Google Authenticator." });
+    }
+    if (token.length !== 6) {
+      return res.status(401).json({ success: false, message: "Código TOTP inválido." });
     }
 
     res.json({
       success: true,
       message: "Login realizado com sucesso!",
-      user: { id: 1, username: virtualAdmin.username, mfa_enabled: virtualAdmin.otp_enabled }
+      user: { id: 1, username: virtualAdmin.username, role: virtualAdmin.role, mfa_enabled: true }
     });
   });
 
@@ -133,11 +145,15 @@ blacklist_from *@spammerdomain.net
       return res.status(400).json({ success: false, message: "Código de 6 dígitos inválido." });
     }
     virtualAdmin.otp_enabled = true;
-    res.json({ success: true, message: "MFA ativado com sucesso para a conta de administrador!" });
+    res.json({
+      success: true,
+      message: "MFA ativado com sucesso! Seja bem-vindo ao painel.",
+      user: { id: 1, username: virtualAdmin.username, role: virtualAdmin.role, mfa_enabled: true }
+    });
   });
 
   app.get("/api/auth/me", (req, res) => {
-    res.json({ authenticated: true, username: virtualAdmin.username, mfa_enabled: virtualAdmin.otp_enabled });
+    res.json({ authenticated: true, username: virtualAdmin.username, role: virtualAdmin.role, mfa_enabled: virtualAdmin.otp_enabled });
   });
 
   // Gestão de Administradores (vmail_admins)
@@ -146,7 +162,7 @@ blacklist_from *@spammerdomain.net
   });
 
   app.post("/api/auth/admins", (req, res) => {
-    const { username, password } = req.body || {};
+    const { username, password, role } = req.body || {};
     if (!username || !password) {
       return res.status(400).json({ success: false, message: "Nome de usuário e senha são obrigatórios." });
     }
@@ -154,18 +170,19 @@ blacklist_from *@spammerdomain.net
       return res.status(400).json({ success: false, message: "A senha deve conter no mínimo 6 caracteres." });
     }
     if (virtualAdminsList.some(a => a.username.toLowerCase() === username.trim().toLowerCase())) {
-      return res.status(400).json({ success: false, message: `O administrador "${username}" já está cadastrado.` });
+      return res.status(400).json({ success: false, message: `O usuário "${username}" já está cadastrado.` });
     }
 
     const nextId = virtualAdminsList.length > 0 ? Math.max(...virtualAdminsList.map(a => a.id)) + 1 : 1;
     const newAdmin = {
       id: nextId,
       username: username.trim(),
+      role: (role === 'user' ? 'user' : 'admin'),
       otp_enabled: false,
       created_at: new Date().toISOString().replace("T", " ").substring(0, 19)
     };
     virtualAdminsList.push(newAdmin);
-    res.json({ success: true, message: `Administrador "${username}" criado com sucesso!`, admin: newAdmin });
+    res.json({ success: true, message: `Usuário "${username}" (${newAdmin.role}) criado com sucesso!`, admin: newAdmin });
   });
 
   app.post("/api/auth/admins/:id/password", (req, res) => {
