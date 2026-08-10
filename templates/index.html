@@ -790,6 +790,11 @@
                                 <i class="bi bi-activity me-1.5 text-success"></i> Monitoramento ao Vivo
                             </button>
                         </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link fw-semibold" id="fila-tab" data-bs-toggle="tab" data-bs-target="#tab-fila" type="button" role="tab" aria-controls="tab-fila" aria-selected="false">
+                                <i class="bi bi-list-task me-1.5 text-warning"></i> Gestão de Fila (Queue)
+                            </button>
+                        </li>
                     </ul>
 
                     <div class="tab-content" id="troubleshootingTabsContent">
@@ -903,44 +908,46 @@
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Postfix Queue -->
-                    <div class="card p-4">
-                        <div class="d-flex align-items-center justify-content-between mb-3">
-                            <div>
-                                <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
-                                    <i class="bi bi-list-task text-warning"></i> Fila de Mensagens Postfix (postqueue)
-                                </h3>
-                                <small class="text-muted">Visualizador e gerenciamento com postsuper -d / postqueue -f</small>
-                            </div>
-                            <div class="d-flex gap-2">
-                                <button class="btn btn-outline-warning btn-sm rounded-3" onclick="flushQueue()">
-                                    <i class="bi bi-send-check me-1"></i> Liberar Fila (postqueue -f)
-                                </button>
-                                <button class="btn btn-outline-secondary btn-sm rounded-3" onclick="loadQueue()">
-                                    <i class="bi bi-arrow-clockwise"></i>
-                                </button>
-                            </div>
-                        </div>
+                        <!-- ABA 3: Gestão de Fila (Queue) -->
+                        <div class="tab-pane fade" id="tab-fila" role="tabpanel" aria-labelledby="fila-tab">
+                            <div class="card p-4">
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <div>
+                                        <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                            <i class="bi bi-list-task text-warning"></i> Fila de Mensagens Postfix (postqueue)
+                                        </h3>
+                                        <small class="text-muted">Visualizador e gerenciamento com postsuper -d / postqueue -f</small>
+                                    </div>
+                                    <div class="d-flex gap-2">
+                                        <button class="btn btn-outline-warning btn-sm rounded-3" onclick="flushQueue()">
+                                            <i class="bi bi-send-check me-1"></i> Liberar Fila (postqueue -f)
+                                        </button>
+                                        <button class="btn btn-outline-secondary btn-sm rounded-3" onclick="loadQueue()">
+                                            <i class="bi bi-arrow-clockwise"></i>
+                                        </button>
+                                    </div>
+                                </div>
 
-                        <div class="table-responsive">
-                            <table class="table table-custom align-middle">
-                                <thead>
-                                    <tr>
-                                        <th>Queue ID</th>
-                                        <th>Tamanho</th>
-                                        <th>Data</th>
-                                        <th>Remetente</th>
-                                        <th>Destinatário</th>
-                                        <th>Erro / Motivo</th>
-                                        <th>Ação</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="queue-table-body">
-                                    <tr><td colspan="7" class="text-center text-muted py-3">Carregando fila Postfix...</td></tr>
-                                </tbody>
-                            </table>
+                                <div class="table-responsive">
+                                    <table class="table table-custom align-middle">
+                                        <thead>
+                                            <tr>
+                                                <th>Queue ID</th>
+                                                <th>Tamanho</th>
+                                                <th>Data</th>
+                                                <th>Remetente</th>
+                                                <th>Destinatário</th>
+                                                <th>Erro / Motivo</th>
+                                                <th>Ação</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="queue-table-body">
+                                            <tr><td colspan="7" class="text-center text-muted py-3">Carregando fila Postfix...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
