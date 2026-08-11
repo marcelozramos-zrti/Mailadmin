@@ -46,6 +46,11 @@ def create_app():
     def index():
         return render_template('index.html')
 
+    @app.route('/api/rules/add', methods=['POST'])
+    def root_api_rules_add():
+        from blueprints.troubleshooting_bp import add_mail_rule
+        return add_mail_rule()
+
     # Criação inicial de tabelas e usuário admin padrão se não existirem
     with app.app_context():
         try:

@@ -2757,10 +2757,12 @@
         }
 
         try {
-            const response = await fetch('/api/rules/add', {
+            const endpoint = "{{ url_for('troubleshooting.add_mail_rule') }}";
+            const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
                 },
                 body: JSON.stringify({
                     target: target,
@@ -2768,7 +2770,14 @@
                 })
             });
 
-            const data = await response.json();
+            const contentType = response.headers.get('content-type') || '';
+            let data = {};
+            if (contentType.includes('application/json')) {
+                data = await response.json();
+            } else {
+                const textErr = await response.text();
+                throw new Error(`Resposta do servidor não é JSON (HTTP ${response.status}). Retornou HTML/Texto.`);
+            }
 
             if (response.ok && (data.status === 'success' || data.success)) {
                 let msg = '';

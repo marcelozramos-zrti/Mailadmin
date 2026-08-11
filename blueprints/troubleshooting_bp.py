@@ -740,20 +740,19 @@ def ensure_mail_rules_table():
             pass
 
 @troubleshooting_bp.route('/rules/add', methods=['POST'])
-@troubleshooting_bp.route('/api/rules/add', methods=['POST'])
 def add_mail_rule():
-    ensure_mail_rules_table()
-    data = request.get_json(silent=True) or request.form or {}
-    target = (data.get('target') or '').strip()
-    action_type = (data.get('action_type') or '').strip().lower()
-
-    if not target:
-        return jsonify({'status': 'error', 'message': 'O campo target (e-mail/IP) é obrigatório.'}), 400
-
-    if action_type not in ['block', 'spam', 'whitelist']:
-        return jsonify({'status': 'error', 'message': 'Ação inválida. Escolha entre: block, spam ou whitelist.'}), 400
-
     try:
+        ensure_mail_rules_table()
+        data = request.get_json(silent=True) or request.form or {}
+        target = (data.get('target') or '').strip()
+        action_type = (data.get('action_type') or '').strip().lower()
+
+        if not target:
+            return jsonify({'status': 'error', 'message': 'O campo target (e-mail/IP) é obrigatório.'}), 400
+
+        if action_type not in ['block', 'spam', 'whitelist']:
+            return jsonify({'status': 'error', 'message': 'Ação inválida. Escolha entre: block, spam ou whitelist.'}), 400
+
         from models import db, MailRule
         new_rule = MailRule(target=target, action_type=action_type)
         db.session.add(new_rule)
