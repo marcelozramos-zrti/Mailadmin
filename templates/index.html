@@ -2499,13 +2499,23 @@
         trackEmail();
     }
 
-    function highlightLogLine(text) {
+    function highlightLogLine(text, termosDestaque = []) {
         if (!text) return '';
 
         let esc = text
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;");
+
+        // Highlighting das palavras/termos da Power Query
+        if (termosDestaque && termosDestaque.length > 0) {
+            termosDestaque.forEach(termo => {
+                if (!termo) return;
+                const escapedTerm = termo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const regex = new RegExp(`(${escapedTerm})`, 'gi');
+                esc = esc.replace(regex, '<span class="bg-primary text-white rounded px-1 fw-bold">$1</span>');
+            });
+        }
 
         // Timestamps
         esc = esc.replace(/^([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2})/g, '<span style="color: #94a3b8;">$1</span>');
@@ -2601,16 +2611,45 @@
                 return;
             }
 
+            // Parsing dos termos de busca da Power Query para destaque visual (Highlighting)
+            const termosDestaque = [];
+            if (power_query) {
+                const querySegments = power_query.split(';');
+                querySegments.forEach(seg => {
+                    const trimmed = seg.trim();
+                    if (!trimmed || trimmed.includes('!=')) return;
+                    if (trimmed.includes(':')) {
+                        const parts = trimmed.split(':');
+                        const val = parts.slice(1).join(':').trim();
+                        if (val) termosDestaque.push(val);
+                    } else {
+                        termosDestaque.push(trimmed);
+                    }
+                });
+            }
+
             const parts = (startDateVal || '').split('-');
             const formattedDateStr = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : startDateVal;
             const periodText = data.period_label || `Data: ${formattedDateStr}`;
             const headerInfo = `<div class="mb-2 pb-2 border-bottom border-secondary text-muted small"><i class="bi bi-info-circle me-1"></i> Data: <strong>${periodText}</strong> | Exibindo <strong>${data.lines ? data.lines.length : 0}</strong> de <strong>${data.total_matches || 0}</strong> linhas encontradas</div>`;
 
             if (data.lines && data.lines.length > 0) {
-                const formattedLines = data.lines.map(line => `<div style="color: #FFFFFF !important; font-family: monospace; font-size: 0.82rem; line-height: 1.4;">${highlightLogLine(line)}</div>`).join('');
+                const formattedLines = data.lines.map(line => `<div style="color: #FFFFFF !important; font-family: monospace; font-size: 0.82rem; line-height: 1.4;">${highlightLogLine(line, termosDestaque)}</div>`).join('');
                 container.innerHTML = headerInfo + formattedLines;
             } else {
-                container.innerHTML = headerInfo + `<pre style="color: #FFFFFF !important; background-color: transparent; font-family: monospace; font-size: 0.82rem; line-height: 1.5; margin: 0; white-space: pre-wrap; word-break: break-all;">${rawContent}</pre>`;
+                let escRaw = rawContent
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;");
+                if (termosDestaque.length > 0) {
+                    termosDestaque.forEach(termo => {
+                        if (!termo) return;
+                        const escapedTerm = termo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        const regex = new RegExp(`(${escapedTerm})`, 'gi');
+                        escRaw = escRaw.replace(regex, '<span class="bg-primary text-white rounded px-1 fw-bold">$1</span>');
+                    });
+                }
+                container.innerHTML = headerInfo + `<pre style="color: #FFFFFF !important; background-color: transparent; font-family: monospace; font-size: 0.82rem; line-height: 1.5; margin: 0; white-space: pre-wrap; word-break: break-all;">${escRaw}</pre>`;
             }
             container.scrollTop = container.scrollHeight;
 
