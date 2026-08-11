@@ -62,32 +62,49 @@ def track_email():
 
         parsed_conditions = []
         for cond in raw_conditions:
-            if '!=' in cond:
-                k, v = cond.split('!=', 1)
+            cond_clean = cond.strip()
+            if not cond_clean:
+                continue
+            # Se o bloco inteiro estiver entre aspas duplas, preserva espaços internos e trata como busca exata
+            if cond_clean.startswith('"') and cond_clean.endswith('"') and len(cond_clean) >= 2:
+                val = cond_clean[1:-1].lower()
+                parsed_conditions.append({
+                    'key': 'free',
+                    'op': 'contains',
+                    'val': val
+                })
+            elif '!=' in cond_clean:
+                k, v = cond_clean.split('!=', 1)
+                v_s = v.strip()
+                val = v_s[1:-1].lower() if (v_s.startswith('"') and v_s.endswith('"') and len(v_s) >= 2) else v_s.lower()
                 parsed_conditions.append({
                     'key': k.strip().lower(),
                     'op': '!=',
-                    'val': v.strip().lower()
+                    'val': val
                 })
-            elif ':' in cond:
-                k, v = cond.split(':', 1)
+            elif ':' in cond_clean:
+                k, v = cond_clean.split(':', 1)
+                v_s = v.strip()
+                val = v_s[1:-1].lower() if (v_s.startswith('"') and v_s.endswith('"') and len(v_s) >= 2) else v_s.lower()
                 parsed_conditions.append({
                     'key': k.strip().lower(),
                     'op': ':',
-                    'val': v.strip().lower()
+                    'val': val
                 })
-            elif '=' in cond:
-                k, v = cond.split('=', 1)
+            elif '=' in cond_clean:
+                k, v = cond_clean.split('=', 1)
+                v_s = v.strip()
+                val = v_s[1:-1].lower() if (v_s.startswith('"') and v_s.endswith('"') and len(v_s) >= 2) else v_s.lower()
                 parsed_conditions.append({
                     'key': k.strip().lower(),
                     'op': ':',
-                    'val': v.strip().lower()
+                    'val': val
                 })
             else:
                 parsed_conditions.append({
                     'key': 'free',
                     'op': 'contains',
-                    'val': cond.strip().lower()
+                    'val': cond_clean.lower()
                 })
 
         # 2. Configurações Temporais e Limite

@@ -373,17 +373,26 @@ blacklist_from *@spammerdomain.net
     }
 
     const parsedConditions = rawConditions.map(cond => {
-      if (cond.includes("!=")) {
-        const [k, v] = cond.split("!=", 2);
-        return { key: k.trim().toLowerCase(), op: "!=", val: v.trim().toLowerCase() };
-      } else if (cond.includes(":")) {
-        const [k, v] = cond.split(":", 2);
-        return { key: k.trim().toLowerCase(), op: ":", val: v.trim().toLowerCase() };
-      } else if (cond.includes("=")) {
-        const [k, v] = cond.split("=", 2);
-        return { key: k.trim().toLowerCase(), op: ":", val: v.trim().toLowerCase() };
+      const condClean = cond.trim();
+      if (condClean.startsWith('"') && condClean.endsWith('"') && condClean.length >= 2) {
+        return { key: "free", op: "contains", val: condClean.slice(1, -1).toLowerCase() };
+      } else if (condClean.includes("!=")) {
+        const [k, v] = condClean.split("!=", 2);
+        const vS = v.trim();
+        const val = (vS.startsWith('"') && vS.endsWith('"') && vS.length >= 2) ? vS.slice(1, -1).toLowerCase() : vS.toLowerCase();
+        return { key: k.trim().toLowerCase(), op: "!=", val };
+      } else if (condClean.includes(":")) {
+        const [k, v] = condClean.split(":", 2);
+        const vS = v.trim();
+        const val = (vS.startsWith('"') && vS.endsWith('"') && vS.length >= 2) ? vS.slice(1, -1).toLowerCase() : vS.toLowerCase();
+        return { key: k.trim().toLowerCase(), op: ":", val };
+      } else if (condClean.includes("=")) {
+        const [k, v] = condClean.split("=", 2);
+        const vS = v.trim();
+        const val = (vS.startsWith('"') && vS.endsWith('"') && vS.length >= 2) ? vS.slice(1, -1).toLowerCase() : vS.toLowerCase();
+        return { key: k.trim().toLowerCase(), op: ":", val };
       } else {
-        return { key: "free", op: "contains", val: cond.trim().toLowerCase() };
+        return { key: "free", op: "contains", val: condClean.toLowerCase() };
       }
     });
 

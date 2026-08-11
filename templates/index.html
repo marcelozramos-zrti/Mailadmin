@@ -880,7 +880,8 @@
                                     </div>
                                     <div class="text-secondary border-top pt-1.5 mt-1 fs-7">
                                         <div class="mb-1"><i class="bi bi-braces me-1 text-primary"></i> <strong>Separador (;):</strong> Use ponto e vírgula para combinar múltiplos filtros.</div>
-                                        <div><i class="bi bi-lightning-charge-fill me-1 text-warning"></i> <strong>Exemplo Avançado:</strong> <code>from!=zrti.com.br; to:andreza; Inbound</code></div>
+                                        <div class="mb-1"><i class="bi bi-quote me-1 text-primary"></i> <strong>Correspondência Exata (Aspas):</strong> Use aspas duplas para buscar termos exatos preservando espaços. Ex: <code>" ESMTP/ESMTP"</code> ou <code>"status=sent"</code>.</div>
+                                        <div><i class="bi bi-lightning-charge-fill me-1 text-warning"></i> <strong>Exemplo Avançado:</strong> <code>from!=zrti.com.br; to:andreza; " ESMTP/ESMTP"</code></div>
                                     </div>
                                 </div>
 
@@ -2507,13 +2508,13 @@
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;");
 
-        // Highlighting das palavras/termos da Power Query
+        // Highlighting das palavras/termos da Power Query (Laranja de alto contraste)
         if (termosDestaque && termosDestaque.length > 0) {
             termosDestaque.forEach(termo => {
                 if (!termo) return;
                 const escapedTerm = termo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 const regex = new RegExp(`(${escapedTerm})`, 'gi');
-                esc = esc.replace(regex, '<span class="bg-primary text-white rounded px-1 fw-bold">$1</span>');
+                esc = esc.replace(regex, '<span style="background-color: #fd7e14; color: #ffffff; border-radius: 3px; padding: 0 3px;" class="fw-bold">$1</span>');
             });
         }
 
@@ -2616,15 +2617,21 @@
             if (power_query) {
                 const querySegments = power_query.split(';');
                 querySegments.forEach(seg => {
-                    const trimmed = seg.trim();
+                    let trimmed = seg.trim();
                     if (!trimmed || trimmed.includes('!=')) return;
-                    if (trimmed.includes(':')) {
+                    let val = trimmed;
+                    if (trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2) {
+                        val = trimmed.slice(1, -1);
+                    } else if (trimmed.includes(':')) {
                         const parts = trimmed.split(':');
-                        const val = parts.slice(1).join(':').trim();
-                        if (val) termosDestaque.push(val);
-                    } else {
-                        termosDestaque.push(trimmed);
+                        const vS = parts.slice(1).join(':').trim();
+                        val = (vS.startsWith('"') && vS.endsWith('"') && vS.length >= 2) ? vS.slice(1, -1) : vS;
+                    } else if (trimmed.includes('=')) {
+                        const parts = trimmed.split('=');
+                        const vS = parts.slice(1).join('=').trim();
+                        val = (vS.startsWith('"') && vS.endsWith('"') && vS.length >= 2) ? vS.slice(1, -1) : vS;
                     }
+                    if (val) termosDestaque.push(val);
                 });
             }
 
@@ -2646,7 +2653,7 @@
                         if (!termo) return;
                         const escapedTerm = termo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                         const regex = new RegExp(`(${escapedTerm})`, 'gi');
-                        escRaw = escRaw.replace(regex, '<span class="bg-primary text-white rounded px-1 fw-bold">$1</span>');
+                        escRaw = escRaw.replace(regex, '<span style="background-color: #fd7e14; color: #ffffff; border-radius: 3px; padding: 0 3px;" class="fw-bold">$1</span>');
                     });
                 }
                 container.innerHTML = headerInfo + `<pre style="color: #FFFFFF !important; background-color: transparent; font-family: monospace; font-size: 0.82rem; line-height: 1.5; margin: 0; white-space: pre-wrap; word-break: break-all;">${escRaw}</pre>`;
