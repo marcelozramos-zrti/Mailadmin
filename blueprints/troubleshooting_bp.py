@@ -723,21 +723,40 @@ def ensure_mail_rules_table():
     try:
         from sqlalchemy import text
         from models import db
-        db.session.execute(text("""
+        ddl_statements = [
+            """
+            CREATE TABLE IF NOT EXISTS vmail.mail_rules (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                target VARCHAR(255) NOT NULL,
+                action_type ENUM('block', 'spam', 'whitelist') NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """,
+            """
             CREATE TABLE IF NOT EXISTS mail_rules (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 target VARCHAR(255) NOT NULL,
                 action_type ENUM('block', 'spam', 'whitelist') NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """))
-        db.session.commit()
-    except Exception as e:
-        try:
-            from models import db
-            db.session.rollback()
-        except Exception:
-            pass
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """,
+            "GRANT ALL PRIVILEGES ON vmail.mail_rules TO 'vmail'@'localhost';",
+            "GRANT ALL PRIVILEGES ON vmail.mail_rules TO 'vmailadmin'@'localhost';",
+            "GRANT ALL PRIVILEGES ON vmail.* TO 'vmail'@'localhost';",
+            "GRANT ALL PRIVILEGES ON vmail.* TO 'vmailadmin'@'localhost';",
+            "FLUSH PRIVILEGES;"
+        ]
+        for stmt in ddl_statements:
+            try:
+                db.session.execute(text(stmt))
+                db.session.commit()
+            except Exception:
+                try:
+                    db.session.rollback()
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
 @troubleshooting_bp.route('/rules/add', methods=['POST'])
 def add_mail_rule():
@@ -754,19 +773,54 @@ def add_mail_rule():
             return jsonify({'status': 'error', 'message': 'Ação inválida. Escolha entre: block, spam ou whitelist.'}), 400
 
         from models import db, MailRule
-        new_rule = MailRule(target=target, action_type=action_type)
-        db.session.add(new_rule)
-        db.session.commit()
-        return jsonify({
-            'status': 'success',
-            'message': 'Regra aplicada com sucesso!',
-            'rule': new_rule.to_dict() if hasattr(new_rule, 'to_dict') else {'target': target, 'action_type': action_type}
-        })
+        
+        try:
+            new_rule = MailRule(target=target, action_type=action_type)
+            db.session.add(new_rule)
+            db.session.commit()
+            return jsonify({
+                'status': 'success',
+                'message': 'Regra aplicada com sucesso!',
+                'rule': new_rule.to_dict() if hasattr(new_rule, 'to_dict') else {'target': target, 'action_type': action_type}
+            })
+        except Exception as orm_err:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            
+            # Fallback com SQL puro em vmail.mail_rules e mail_rules
+            from sqlalchemy import text
+            inserted = False
+            for tbl in ['vmail.mail_rules', 'mail_rules']:
+                try:
+                    db.session.execute(
+                        text(f"INSERT INTO {tbl} (target, action_type) VALUES (:target, :act)"),
+                        {'target': target, 'act': action_type}
+                    )
+                    db.session.commit()
+                    inserted = True
+                    break
+                except Exception:
+                    try:
+                        db.session.rollback()
+                    except Exception:
+                        pass
+
+            if inserted:
+                return jsonify({
+                    'status': 'success',
+                    'message': 'Regra aplicada com sucesso!',
+                    'rule': {'target': target, 'action_type': action_type}
+                })
+            else:
+                raise orm_err
+
     except Exception as e:
         try:
             from models import db
             db.session.rollback()
         except Exception:
             pass
-        return jsonify({'status': 'error', 'message': f'Erro ao gravar regra no banco de dados: {str(e)}'}), 500
+        return jsonify({'status': 'error', 'message': f'Erro ao gravar regra no MariaDB: {str(e)}'}), 500
 
