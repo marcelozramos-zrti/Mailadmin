@@ -43,25 +43,52 @@ def track_email():
         else:
             data = request.args or {}
 
-        # 1. Extração do Power Query
+        # 1. Extração e Fatiamento da Power Query por ';'
         power_query = (data.get('power_query') or data.get('query') or data.get('pq') or data.get('search_term') or data.get('termo_busca') or '').strip()
 
-        from_match = re.search(r'\bfrom:([^\s]+)', power_query, re.IGNORECASE)
-        to_match = re.search(r'\bto:([^\s]+)', power_query, re.IGNORECASE)
-        prot_match = re.search(r'\b(?:prot|service|servico):([^\s]+)', power_query, re.IGNORECASE)
-        status_match = re.search(r'\bstatus:([^\s]+)', power_query, re.IGNORECASE)
+        # Fatiamento: divide por ';' e limpa espaços
+        raw_conditions = [c.strip() for c in power_query.split(';') if c.strip()]
 
-        query_from = from_match.group(1).lower() if from_match else (data.get('mailbox') or data.get('caixa_postal') or '').strip().lower()
-        query_to = to_match.group(1).lower() if to_match else ''
-        query_prot = prot_match.group(1).lower() if prot_match else (data.get('service') or data.get('servico') or '').strip().lower()
-        query_status = status_match.group(1).lower() if status_match else (data.get('delivery_status') or data.get('status_entrega') or '').strip().lower()
+        # Se não houver power_query, aceitar filtros legados de formulário
+        if not raw_conditions:
+            mb = (data.get('mailbox') or data.get('caixa_postal') or '').strip()
+            if mb: raw_conditions.append(f"from:{mb}")
+            st = (data.get('search_term') or data.get('termo_busca') or '').strip()
+            if st: raw_conditions.append(st)
+            ds = (data.get('delivery_status') or data.get('status_entrega') or '').strip()
+            if ds: raw_conditions.append(f"status:{ds}")
+            srv = (data.get('service') or data.get('servico') or '').strip()
+            if srv: raw_conditions.append(f"prot:{srv}")
 
-        clean_query = power_query
-        for m in [from_match, to_match, prot_match, status_match]:
-            if m:
-                clean_query = clean_query.replace(m.group(0), '')
-
-        free_terms = [t.strip().lower() for t in clean_query.split() if t.strip()]
+        parsed_conditions = []
+        for cond in raw_conditions:
+            if '!=' in cond:
+                k, v = cond.split('!=', 1)
+                parsed_conditions.append({
+                    'key': k.strip().lower(),
+                    'op': '!=',
+                    'val': v.strip().lower()
+                })
+            elif ':' in cond:
+                k, v = cond.split(':', 1)
+                parsed_conditions.append({
+                    'key': k.strip().lower(),
+                    'op': ':',
+                    'val': v.strip().lower()
+                })
+            elif '=' in cond:
+                k, v = cond.split('=', 1)
+                parsed_conditions.append({
+                    'key': k.strip().lower(),
+                    'op': ':',
+                    'val': v.strip().lower()
+                })
+            else:
+                parsed_conditions.append({
+                    'key': 'free',
+                    'op': 'contains',
+                    'val': cond.strip().lower()
+                })
 
         # 2. Configurações Temporais e Limite
         start_date_param = (data.get('start_date') or data.get('data_inicio') or data.get('date') or data.get('data_busca') or data.get('period') or '').strip().lower()
@@ -188,35 +215,108 @@ def track_email():
         smtp_attack_keywords = ["improper command pipelining", "non-smtp command", "unknown[", "warning: hostname", "lost connection after", "too many errors", "connect from unknown", "anvil"]
         auth_failure_keywords = ["authentication failed", "auth failed", "sasl", "password mismatch", "unknown user", "relay access denied", "554 5.7.1", "reject: rcp", "login failed"]
 
-        for blk in blocks:
-            blk_text = "\n".join(blk['lines']).lower()
+        def check_block(blk):
+            blk_lines = blk['lines']
+            blk_text = "\n".join(blk_lines).lower()
 
             if quick_lens == 'smtp_attacks':
                 if not any(kw in blk_text for kw in smtp_attack_keywords):
-                    continue
+                    return False
             elif quick_lens == 'auth_failures':
                 if not any(kw in blk_text for kw in auth_failure_keywords):
-                    continue
+                    return False
             elif quick_lens:
                 terms = [t.strip() for t in quick_lens.split('|') if t.strip()]
                 if terms and not any(t in blk_text for t in terms):
+                    return False
+
+            if not parsed_conditions:
+                return True
+
+            sender_cache = [None]
+            recipient_cache = [None]
+
+            def get_sender():
+                if sender_cache[0] is None:
+                    snd = ""
+                    for line in blk_lines:
+                        m1 = re.search(r'ESMTP\s*<([^>]+)>\s*->', line, re.IGNORECASE)
+                        if m1: snd = m1.group(1).strip().lower(); break
+                        m2 = re.search(r'from=<([^>]+)>', line, re.IGNORECASE)
+                        if m2: snd = m2.group(1).strip().lower(); break
+                        m3 = re.search(r'From:\s*<([^>]+)>', line, re.IGNORECASE)
+                        if m3: snd = m3.group(1).strip().lower(); break
+                        m4 = re.search(r'from=\s*<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9._%+-]+)>?', line, re.IGNORECASE)
+                        if m4: snd = m4.group(1).strip().lower(); break
+                    sender_cache[0] = snd
+                return sender_cache[0]
+
+            def get_recipient():
+                if recipient_cache[0] is None:
+                    rcp = ""
+                    for line in blk_lines:
+                        m1 = re.search(r'->\s*<([^>]+)>', line, re.IGNORECASE)
+                        if m1: rcp = m1.group(1).strip().lower(); break
+                        m2 = re.search(r'to=<([^>]+)>', line, re.IGNORECASE)
+                        if m2: rcp = m2.group(1).strip().lower(); break
+                        m3 = re.search(r'To:\s*<([^>]+)>', line, re.IGNORECASE)
+                        if m3: rcp = m3.group(1).strip().lower(); break
+                        m4 = re.search(r'to=\s*<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9._%+-]+)>?', line, re.IGNORECASE)
+                        if m4: rcp = m4.group(1).strip().lower(); break
+                    recipient_cache[0] = rcp
+                return recipient_cache[0]
+
+            for c in parsed_conditions:
+                key = c['key']
+                op = c['op']
+                val = c['val']
+
+                if not val:
                     continue
 
-            if query_from and query_from not in blk_text:
-                continue
-            if query_to and query_to not in blk_text:
-                continue
-            if query_prot and query_prot not in blk_text:
-                continue
-            if query_status and query_status not in blk_text:
-                continue
+                if key in ['from', 'remetente', 'sender', 'caixa_postal', 'mailbox']:
+                    snd = get_sender()
+                    has_val = (val in snd) or (val in blk_text and ('from=' in blk_text or 'from:' in blk_text or 'esmtp' in blk_text))
+                    if op == '!=' and has_val:
+                        return False
+                    if op in [':', '='] and not has_val:
+                        return False
 
-            if free_terms:
-                if not all(term in blk_text for term in free_terms):
-                    continue
+                elif key in ['to', 'destinatario', 'recipient']:
+                    rcp = get_recipient()
+                    has_val = (val in rcp) or (val in blk_text and ('to=' in blk_text or 'to:' in blk_text or '->' in blk_text))
+                    if op == '!=' and has_val:
+                        return False
+                    if op in [':', '='] and not has_val:
+                        return False
 
-            matching_blocks.append(blk)
-            filtered_lines.extend(blk['lines'])
+                elif key in ['status', 'delivery_status', 'status_entrega', 'veredito', 'verdict']:
+                    has_val = (val in blk_text)
+                    if op == '!=' and has_val:
+                        return False
+                    if op in [':', '='] and not has_val:
+                        return False
+
+                elif key in ['prot', 'service', 'servico', 'protocol']:
+                    has_val = (val in blk_text)
+                    if op == '!=' and has_val:
+                        return False
+                    if op in [':', '='] and not has_val:
+                        return False
+
+                else:
+                    has_val = (val in blk_text)
+                    if op == '!=' and has_val:
+                        return False
+                    if op in [':', '=', 'contains'] and not has_val:
+                        return False
+
+            return True
+
+        for blk in blocks:
+            if check_block(blk):
+                matching_blocks.append(blk)
+                filtered_lines.extend(blk['lines'])
 
         # Extração Estruturada de Transações para a Tabela SOAR
         transacoes = []

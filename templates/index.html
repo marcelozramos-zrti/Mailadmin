@@ -848,7 +848,7 @@
                                         <label class="form-label small text-dark fw-bold mb-1">Power Query (Busca Avançada):</label>
                                         <div class="input-group">
                                             <span class="input-group-text bg-light text-primary border-primary-subtle fw-bold font-monospace"><i class="bi bi-search me-1"></i> Query</span>
-                                            <input type="text" id="log-power-query-input" class="form-control form-control-lg font-monospace border-primary-subtle fs-6" placeholder="from:usuario@empresa.com.br prot:smtpd status:bounced" onkeyup="if(event.key==='Enter') trackEmail()">
+                                            <input type="text" id="log-power-query-input" class="form-control form-control-lg font-monospace border-primary-subtle fs-6" placeholder="from!=zrti.com.br; to:andreza; Inbound" onkeyup="if(event.key==='Enter') trackEmail()">
                                         </div>
                                     </div>
                                     <div class="col-md-2 col-lg-2">
@@ -866,16 +866,21 @@
                                 <!-- Cola de Comandos (Power Query Cheat Sheet) -->
                                 <div class="mt-3 p-2.5 px-3 bg-light rounded-3 border text-muted small font-monospace">
                                     <div class="fw-bold text-dark mb-1 d-flex align-items-center gap-1">
-                                        <i class="bi bi-terminal-fill text-primary"></i> Como usar a Power Query:
+                                        <i class="bi bi-terminal-fill text-primary"></i> Sintaxe do Motor Power Query:
                                     </div>
-                                    <div class="d-flex flex-wrap gap-3 align-items-center my-1">
-                                        <div><code class="text-primary fw-bold">from:</code> <span class="text-secondary">(Ex: from:comercial@)</span></div>
-                                        <div><code class="text-primary fw-bold">to:</code> <span class="text-secondary">(Ex: to:cliente@)</span></div>
-                                        <div><code class="text-primary fw-bold">prot:</code> <span class="text-secondary">(Ex: prot:smtpd, prot:amavis, prot:dovecot)</span></div>
-                                        <div><code class="text-primary fw-bold">status:</code> <span class="text-secondary">(Ex: status:sent, status:bounced, status:deferred)</span></div>
+                                    <div class="row g-2 my-1">
+                                        <div class="col-md-6">
+                                            <span class="text-dark fw-bold d-block mb-0.5"><i class="bi bi-plus-circle text-success me-1"></i> Operadores de Inclusão (:):</span>
+                                            <span class="text-secondary"><code>from:</code> <code>to:</code> <code>prot:</code> <code>status:</code></span>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <span class="text-dark fw-bold d-block mb-0.5"><i class="bi bi-dash-circle text-danger me-1"></i> Operadores de Exclusão (!=):</span>
+                                            <span class="text-secondary"><code>from!=</code> <code>to!=</code> <code>prot!=</code> <code>status!=</code></span>
+                                        </div>
                                     </div>
-                                    <div class="text-secondary border-top pt-1 mt-1 fs-7">
-                                        <i class="bi bi-info-circle me-1 text-primary"></i> <strong>Busca livre:</strong> Qualquer termo digitado fora das chaves acima é pesquisado diretamente no texto do log (Ex: <code>164.92.189.151</code>, <code>Connection reset</code>).
+                                    <div class="text-secondary border-top pt-1.5 mt-1 fs-7">
+                                        <div class="mb-1"><i class="bi bi-braces me-1 text-primary"></i> <strong>Separador (;):</strong> Use ponto e vírgula para combinar múltiplos filtros.</div>
+                                        <div><i class="bi bi-lightning-charge-fill me-1 text-warning"></i> <strong>Exemplo Avançado:</strong> <code>from!=zrti.com.br; to:andreza; Inbound</code></div>
                                     </div>
                                 </div>
 

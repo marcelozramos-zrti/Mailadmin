@@ -360,21 +360,32 @@ blacklist_from *@spammerdomain.net
     const data = req.method === "POST" ? (req.body || {}) : req.query;
     const powerQuery = String(data.power_query || data.query || data.pq || data.search_term || data.termo_busca || "").trim();
 
-    const fromMatch = powerQuery.match(/\bfrom:([^\s]+)/i);
-    const toMatch = powerQuery.match(/\bto:([^\s]+)/i);
-    const protMatch = powerQuery.match(/\b(?:prot|service|servico):([^\s]+)/i);
-    const statusMatch = powerQuery.match(/\bstatus:([^\s]+)/i);
+    const rawConditions = powerQuery.split(";").map(c => c.trim()).filter(Boolean);
+    if (rawConditions.length === 0) {
+      const mb = String(data.mailbox || data.caixa_postal || "").trim();
+      if (mb) rawConditions.push(`from:${mb}`);
+      const st = String(data.search_term || data.termo_busca || "").trim();
+      if (st) rawConditions.push(st);
+      const ds = String(data.delivery_status || data.status_entrega || "").trim();
+      if (ds) rawConditions.push(`status:${ds}`);
+      const srv = String(data.service || data.servico || "").trim();
+      if (srv) rawConditions.push(`prot:${srv}`);
+    }
 
-    const queryFrom = fromMatch ? fromMatch[1].toLowerCase() : String(data.mailbox || data.caixa_postal || "").trim().toLowerCase();
-    const queryTo = toMatch ? toMatch[1].toLowerCase() : "";
-    const queryProt = protMatch ? protMatch[1].toLowerCase() : String(data.service || data.servico || "").trim().toLowerCase();
-    const queryStatus = statusMatch ? statusMatch[1].toLowerCase() : String(data.delivery_status || data.status_entrega || "").trim().toLowerCase();
-
-    let cleanQuery = powerQuery;
-    [fromMatch, toMatch, protMatch, statusMatch].forEach(m => {
-      if (m) cleanQuery = cleanQuery.replace(m[0], "");
+    const parsedConditions = rawConditions.map(cond => {
+      if (cond.includes("!=")) {
+        const [k, v] = cond.split("!=", 2);
+        return { key: k.trim().toLowerCase(), op: "!=", val: v.trim().toLowerCase() };
+      } else if (cond.includes(":")) {
+        const [k, v] = cond.split(":", 2);
+        return { key: k.trim().toLowerCase(), op: ":", val: v.trim().toLowerCase() };
+      } else if (cond.includes("=")) {
+        const [k, v] = cond.split("=", 2);
+        return { key: k.trim().toLowerCase(), op: ":", val: v.trim().toLowerCase() };
+      } else {
+        return { key: "free", op: "contains", val: cond.trim().toLowerCase() };
+      }
     });
-    const freeTerms = cleanQuery.split(/\s+/).map(t => t.trim().toLowerCase()).filter(Boolean);
 
     const date = String(data.start_date || data.data_inicio || data.date || data.data_busca || data.period || new Date().toISOString().split("T")[0]).trim();
     const startTime = String(data.start_time || data.hora_inicial || "00:00").trim();
@@ -388,8 +399,18 @@ blacklist_from *@spammerdomain.net
       formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
     }
 
-    const sendAddr = queryFrom || "usuario@empresa.com.br";
-    const recvAddr = queryTo || "destino@cliente.com.br";
+    const fromCond = parsedConditions.find(c => ["from", "remetente", "sender", "caixa_postal", "mailbox"].includes(c.key));
+    const toCond = parsedConditions.find(c => ["to", "destinatario", "recipient"].includes(c.key));
+    const protCond = parsedConditions.find(c => ["prot", "service", "servico", "protocol"].includes(c.key));
+    const statusCond = parsedConditions.find(c => ["status", "delivery_status", "status_entrega", "veredito", "verdict"].includes(c.key));
+
+    const queryFrom = fromCond ? fromCond.val : "";
+    const queryTo = toCond ? toCond.val : "";
+    const queryProt = protCond ? protCond.val : "";
+    const queryStatus = statusCond ? statusCond.val : "";
+
+    const sendAddr = (fromCond && fromCond.op !== "!=") ? fromCond.val : "usuario@empresa.com.br";
+    const recvAddr = (toCond && toCond.op !== "!=") ? toCond.val : "destino@cliente.com.br";
 
     const mockLines = [
       `${date} 10:14:02 mailserver postfix/smtpd[14201]: connect from mail-out.parceiro.com.br[198.51.100.12]`,
@@ -443,31 +464,99 @@ blacklist_from *@spammerdomain.net
     const smtpAttackKeywords = ["improper command pipelining", "non-smtp command", "unknown[", "warning: hostname", "lost connection after", "too many errors", "connect from unknown", "anvil"];
     const authFailureKeywords = ["authentication failed", "auth failed", "sasl", "password mismatch", "unknown user", "relay access denied", "554 5.7.1", "reject: rcp", "login failed"];
 
+    const checkBlock = (blk: { key: string | null; lines: string[] }) => {
+      const blkLines = blk.lines;
+      const blkText = blkLines.join("\n").toLowerCase();
+
+      if (quickLens === 'smtp_attacks') {
+        if (!smtpAttackKeywords.some(kw => blkText.includes(kw))) return false;
+      } else if (quickLens === 'auth_failures') {
+        if (!authFailureKeywords.some(kw => blkText.includes(kw))) return false;
+      } else if (quickLens) {
+        const terms = quickLens.split('|').map(t => t.trim()).filter(Boolean);
+        if (terms.length && !terms.some(t => blkText.includes(t))) return false;
+      }
+
+      if (parsedConditions.length === 0) return true;
+
+      let cachedSender: string | null = null;
+      let cachedRecipient: string | null = null;
+
+      const getSender = () => {
+        if (cachedSender === null) {
+          let snd = "";
+          for (const line of blkLines) {
+            const m1 = line.match(/ESMTP\s*<([^>]+)>\s*->/i);
+            if (m1) { snd = m1[1].trim().toLowerCase(); break; }
+            const m2 = line.match(/from=<([^>]+)>/i);
+            if (m2) { snd = m2[1].trim().toLowerCase(); break; }
+            const m3 = line.match(/From:\s*<([^>]+)>/i);
+            if (m3) { snd = m3[1].trim().toLowerCase(); break; }
+            const m4 = line.match(/from=\s*<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9._%+-]+)>?/i);
+            if (m4) { snd = m4[1].trim().toLowerCase(); break; }
+          }
+          cachedSender = snd;
+        }
+        return cachedSender;
+      };
+
+      const getRecipient = () => {
+        if (cachedRecipient === null) {
+          let rcp = "";
+          for (const line of blkLines) {
+            const m1 = line.match(/->\s*<([^>]+)>/i);
+            if (m1) { rcp = m1[1].trim().toLowerCase(); break; }
+            const m2 = line.match(/to=<([^>]+)>/i);
+            if (m2) { rcp = m2[1].trim().toLowerCase(); break; }
+            const m3 = line.match(/To:\s*<([^>]+)>/i);
+            if (m3) { rcp = m3[1].trim().toLowerCase(); break; }
+            const m4 = line.match(/to=\s*<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9._%+-]+)>?/i);
+            if (m4) { rcp = m4[1].trim().toLowerCase(); break; }
+          }
+          cachedRecipient = rcp;
+        }
+        return cachedRecipient;
+      };
+
+      for (const c of parsedConditions) {
+        const { key, op, val } = c;
+        if (!val) continue;
+
+        if (["from", "remetente", "sender", "caixa_postal", "mailbox"].includes(key)) {
+          const snd = getSender();
+          const hasVal = snd.includes(val) || (blkText.includes(val) && (blkText.includes("from=") || blkText.includes("from:") || blkText.includes("esmtp")));
+          if (op === "!=" && hasVal) return false;
+          if ((op === ":" || op === "=") && !hasVal) return false;
+        } else if (["to", "destinatario", "recipient"].includes(key)) {
+          const rcp = getRecipient();
+          const hasVal = rcp.includes(val) || (blkText.includes(val) && (blkText.includes("to=") || blkText.includes("to:") || blkText.includes("->")));
+          if (op === "!=" && hasVal) return false;
+          if ((op === ":" || op === "=") && !hasVal) return false;
+        } else if (["status", "delivery_status", "status_entrega", "veredito", "verdict"].includes(key)) {
+          const hasVal = blkText.includes(val);
+          if (op === "!=" && hasVal) return false;
+          if ((op === ":" || op === "=") && !hasVal) return false;
+        } else if (["prot", "service", "servico", "protocol"].includes(key)) {
+          const hasVal = blkText.includes(val);
+          if (op === "!=" && hasVal) return false;
+          if ((op === ":" || op === "=") && !hasVal) return false;
+        } else {
+          const hasVal = blkText.includes(val);
+          if (op === "!=" && hasVal) return false;
+          if ((op === ":" || op === "=" || op === "contains") && !hasVal) return false;
+        }
+      }
+
+      return true;
+    };
+
     const matchingBlocks: Array<{ key: string | null; lines: string[] }> = [];
     let filteredLines: string[] = [];
     for (const blk of blocks) {
-      const blkText = blk.lines.join("\n").toLowerCase();
-
-      if (quickLens === 'smtp_attacks') {
-        if (!smtpAttackKeywords.some(kw => blkText.includes(kw))) continue;
-      } else if (quickLens === 'auth_failures') {
-        if (!authFailureKeywords.some(kw => blkText.includes(kw))) continue;
-      } else if (quickLens) {
-        const terms = quickLens.split('|').map(t => t.trim()).filter(Boolean);
-        if (terms.length && !terms.some(t => blkText.includes(t))) continue;
+      if (checkBlock(blk)) {
+        matchingBlocks.push(blk);
+        filteredLines.push(...blk.lines);
       }
-
-      if (queryFrom && !blkText.includes(queryFrom)) continue;
-      if (queryTo && !blkText.includes(queryTo)) continue;
-      if (queryProt && !blkText.includes(queryProt)) continue;
-      if (queryStatus && !blkText.includes(queryStatus)) continue;
-
-      if (freeTerms.length > 0) {
-        if (!freeTerms.every(term => blkText.includes(term))) continue;
-      }
-
-      matchingBlocks.push(blk);
-      filteredLines.push(...blk.lines);
     }
 
     const transacoes = matchingBlocks.map(blk => {
