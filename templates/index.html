@@ -2703,7 +2703,7 @@
                             ? `<button class="btn btn-secondary btn-sm px-2 py-0.5 fs-7 me-1 fw-bold opacity-50" disabled title="Bloqueio desabilitado para conta/domínio interno de sistema">
                                     <i class="fas fa-ban me-1"></i> Bloquear
                                </button>`
-                            : `<button class="btn btn-danger btn-sm px-2 py-0.5 fs-7 me-1 fw-bold" onclick="soarAction('block', '${safeSender}')" title="Bloquear Remetente">
+                            : `<button class="btn btn-danger btn-sm px-2 py-0.5 fs-7 me-1 fw-bold" onclick="soarAction('block', '${safeSender}', this)" title="Bloquear Remetente">
                                     <i class="fas fa-ban me-1"></i> Bloquear
                                </button>`;
 
@@ -2718,10 +2718,10 @@
                             <td class="py-2">${verdictBadge}</td>
                             <td class="py-2 text-end pe-3 text-nowrap">
                                 ${blockBtnHtml}
-                                <button class="btn btn-warning btn-sm px-2 py-0.5 fs-7 me-1 text-dark fw-bold" onclick="soarAction('spam', '${safeSender}')" title="Marcar como SPAM">
+                                <button class="btn btn-warning btn-sm px-2 py-0.5 fs-7 me-1 text-dark fw-bold" onclick="soarAction('spam', '${safeSender}', this)" title="Marcar como SPAM">
                                     <i class="fas fa-spider me-1"></i> Marcar SPAM
                                 </button>
-                                <button class="btn btn-success btn-sm px-2 py-0.5 fs-7 fw-bold" onclick="soarAction('whitelist', '${safeSender}')" title="Adicionar à Whitelist">
+                                <button class="btn btn-success btn-sm px-2 py-0.5 fs-7 fw-bold" onclick="soarAction('whitelist', '${safeSender}', this)" title="Adicionar à Whitelist">
                                     <i class="fas fa-check me-1"></i> Whitelist
                                 </button>
                             </td>
@@ -2741,47 +2741,78 @@
         }
     }
 
-    function soarAction(actionType, email) {
-        if (!email || email === 'N/A' || email.includes('sem remetente')) {
+    async function soarAction(actionType, email, btnEl) {
+        let target = email;
+        if ((!target || target === 'N/A') && btnEl) {
+            const tr = btnEl.closest('tr');
+            if (tr) {
+                const senderTd = tr.querySelector('td:nth-child(3)');
+                if (senderTd) target = senderTd.textContent.trim();
+            }
+        }
+
+        if (!target || target === 'N/A' || target.includes('sem remetente')) {
             alert('Selecione uma transação com remetente válido para executar a ação SOAR.');
             return;
         }
 
-        let msg = '';
-        let alertClass = 'alert-info';
+        try {
+            const response = await fetch('/api/rules/add', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    target: target,
+                    action_type: actionType
+                })
+            });
 
-        if (actionType === 'block') {
-            msg = `[SOAR Action] Regra de Bloqueio aplicada com sucesso para ${email}. Remetente adicionado à Blacklist do Postfix/Firewall.`;
-            alertClass = 'alert-danger';
-        } else if (actionType === 'spam') {
-            msg = `[SOAR Action] Endereço ${email} marcado como SPAM. Regra Bayesiana atualizada no Amavis.`;
-            alertClass = 'alert-warning';
-        } else if (actionType === 'whitelist') {
-            msg = `[SOAR Action] Endereço ${email} inserido na Whitelist com sucesso.`;
-            alertClass = 'alert-success';
-        }
+            const data = await response.json();
 
-        const toastDiv = document.createElement('div');
-        toastDiv.className = `alert ${alertClass} alert-dismissible fade show position-fixed bottom-0 end-0 m-3 shadow-lg font-monospace fs-6 z-3`;
-        toastDiv.style.maxWidth = '520px';
-        toastDiv.innerHTML = `
-            <div class="d-flex align-items-center gap-2">
-                <i class="bi bi-shield-fill-check fs-4"></i>
-                <div>
-                    <strong class="d-block mb-0">SOAR Orchestration</strong>
-                    <span>${msg}</span>
-                </div>
-            </div>
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        `;
-        document.body.appendChild(toastDiv);
+            if (response.ok && (data.status === 'success' || data.success)) {
+                let msg = '';
+                let alertClass = 'alert-info';
 
-        setTimeout(() => {
-            if (toastDiv && toastDiv.parentNode) {
-                toastDiv.classList.remove('show');
-                setTimeout(() => toastDiv.remove(), 300);
+                if (actionType === 'block') {
+                    msg = `[SOAR Action] Regra de Bloqueio para ${target} gravada com sucesso no MariaDB!`;
+                    alertClass = 'alert-danger';
+                } else if (actionType === 'spam') {
+                    msg = `[SOAR Action] Endereço ${target} marcado como SPAM e gravado no MariaDB!`;
+                    alertClass = 'alert-warning';
+                } else if (actionType === 'whitelist') {
+                    msg = `[SOAR Action] Endereço ${target} inserido na Whitelist no MariaDB com sucesso!`;
+                    alertClass = 'alert-success';
+                }
+
+                const toastDiv = document.createElement('div');
+                toastDiv.className = `alert ${alertClass} alert-dismissible fade show position-fixed bottom-0 end-0 m-3 shadow-lg font-monospace fs-6 z-3`;
+                toastDiv.style.maxWidth = '520px';
+                toastDiv.innerHTML = `
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-shield-fill-check fs-4"></i>
+                        <div>
+                            <strong class="d-block mb-0">SOAR Orchestration</strong>
+                            <span>${msg}</span>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                document.body.appendChild(toastDiv);
+
+                setTimeout(() => {
+                    if (toastDiv && toastDiv.parentNode) {
+                        toastDiv.classList.remove('show');
+                        setTimeout(() => toastDiv.remove(), 300);
+                    }
+                }, 4500);
+            } else {
+                alert(`Erro ao gravar regra SOAR: ${data.message || 'Erro desconhecido'}`);
             }
-        }, 4500);
+        } catch (err) {
+            console.error('Erro na requisição SOAR:', err);
+            alert(`Erro ao conectar à API SOAR: ${err.message}`);
+        }
     }
 
     function showDnsDetails(type) {

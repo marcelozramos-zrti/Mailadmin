@@ -9,7 +9,7 @@ from flask_login import LoginManager
 import os
 
 from config import Config
-from models import db, AdminUser, Domain, Mailbox, Alias
+from models import db, AdminUser, Domain, Mailbox, Alias, MailRule
 from blueprints.auth_bp import auth_bp
 from blueprints.vmail_bp import vmail_bp
 from blueprints.troubleshooting_bp import troubleshooting_bp

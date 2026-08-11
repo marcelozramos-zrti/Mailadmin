@@ -713,3 +713,61 @@ def check_domain_dns():
         dns_report['dmarc']['details'] = f'Registro DMARC não encontrado em {dmarc_fqdn}: {str(e)}'
 
     return jsonify({'success': True, 'dns_report': dns_report})
+
+
+# ==========================================
+# 4. MOTOR SOAR - GRAVAÇÃO DE REGRAS NO MARIADB
+# ==========================================
+
+def ensure_mail_rules_table():
+    try:
+        from sqlalchemy import text
+        from models import db
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS mail_rules (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                target VARCHAR(255) NOT NULL,
+                action_type ENUM('block', 'spam', 'whitelist') NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        db.session.commit()
+    except Exception as e:
+        try:
+            from models import db
+            db.session.rollback()
+        except Exception:
+            pass
+
+@troubleshooting_bp.route('/rules/add', methods=['POST'])
+@troubleshooting_bp.route('/api/rules/add', methods=['POST'])
+def add_mail_rule():
+    ensure_mail_rules_table()
+    data = request.get_json(silent=True) or request.form or {}
+    target = (data.get('target') or '').strip()
+    action_type = (data.get('action_type') or '').strip().lower()
+
+    if not target:
+        return jsonify({'status': 'error', 'message': 'O campo target (e-mail/IP) é obrigatório.'}), 400
+
+    if action_type not in ['block', 'spam', 'whitelist']:
+        return jsonify({'status': 'error', 'message': 'Ação inválida. Escolha entre: block, spam ou whitelist.'}), 400
+
+    try:
+        from models import db, MailRule
+        new_rule = MailRule(target=target, action_type=action_type)
+        db.session.add(new_rule)
+        db.session.commit()
+        return jsonify({
+            'status': 'success',
+            'message': 'Regra aplicada com sucesso!',
+            'rule': new_rule.to_dict() if hasattr(new_rule, 'to_dict') else {'target': target, 'action_type': action_type}
+        })
+    except Exception as e:
+        try:
+            from models import db
+            db.session.rollback()
+        except Exception:
+            pass
+        return jsonify({'status': 'error', 'message': f'Erro ao gravar regra no banco de dados: {str(e)}'}), 500
+

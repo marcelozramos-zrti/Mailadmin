@@ -47,6 +47,10 @@ async function startServer() {
     { queue_id: "9A1X0c9P", size: 8192, date: "Tue Aug 9 10:35:12", sender: "boleto-falso@bancofake.com", recipients: ["financeiro@empresa.com.br"], reason: "451 4.3.0 <financeiro@empresa.com.br>: Temporary lookup failure" }
   ];
 
+  let virtualMailRules: Array<{ id: number; target: string; action_type: string; created_at: string }> = [
+    { id: 1, target: "spammer@badactor.org", action_type: "block", created_at: "2026-08-10 12:00:00" }
+  ];
+
   const virtualServices: Record<string, { active: boolean; state: string }> = {
     postfix: { active: true, state: "active" },
     amavis: { active: true, state: "active" },
@@ -724,6 +728,31 @@ blacklist_from *@spammerdomain.net
   app.post("/api/troubleshooting/queue/flush", (req, res) => {
     virtualQueue = [];
     res.json({ success: true, message: `Fila Postfix liberada/flushed com sucesso via postqueue -f!` });
+  });
+
+  app.post(["/api/rules/add", "/api/troubleshooting/rules/add"], (req, res) => {
+    const { target, action_type } = req.body || {};
+    if (!target) {
+      return res.status(400).json({ status: "error", message: "O campo target (e-mail ou IP) é obrigatório." });
+    }
+    const act = String(action_type || "").trim().toLowerCase();
+    if (!["block", "spam", "whitelist"].includes(act)) {
+      return res.status(400).json({ status: "error", message: "Tipo de ação inválido. Opções: block, spam, whitelist." });
+    }
+
+    const newRule = {
+      id: virtualMailRules.length + 1,
+      target: String(target).trim(),
+      action_type: act,
+      created_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
+    };
+    virtualMailRules.push(newRule);
+
+    return res.json({
+      status: "success",
+      message: "Regra aplicada com sucesso!",
+      rule: newRule
+    });
   });
 
   // Validador DNS (dnspython)

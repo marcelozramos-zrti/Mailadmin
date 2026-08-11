@@ -138,3 +138,20 @@ class UsedQuota(db.Model):
             'messages': self.messages
         }
 
+
+class MailRule(db.Model):
+    __tablename__ = 'mail_rules'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    target = db.Column(db.String(255), nullable=False)
+    action_type = db.Column(db.String(50), nullable=False)  # 'block', 'spam', 'whitelist'
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'target': self.target,
+            'action_type': self.action_type,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None
+        }
+
