@@ -194,8 +194,21 @@ def track_email():
                     continue
             time_filtered_lines.append(line)
 
-        # 4. Agrupamento em blocos por Queue ID ou PID
+        # 4. Agrupamento em blocos por Queue ID, Amavis Task (PID-Task) ou PID
         def extract_group_key(line):
+            # 1. Identificador de tarefa do Amavis: (PID-Task), ex: (2162785-19)
+            amavis_task_m = re.search(r'amavis\[\d+\]:\s*\(([\d]+-[\d]+)\)', line, re.IGNORECASE)
+            if not amavis_task_m:
+                amavis_task_m = re.search(r'\(([\d]+-[\d]+)\)', line)
+            if amavis_task_m:
+                return f"amavis:{amavis_task_m.group(1)}"
+
+            # 2. Identificador de mail_id do Amavis
+            mail_id_m = re.search(r'mail_id:\s*([0-9A-Za-z_\-]+)', line, re.IGNORECASE)
+            if mail_id_m:
+                return f"mail_id:{mail_id_m.group(1)}"
+
+            # 3. Queue ID do Postfix (ex: 4YtZ8b3K: ou (4YtZ8b3K))
             qid_m = re.search(r'\b([0-9A-Za-z]{8,16}):', line)
             if not qid_m:
                 qid_m = re.search(r'\(([0-9A-Za-z]{8,16})\)', line)
@@ -204,9 +217,14 @@ def track_email():
                 if not qid.isdigit():
                     return f"qid:{qid}"
 
+            # 4. PID genérico (ex: postfix/smtpd[14201]:)
+            # NOTA: NUNCA agrupa amavis apenas pelo PID do worker para não agrupar o histórico inteiro do processo!
             pid_m = re.search(r'\b([a-zA-Z0-9_\-/]+\[\d+\]):', line)
             if pid_m:
-                return f"pid:{pid_m.group(1)}"
+                proc = pid_m.group(1)
+                if 'amavis' in proc.lower():
+                    return None
+                return f"pid:{proc}"
 
             return None
 
@@ -345,6 +363,10 @@ def track_email():
             key_val = blk.get('key') or ''
             if key_val.startswith('qid:'):
                 qid = key_val[4:]
+            elif key_val.startswith('amavis:'):
+                qid = key_val[7:]
+            elif key_val.startswith('mail_id:'):
+                qid = key_val[8:]
             elif key_val.startswith('pid:'):
                 qid = key_val[4:]
             else:

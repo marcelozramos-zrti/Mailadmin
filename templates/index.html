@@ -2508,16 +2508,6 @@
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;");
 
-        // Highlighting das palavras/termos da Power Query (Laranja de alto contraste)
-        if (termosDestaque && termosDestaque.length > 0) {
-            termosDestaque.forEach(termo => {
-                if (!termo) return;
-                const escapedTerm = termo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const regex = new RegExp(`(${escapedTerm})`, 'gi');
-                esc = esc.replace(regex, '<span style="background-color: #fd7e14; color: #ffffff; border-radius: 3px; padding: 0 3px;" class="fw-bold">$1</span>');
-            });
-        }
-
         // Timestamps
         esc = esc.replace(/^([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2})/g, '<span style="color: #94a3b8;">$1</span>');
 
@@ -2536,6 +2526,22 @@
 
         // Modulos/Servicos (postfix, amavis, dovecot, spamassassin, smtpd, qmgr, lmtp)
         esc = esc.replace(/\b(postfix\/[a-z]+|amavis|dovecot|spamassassin|spamd|smtpd|qmgr|lmtp|cleanup)\b/gi, '<span style="color: #facc15; font-weight: bold;">$1</span>');
+
+        // Highlighting das palavras/termos da Power Query com <mark> blindado (Laranja !important)
+        if (termosDestaque && termosDestaque.length > 0) {
+            termosDestaque.forEach(rawTermo => {
+                if (!rawTermo) return;
+                let termo = rawTermo.replace(/^"+|"+$/g, '').trim();
+                if (!termo) return;
+                let escapedForHtml = termo
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;");
+                const escapedTerm = escapedForHtml.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const regex = new RegExp(`(${escapedTerm})`, 'gi');
+                esc = esc.replace(regex, '<mark style="background-color: #ff8c00 !important; color: #000000 !important; font-weight: bold; border-radius: 3px; padding: 0 4px;">$1</mark>');
+            });
+        }
 
         return esc;
     }
@@ -2631,6 +2637,7 @@
                         const vS = parts.slice(1).join('=').trim();
                         val = (vS.startsWith('"') && vS.endsWith('"') && vS.length >= 2) ? vS.slice(1, -1) : vS;
                     }
+                    val = val.replace(/^"+|"+$/g, '').trim();
                     if (val) termosDestaque.push(val);
                 });
             }
@@ -2649,11 +2656,17 @@
                     .replace(/</g, "&lt;")
                     .replace(/>/g, "&gt;");
                 if (termosDestaque.length > 0) {
-                    termosDestaque.forEach(termo => {
+                    termosDestaque.forEach(rawTermo => {
+                        if (!rawTermo) return;
+                        let termo = rawTermo.replace(/^"+|"+$/g, '').trim();
                         if (!termo) return;
-                        const escapedTerm = termo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        let escapedForHtml = termo
+                            .replace(/&/g, "&amp;")
+                            .replace(/</g, "&lt;")
+                            .replace(/>/g, "&gt;");
+                        const escapedTerm = escapedForHtml.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                         const regex = new RegExp(`(${escapedTerm})`, 'gi');
-                        escRaw = escRaw.replace(regex, '<span style="background-color: #fd7e14; color: #ffffff; border-radius: 3px; padding: 0 3px;" class="fw-bold">$1</span>');
+                        escRaw = escRaw.replace(regex, '<mark style="background-color: #ff8c00 !important; color: #000000 !important; font-weight: bold; border-radius: 3px; padding: 0 4px;">$1</mark>');
                     });
                 }
                 container.innerHTML = headerInfo + `<pre style="color: #FFFFFF !important; background-color: transparent; font-family: monospace; font-size: 0.82rem; line-height: 1.5; margin: 0; white-space: pre-wrap; word-break: break-all;">${escRaw}</pre>`;

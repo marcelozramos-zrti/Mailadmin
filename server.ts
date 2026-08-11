@@ -448,15 +448,29 @@ blacklist_from *@spammerdomain.net
     });
 
     // Group into blocks
+    const extractGroupKey = (line: string): string | null => {
+      const amavisTaskMatch = line.match(/amavis\[\d+\]:\s*\(([\d]+-[\d]+)\)/i) || line.match(/\(([\d]+-[\d]+)\)/);
+      if (amavisTaskMatch) return `amavis:${amavisTaskMatch[1]}`;
+
+      const mailIdMatch = line.match(/mail_id:\s*([0-9A-Za-z_\-]+)/i);
+      if (mailIdMatch) return `mail_id:${mailIdMatch[1]}`;
+
+      const qidMatch = line.match(/\b([0-9A-Za-z]{8,16}):/) || line.match(/\(([0-9A-Za-z]{8,16})\)/);
+      if (qidMatch && !/^\d+$/.test(qidMatch[1])) return `qid:${qidMatch[1]}`;
+
+      const pidMatch = line.match(/\b([a-zA-Z0-9_\-/]+\[\d+\]):/);
+      if (pidMatch) {
+        if (pidMatch[1].toLowerCase().includes("amavis")) return null;
+        return `pid:${pidMatch[1]}`;
+      }
+      return null;
+    };
+
     const blocks: { key: string | null; lines: string[] }[] = [];
     const keyMap = new Map<string, number>();
 
     for (const line of timeFiltered) {
-      const qidMatch = line.match(/\b([0-9A-Za-z]{8,16}):/) || line.match(/\(([0-9A-Za-z]{8,16})\)/);
-      const pidMatch = line.match(/\b([a-zA-Z0-9_\-/]+\[\d+\]):/);
-      let key: string | null = null;
-      if (qidMatch) key = `qid:${qidMatch[1]}`;
-      else if (pidMatch) key = `pid:${pidMatch[1]}`;
+      const key = extractGroupKey(line);
 
       if (key) {
         if (keyMap.has(key)) {
@@ -572,7 +586,7 @@ blacklist_from *@spammerdomain.net
       const lines = blk.lines;
       const blkFull = lines.join("\n");
       const keyVal = blk.key || "";
-      let qid = keyVal.replace(/^(qid|pid):/, "");
+      let qid = keyVal.replace(/^(qid|pid|amavis|mail_id):/, "");
       if (!qid) {
         const qm = blkFull.match(/\b([0-9A-Za-z]{8,16}):/);
         qid = qm ? qm[1] : "NOQUEUE";
