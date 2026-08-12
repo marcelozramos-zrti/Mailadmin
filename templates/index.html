@@ -3470,7 +3470,7 @@
 
         try {
             const rawEndpoint = "{{ url_for('troubleshooting.add_mail_rule') }}";
-            const endpoint = (rawEndpoint && !rawEndpoint.includes('{{')) ? rawEndpoint : '/api/troubleshooting/rules/add';
+            const endpoint = (rawEndpoint && !rawEndpoint.startsWith('{')) ? rawEndpoint : '/api/troubleshooting/rules/add';
             const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: {
