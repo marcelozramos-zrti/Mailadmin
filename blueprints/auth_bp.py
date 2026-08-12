@@ -4,7 +4,8 @@ import pyotp
 import qrcode
 import io
 import base64
-from models import db, AdminUser
+from models import db, AdminUser, SystemAuditLog
+from blueprints.audit_helper import log_audit_action
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -295,5 +296,53 @@ def delete_admin(admin_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': f'Erro ao excluir administrador: {str(e)}'}), 500
+
+
+@auth_bp.route('/admins/<int:admin_id>/toggle-mfa', methods=['POST', 'PUT'])
+@login_required
+def toggle_admin_mfa(admin_id):
+    """Ativa ou desativa o MFA granularmente por usuário."""
+    if current_user.role != 'admin':
+        return jsonify({'success': False, 'message': 'Acesso negado: Apenas administradores podem alterar configurações de MFA.'}), 403
+
+    admin = AdminUser.query.get(admin_id)
+    if not admin:
+        return jsonify({'success': False, 'message': 'Usuário não encontrado.'}), 404
+
+    data = request.get_json(silent=True) or {}
+    enable = data.get('enable')
+    if enable is None:
+        admin.otp_enabled = not admin.otp_enabled
+    else:
+        admin.otp_enabled = bool(enable)
+
+    if admin.otp_enabled and not admin.otp_secret:
+        admin.otp_secret = pyotp.random_base32()
+
+    db.session.commit()
+    status_str = "ativado" if admin.otp_enabled else "desativado"
+    log_audit_action('MFA_TOGGLE', target=admin.username, details={'admin_id': admin_id, 'enabled': admin.otp_enabled})
+    return jsonify({
+        'success': True,
+        'message': f'MFA {status_str} com sucesso para o usuário "{admin.username}"!',
+        'otp_enabled': admin.otp_enabled
+    })
+
+
+@auth_bp.route('/audit-logs', methods=['GET'])
+@login_required
+def list_audit_logs():
+    """Consulta histórico de logs de auditoria do sistema (system_audit_logs)."""
+    try:
+        limit = int(request.args.get('limit', 200))
+        logs = SystemAuditLog.query.order_by(SystemAuditLog.id.desc()).limit(limit).all()
+        return jsonify({
+            'success': True,
+            'count': len(logs),
+            'audit_logs': [l.to_dict() for l in logs]
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Erro ao consultar logs de auditoria: {str(e)}'}), 500
+
 
 

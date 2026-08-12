@@ -9,11 +9,12 @@ from flask_login import LoginManager
 import os
 
 from config import Config
-from models import db, AdminUser, Domain, Mailbox, Alias, MailRule
+from models import db, AdminUser, Domain, Mailbox, Alias, MailRule, MailLogHistory, SystemAuditLog, CronJob
 from blueprints.auth_bp import auth_bp
 from blueprints.vmail_bp import vmail_bp
 from blueprints.troubleshooting_bp import troubleshooting_bp
 from blueprints.services_bp import services_bp
+from blueprints.automation_bp import automation_bp, sync_system_crontab
 
 def create_app():
     app = Flask(__name__)
@@ -41,6 +42,7 @@ def create_app():
     app.register_blueprint(vmail_bp)
     app.register_blueprint(troubleshooting_bp)
     app.register_blueprint(services_bp)
+    app.register_blueprint(automation_bp)
 
     @app.route('/')
     def index():
@@ -61,6 +63,38 @@ def create_app():
                 db.session.add(default_admin)
                 db.session.commit()
                 print("-> Usuário admin inicial criado (Usuário: admin / Senha: senha_segura_123)")
+
+            # Seed inicial de tarefas de automação padrão se vazio
+            if CronJob.query.count() == 0:
+                preset_jobs = [
+                    CronJob(
+                        name="Ingestão de Logs de E-mail para MariaDB (Log-to-DB)",
+                        schedule_preset="1h",
+                        cron_expression="0 * * * *",
+                        command="python3 " + os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", "mail_log_ingestor.py"),
+                        enabled=True
+                    ),
+                    CronJob(
+                        name="Backup Automatizado das Tabelas vmail",
+                        schedule_preset="daily",
+                        cron_expression="0 2 * * *",
+                        command="mysqldump -u vmailadmin -p'senha_vmail_123' vmail > /var/backups/vmail_backup.sql",
+                        enabled=True
+                    ),
+                    CronJob(
+                        name="Expurgar Logs de Antispam Antigos (>30 Dias)",
+                        schedule_preset="daily",
+                        cron_expression="0 3 * * *",
+                        command="find /var/log/amavis -name '*.gz' -mtime +30 -delete 2>/dev/null || true",
+                        enabled=True
+                    )
+                ]
+                for cj in preset_jobs:
+                    db.session.add(cj)
+                db.session.commit()
+                sync_system_crontab()
+                print("-> Tarefas agendadas padrão semeadas no banco de dados.")
+
         except Exception as e:
             print(f"-> Aviso na criação inicial de tabelas: {e}")
 

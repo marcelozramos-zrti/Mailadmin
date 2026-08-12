@@ -51,6 +51,49 @@ async function startServer() {
     { id: 1, target: "spammer@badactor.org", action_type: "block", created_at: "2026-08-10 12:00:00" }
   ];
 
+  let virtualCronJobs = [
+    {
+      id: 1,
+      name: "Ingestão de Logs de E-mail para MariaDB (Log-to-DB)",
+      schedule_preset: "1h",
+      cron_expression: "0 * * * *",
+      schedule: "0 * * * *",
+      command: "python3 /opt/mailadmin/scripts/mail_log_ingestor.py",
+      enabled: true,
+      last_run: "2026-08-11 18:00:00",
+      last_output: "Ingestão concluída. 45 novos registros processados com sucesso."
+    },
+    {
+      id: 2,
+      name: "Backup Automatizado das Tabelas vmail",
+      schedule_preset: "daily",
+      cron_expression: "0 2 * * *",
+      schedule: "0 2 * * *",
+      command: "mysqldump -u vmailadmin -p'senha_vmail_123' vmail > /var/backups/vmail_backup.sql",
+      enabled: true,
+      last_run: "2026-08-11 02:00:00",
+      last_output: "Backup concluído (vmail_backup.sql: 1.2MB)."
+    },
+    {
+      id: 3,
+      name: "Expurgar Logs de Antispam Antigos (>30 Dias)",
+      schedule_preset: "daily",
+      cron_expression: "0 3 * * *",
+      schedule: "0 3 * * *",
+      command: "find /var/log/amavis -name '*.gz' -mtime +30 -delete 2>/dev/null || true",
+      enabled: false,
+      last_run: null,
+      last_output: null
+    }
+  ];
+
+  let virtualAuditLogs: Array<{ id: number; username: string; action: string; target: string; ip_address: string; details: Record<string, any>; created_at: string }> = [
+    { id: 1, username: "admin", action: "LOGIN_SUCCESS", target: "Painel Admin", ip_address: "127.0.0.1", details: { method: "TOTP_MFA" }, created_at: "2026-08-11 17:30:12" },
+    { id: 2, username: "admin", action: "CRONJOB_CREATE", target: "Ingestão de Logs", ip_address: "127.0.0.1", details: { preset: "1h", command: "python3 /opt/mailadmin/scripts/mail_log_ingestor.py" }, created_at: "2026-08-11 17:35:40" },
+    { id: 3, username: "admin", action: "SOAR_RULE_ADD", target: "spammer@badactor.org", ip_address: "127.0.0.1", details: { action_type: "block" }, created_at: "2026-08-11 17:40:00" },
+    { id: 4, username: "admin", action: "MFA_TOGGLE", target: "analista_suporte", ip_address: "127.0.0.1", details: { enabled: true }, created_at: "2026-08-11 17:45:10" }
+  ];
+
   const virtualServices: Record<string, { active: boolean; state: string }> = {
     postfix: { active: true, state: "active" },
     amavis: { active: true, state: "active" },
@@ -231,6 +274,40 @@ blacklist_from *@spammerdomain.net
 
   app.delete("/api/auth/admins/:id", deleteAdminHandler);
   app.post("/api/auth/admins/:id/delete", deleteAdminHandler);
+
+  app.post("/api/auth/admins/:id/toggle-mfa", (req, res) => {
+    const adminId = parseInt(req.params.id);
+    const admin = virtualAdminsList.find(a => a.id === adminId);
+    if (!admin) return res.status(404).json({ success: false, message: "Usuário não encontrado." });
+
+    const { enable } = req.body || {};
+    admin.otp_enabled = enable !== undefined ? Boolean(enable) : !admin.otp_enabled;
+    const statusStr = admin.otp_enabled ? "ativado" : "desativado";
+
+    virtualAuditLogs.unshift({
+      id: virtualAuditLogs.length + 1,
+      username: virtualAdmin.username,
+      action: "MFA_TOGGLE",
+      target: admin.username,
+      ip_address: "127.0.0.1",
+      details: { admin_id: adminId, enabled: admin.otp_enabled },
+      created_at: new Date().toISOString().replace("T", " ").substring(0, 19)
+    });
+
+    res.json({
+      success: true,
+      message: `MFA ${statusStr} com sucesso para o usuário "${admin.username}"!`,
+      otp_enabled: admin.otp_enabled
+    });
+  });
+
+  app.get("/api/auth/audit-logs", (req, res) => {
+    res.json({
+      success: true,
+      count: virtualAuditLogs.length,
+      audit_logs: virtualAuditLogs
+    });
+  });
 
   // ===============================================
   // 2. DOMÍNIOS E MAILBOXES (CRUD MariaDB vmail)
@@ -1132,6 +1209,293 @@ blacklist_from *@spammerdomain.net
     }
   });
 
+  // ===============================================
+  // MÓDULO DE AUTOMAÇÃO E CRONTAB VISUAL
+  // ===============================================
+
+  app.get("/api/automation/jobs", (req, res) => {
+    res.json({
+      status: "success",
+      success: true,
+      jobs: virtualCronJobs
+    });
+  });
+
+  app.post("/api/automation/jobs", (req, res) => {
+    const { name, schedule_preset, cron_expression, schedule, command, script_content, script_filename } = req.body || {};
+    let finalCmd = (command || "").trim();
+
+    if (script_content) {
+      const fn = script_filename ? script_filename.trim() : `script_${Date.now()}.sh`;
+      const scriptPath = `/opt/mailadmin/scripts/${fn}`;
+      if (!finalCmd) {
+        finalCmd = fn.endsWith(".py") ? `python3 ${scriptPath}` : scriptPath;
+      }
+    }
+
+    if (!name || !finalCmd) {
+      return res.status(400).json({ status: "error", success: false, message: "Nome e Comando/Script da automação são obrigatórios." });
+    }
+
+    const presetMap: Record<string, string> = {
+      "1h": "0 * * * *",
+      "3h": "0 */3 * * *",
+      "6h": "0 */6 * * *",
+      "daily": "0 2 * * *"
+    };
+
+    const preset = schedule_preset || "custom";
+    const cronExpr = presetMap[preset] || cron_expression || schedule || "0 * * * *";
+
+    const nextId = virtualCronJobs.length > 0 ? Math.max(...virtualCronJobs.map(j => j.id)) + 1 : 1;
+    const newJob = {
+      id: nextId,
+      name: name.trim(),
+      schedule_preset: preset,
+      cron_expression: cronExpr,
+      schedule: cronExpr,
+      command: finalCmd,
+      enabled: true,
+      last_run: null,
+      last_output: null
+    };
+
+    virtualCronJobs.push(newJob);
+
+    virtualAuditLogs.unshift({
+      id: virtualAuditLogs.length + 1,
+      username: virtualAdmin.username,
+      action: "CRONJOB_CREATE",
+      target: newJob.name,
+      ip_address: "127.0.0.1",
+      details: { preset, cron: cronExpr, command: finalCmd },
+      created_at: new Date().toISOString().replace("T", " ").substring(0, 19)
+    });
+
+    res.json({
+      status: "success",
+      success: true,
+      message: `Automação "${newJob.name}" criada com sucesso!`,
+      job: newJob
+    });
+  });
+
+  const editCronJobHandler = (req: express.Request, res: express.Response) => {
+    const jobId = parseInt(req.params.id);
+    const job = virtualCronJobs.find(j => j.id === jobId);
+    if (!job) {
+      return res.status(404).json({ status: "error", success: false, message: "Automação não encontrada." });
+    }
+
+    const { name, schedule_preset, cron_expression, schedule, command, script_content, script_filename } = req.body || {};
+    let finalCmd = (command || job.command).trim();
+
+    if (script_content) {
+      const fn = script_filename ? script_filename.trim() : `script_${jobId}.sh`;
+      const scriptPath = `/opt/mailadmin/scripts/${fn}`;
+      if (!command || command === job.command) {
+        finalCmd = fn.endsWith(".py") ? `python3 ${scriptPath}` : scriptPath;
+      }
+    }
+
+    const presetMap: Record<string, string> = {
+      "1h": "0 * * * *",
+      "3h": "0 */3 * * *",
+      "6h": "0 */6 * * *",
+      "daily": "0 2 * * *"
+    };
+
+    const preset = schedule_preset || job.schedule_preset;
+    const cronExpr = presetMap[preset] || cron_expression || schedule || job.cron_expression;
+
+    job.name = name ? name.trim() : job.name;
+    job.schedule_preset = preset;
+    job.cron_expression = cronExpr;
+    job.schedule = cronExpr;
+    job.command = finalCmd;
+
+    virtualAuditLogs.unshift({
+      id: virtualAuditLogs.length + 1,
+      username: virtualAdmin.username,
+      action: "CRONJOB_EDIT",
+      target: job.name,
+      ip_address: "127.0.0.1",
+      details: { job_id: jobId, preset, cron: cronExpr },
+      created_at: new Date().toISOString().replace("T", " ").substring(0, 19)
+    });
+
+    res.json({
+      status: "success",
+      success: true,
+      message: `Automação "${job.name}" atualizada com sucesso!`,
+      job
+    });
+  };
+
+  app.put("/api/automation/jobs/:id", editCronJobHandler);
+  app.post("/api/automation/jobs/:id", editCronJobHandler);
+  app.post("/api/automation/jobs/:id/edit", editCronJobHandler);
+
+  const toggleCronJobHandler = (req: express.Request, res: express.Response) => {
+    const jobId = parseInt(req.params.id);
+    const job = virtualCronJobs.find(j => j.id === jobId);
+    if (!job) {
+      return res.status(404).json({ success: false, message: "Automação não encontrada." });
+    }
+
+    const { enabled } = req.body || {};
+    job.enabled = enabled !== undefined ? Boolean(enabled) : !job.enabled;
+    const statusStr = job.enabled ? "Habilitada" : "Desabilitada";
+
+    res.json({
+      success: true,
+      message: `Automação "${job.name}" ${statusStr} com sucesso!`,
+      enabled: job.enabled
+    });
+  };
+
+  app.post("/api/automation/jobs/:id/toggle", toggleCronJobHandler);
+  app.put("/api/automation/jobs/:id/toggle", toggleCronJobHandler);
+
+  const deleteCronJobHandler = (req: express.Request, res: express.Response) => {
+    const jobId = parseInt(req.params.id);
+    const idx = virtualCronJobs.findIndex(j => j.id === jobId);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, message: "Automação não encontrada." });
+    }
+
+    const removedName = virtualCronJobs[idx].name;
+    virtualCronJobs.splice(idx, 1);
+
+    res.json({
+      success: true,
+      message: `Automação "${removedName}" excluída com sucesso!`
+    });
+  };
+
+  app.delete("/api/automation/jobs/:id", deleteCronJobHandler);
+  app.post("/api/automation/jobs/:id/delete", deleteCronJobHandler);
+
+  app.post("/api/automation/run-now/:id", (req, res) => {
+    const jobId = parseInt(req.params.id);
+    const job = virtualCronJobs.find(j => j.id === jobId);
+    if (!job) {
+      return res.status(404).json({ success: false, message: "Automação não encontrada." });
+    }
+
+    const nowStr = new Date().toISOString().replace("T", " ").substring(0, 19);
+    job.last_run = nowStr;
+    job.last_output = `[SUCESSO] Comando "${job.command}" executado via Subprocess com código 0. Finalizado às ${nowStr}.`;
+
+    res.json({
+      success: true,
+      returncode: 0,
+      output: job.last_output,
+      last_run: nowStr,
+      message: `Execução disparada para "${job.name}".`
+    });
+  });
+
+  // ===============================================
+  // SQL STUDIO / MARIADB QUERY EXPLORER
+  // ===============================================
+
+  app.post("/api/troubleshooting/sql-query", (req, res) => {
+    try {
+      const { query } = req.body || {};
+      const sqlStr = String(query || "").trim();
+
+      if (!sqlStr) {
+        return res.status(400).json({ status: "error", success: false, message: "Nenhuma instrução SQL fornecida." });
+      }
+
+      const firstWord = sqlStr.split(/\s+/)[0].toUpperCase();
+      if (!["SELECT", "SHOW", "EXPLAIN", "DESCRIBE", "WITH"].includes(firstWord)) {
+        return res.status(400).json({
+          status: "error",
+          success: false,
+          message: "Por segurança do painel, o SQL Studio aceita apenas comandos de consulta de dados (SELECT, SHOW, EXPLAIN)."
+        });
+      }
+
+      const upperSql = sqlStr.toUpperCase();
+
+      let columns: string[] = [];
+      let rows: Record<string, any>[] = [];
+
+      if (upperSql.includes("SHOW DATABASES")) {
+        columns = ["Database"];
+        rows = [
+          { Database: "vmail" },
+          { Database: "information_schema" },
+          { Database: "mysql" },
+          { Database: "performance_schema" }
+        ];
+      } else if (upperSql.includes("SHOW TABLES")) {
+        columns = ["Tables_in_vmail"];
+        rows = [
+          { Tables_in_vmail: "domain" },
+          { Tables_in_vmail: "mailbox" },
+          { Tables_in_vmail: "alias" },
+          { Tables_in_vmail: "cron_jobs" },
+          { Tables_in_vmail: "mail_logs_history" },
+          { Tables_in_vmail: "vmail_admins" },
+          { Tables_in_vmail: "system_audit_logs" }
+        ];
+      } else if (upperSql.includes("DOMAINS") || upperSql.includes("DOMAIN")) {
+        columns = ["domain", "description", "aliases", "mailboxes", "maxquota", "transport", "active", "created"];
+        rows = virtualDomains;
+      } else if (upperSql.includes("MAILBOX") || upperSql.includes("MAILBOXES")) {
+        columns = ["username", "name", "maildir", "quota", "bytes_used", "domain", "active", "created"];
+        rows = virtualMailboxes;
+      } else if (upperSql.includes("ALIAS")) {
+        columns = ["address", "goto", "domain", "active", "created"];
+        rows = virtualAliases;
+      } else if (upperSql.includes("CRON_JOB") || upperSql.includes("CRON_JOBS") || upperSql.includes("AUTOMATION")) {
+        columns = ["id", "name", "schedule_preset", "cron_expression", "command", "enabled", "last_run", "last_output"];
+        rows = virtualCronJobs;
+      } else if (upperSql.includes("MAIL_RULE") || upperSql.includes("RULES")) {
+        columns = ["id", "target", "action_type", "created_at"];
+        rows = virtualMailRules;
+      } else if (upperSql.includes("VMAIL_ADMIN") || upperSql.includes("ADMINS")) {
+        columns = ["id", "username", "role", "otp_enabled", "created_at"];
+        rows = virtualAdminsList;
+      } else if (upperSql.includes("AUDIT") || upperSql.includes("SYSTEM_AUDIT_LOGS")) {
+        columns = ["id", "username", "action", "target", "ip_address", "created_at"];
+        rows = virtualAuditLogs;
+      } else if (upperSql.includes("MAIL_LOGS_HISTORY") || upperSql.includes("MAIL_LOGS")) {
+        columns = ["id", "timestamp", "sender", "recipient", "status", "size", "relay"];
+        rows = [
+          { id: 101, timestamp: "2026-08-11 19:10:00", sender: "cliente@empresa.com", recipient: "financeiro@midia.com.br", status: "SENT", size: "14.2 KB", relay: "smtp.mailadmin.internal" },
+          { id: 102, timestamp: "2026-08-11 19:12:30", sender: "marketing@spammer.org", recipient: "vendas@midia.com.br", status: "REJECTED", size: "2.1 KB", relay: "amavisd-new" },
+          { id: 103, timestamp: "2026-08-11 19:15:12", sender: "suporte@midia.com.br", recipient: "usuario@externo.org", status: "BOUNCED", size: "5.8 KB", relay: "postfix/smtp" }
+        ];
+      } else {
+        columns = ["result", "database", "status"];
+        rows = [
+          { result: "Consulta executada com sucesso no MariaDB vmail", database: "vmail", status: "OK" }
+        ];
+      }
+
+      const elapsedMs = Number((Math.random() * 2 + 1.2).toFixed(2));
+
+      return res.json({
+        status: "success",
+        success: true,
+        execution_time_ms: elapsedMs,
+        row_count: rows.length,
+        columns,
+        rows
+      });
+    } catch (err: any) {
+      return res.status(400).json({
+        status: "error",
+        success: false,
+        message: `Erro na execução da query: ${err.message || String(err)}`
+      });
+    }
+  });
+
   // Root HTML Route
   app.get("/", (req, res) => {
     res.sendFile(path.join(process.cwd(), "templates/index.html"));
@@ -1147,6 +1511,15 @@ blacklist_from *@spammerdomain.net
   app.post("/api/spamassassin/rules", (req, res) => res.redirect(307, "/api/services/spamassassin/rules"));
   app.post("/api/spamassassin/lint", (req, res) => res.redirect(307, "/api/services/spamassassin/lint"));
   app.get("/api/logs", (req, res) => res.redirect("/api/services/logs"));
+
+  // Guard against unhandled /api/* requests to prevent Vite HTML fallback
+  app.use("/api/*", (req, res) => {
+    res.status(404).json({
+      status: "error",
+      success: false,
+      message: `Rota de API não encontrada: ${req.originalUrl}`
+    });
+  });
 
   // Vite Development Server Middleware
   if (process.env.NODE_ENV !== "production") {

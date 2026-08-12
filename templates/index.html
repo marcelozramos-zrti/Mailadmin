@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MailAdmin Suite v2.0 - Painel de Controle Nativo</title>
+    <title>MailAdmin Suite v1.0.0 - Painel de Controle Nativo</title>
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Bootstrap Icons -->
@@ -121,9 +121,96 @@
         }
 
         .sidebar-footer {
-            padding: 1rem;
+            padding: 0.85rem 0.75rem;
             border-top: 1px solid var(--sidebar-border);
-            background-color: rgba(0, 0, 0, 0.2);
+            background-color: rgba(0, 0, 0, 0.25);
+        }
+
+        .sidebar-user-card {
+            background: rgba(15, 23, 42, 0.65);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 0.5rem 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.2s ease;
+        }
+
+        .sidebar-user-card:hover {
+            background: rgba(30, 41, 59, 0.85);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .user-avatar-wrapper {
+            position: relative;
+            width: 36px;
+            height: 36px;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+
+        .user-avatar-circle {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #2563eb, #3b82f6);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.9rem;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+        }
+
+        .user-avatar-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .user-online-led {
+            position: absolute;
+            bottom: -1px;
+            right: -1px;
+            width: 11px;
+            height: 11px;
+            background-color: #10b981;
+            border: 2px solid #0f172a;
+            border-radius: 50%;
+            box-shadow: 0 0 6px rgba(16, 185, 129, 0.8);
+        }
+
+        .sidebar-logout-btn {
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            padding: 0.25rem 0.45rem;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .sidebar-logout-btn:hover {
+            color: #ef4444;
+            background-color: rgba(239, 68, 68, 0.15);
+        }
+
+        #sidebar.collapsed .sidebar-user-card {
+            padding: 0.4rem;
+            justify-content: center;
+            background: transparent;
+            border-color: transparent;
+        }
+
+        #sidebar.collapsed .sidebar-logout-btn {
+            display: none !important;
         }
 
         /* Main Content Area (Light Theme) */
@@ -315,7 +402,7 @@
                 <div class="sidebar-text truncate">
                     <div class="d-flex align-items-center gap-1.5">
                         <span class="fw-bold text-white fs-6">MailAdmin</span>
-                        <span class="badge bg-primary text-white border border-primary-subtle px-1.5 py-0.5" style="font-size: 9px;">v2.0</span>
+                        <span class="badge bg-primary text-white border border-primary-subtle px-1.5 py-0.5" style="font-size: 9px;">v1.0.0</span>
                     </div>
                     <small class="text-secondary d-block" style="font-size: 10px;">Debian/Ubuntu Server</small>
                 </div>
@@ -325,55 +412,65 @@
             </button>
         </div>
 
-        <!-- Service Overall Status Pill -->
-        <div class="px-3 py-2 my-2 sidebar-text">
-            <div class="p-2.5 rounded-3 border border-secondary border-opacity-25 bg-black bg-opacity-30 d-flex align-items-center justify-content-between">
-                <div class="d-flex align-items-center gap-2">
-                    <span class="status-dot pulse-emerald" id="global-status-dot"></span>
-                    <span class="small fw-semibold text-light" id="global-status-text">Serviços OK</span>
-                </div>
-                <span class="badge bg-dark text-secondary border border-secondary border-opacity-25" style="font-size: 9px;">4/4 SVC</span>
-            </div>
-        </div>
-
         <!-- Navigation Links -->
         <nav class="sidebar-nav" id="sidebar-nav">
             <a href="#dashboard" class="nav-link active" data-target="tab-dashboard" data-tab="dashboard">
                 <i class="bi bi-speedometer2 fs-5"></i>
-                <span class="sidebar-text">Dashboard & Telemetria</span>
+                <span class="sidebar-text">Dashboard</span>
             </a>
-            <a href="#vmail" class="nav-link" data-target="tab-vmail" data-tab="vmail">
+            <a href="#servidores" class="nav-link" data-target="tab-servidores" data-tab="servidores">
+                <i class="bi bi-hdd-stack fs-5"></i>
+                <span class="sidebar-text">Servidores</span>
+            </a>
+            <a href="#dominios" class="nav-link" data-target="tab-dominios" data-tab="dominios">
                 <i class="bi bi-globe fs-5"></i>
-                <span class="sidebar-text">Domínios & Contas (vmail)</span>
+                <span class="sidebar-text">Domínios</span>
             </a>
-            <a href="#troubleshooting" class="nav-link" data-target="tab-troubleshooting" data-tab="troubleshooting">
-                <i class="bi bi-tools fs-5"></i>
-                <span class="sidebar-text">Troubleshooting</span>
-            </a>
-            <a href="#dns" class="nav-link" data-target="tab-dns" data-tab="dns">
-                <i class="bi bi-globe fs-5"></i>
-                <span class="sidebar-text">Auditoria DNS</span>
+            <a href="#mailbox" class="nav-link" data-target="tab-mailbox" data-tab="mailbox">
+                <i class="bi bi-mailbox fs-5"></i>
+                <span class="sidebar-text">Mailbox</span>
             </a>
             <a href="#spam" class="nav-link" data-target="tab-spam" data-tab="spam">
-                <i class="bi bi-shield-lock fs-5"></i>
-                <span class="sidebar-text">Regras SpamAssassin</span>
+                <i class="bi bi-shield-slash fs-5"></i>
+                <span class="sidebar-text">AntiSpam</span>
+            </a>
+            <a href="#ferramentas" class="nav-link" data-target="tab-ferramentas" data-tab="ferramentas">
+                <i class="bi bi-tools fs-5"></i>
+                <span class="sidebar-text">Ferramentas</span>
+            </a>
+            <a href="#studio" class="nav-link" data-target="tab-studio" data-tab="studio">
+                <i class="bi bi-terminal-plus fs-5"></i>
+                <span class="sidebar-text">Studio</span>
             </a>
             <a href="#settings" class="nav-link" data-target="tab-settings" data-tab="settings">
                 <i class="bi bi-gear fs-5"></i>
                 <span class="sidebar-text">Configurações</span>
             </a>
+            <a href="#usuarios" class="nav-link" data-target="tab-usuarios" data-tab="usuarios">
+                <i class="bi bi-people fs-5"></i>
+                <span class="sidebar-text">Usuários</span>
+            </a>
         </nav>
 
         <!-- Sidebar Footer Controls -->
         <div class="sidebar-footer">
-            <button class="btn btn-outline-success btn-sm w-100 d-flex align-items-center justify-content-center gap-2 rounded-3 py-2 mb-2" onclick="openMfaModal()">
-                <i class="bi bi-shield-check fs-6"></i>
-                <span class="sidebar-text small fw-semibold">Configurar MFA</span>
-            </button>
-            <button class="btn btn-outline-danger btn-sm w-100 d-flex align-items-center justify-content-center gap-2 rounded-3 py-2" onclick="handleLogout()">
-                <i class="bi bi-box-arrow-left fs-6"></i>
-                <span class="sidebar-text small fw-semibold">Sair / Logout</span>
-            </button>
+            <div class="sidebar-user-card">
+                <div class="d-flex align-items-center overflow-hidden">
+                    <div class="user-avatar-wrapper me-2" title="Usuário Logado - Online (Clique para Sair em modo reduzido)" onclick="if(document.getElementById('sidebar').classList.contains('collapsed')) handleLogout()">
+                        <div class="user-avatar-circle">
+                            <span id="user-avatar-initial">A</span>
+                            <img id="user-avatar-img" src="" class="user-avatar-img d-none" alt="Foto do Usuário">
+                        </div>
+                        <span class="user-online-led" title="Conectado / Online (LED Verde)"></span>
+                    </div>
+                    <div class="sidebar-text overflow-hidden ms-2">
+                        <span class="fw-bold text-light d-block text-truncate" style="font-size: 0.88rem;" id="sidebar-username-display">admin</span>
+                    </div>
+                </div>
+                <button class="sidebar-logout-btn sidebar-text ms-2" onclick="handleLogout()" title="Sair / Logout">
+                    <i class="bi bi-box-arrow-right fs-5"></i>
+                </button>
+            </div>
             <div class="text-center sidebar-text mt-2" style="font-size: 10px; color: #64748b;">
                 Postfix • MariaDB vmail
             </div>
@@ -391,6 +488,7 @@
                 <div>
                     <h1 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
                         Painel de Controle MailAdmin Suite
+                        <span class="badge bg-primary text-white font-monospace px-2 py-0.5" style="font-size: 10px;">v1.0.0</span>
                         <span class="badge bg-primary-subtle text-primary border border-primary-subtle text-uppercase" style="font-size: 10px;">Flask Native</span>
                     </h1>
                     <small class="text-muted d-none d-sm-block" style="font-size: 11px;">Administração Integrada MTA Postfix, Amavis, ClamAV e SpamAssassin</small>
@@ -398,14 +496,32 @@
             </div>
 
             <div class="d-flex align-items-center gap-2">
-                <span id="user-role-badge"></span>
-                <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2 d-none d-md-inline-flex align-items-center gap-1.5" id="nav-system-badge">
-                    <span class="status-dot pulse-emerald"></span>
-                    <span>Debian 12 / Linux</span>
-                </span>
-                <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1.5 rounded-3" onclick="refreshCurrentTab()">
-                    <i class="bi bi-arrow-clockwise" id="refresh-icon"></i>
-                    <span class="d-none d-sm-inline">Atualizar</span>
+                <span id="user-role-badge" class="d-none"></span>
+                
+                <!-- Notification Bell Dropdown -->
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-light border text-dark rounded-3 d-flex align-items-center justify-content-center p-2 position-relative" type="button" id="notifDropdown" data-bs-toggle="dropdown" aria-expanded="false" title="Notificações e Alertas do Sistema" style="width: 38px; height: 38px;">
+                        <i class="bi bi-bell-fill text-secondary fs-6" id="notif-bell-icon"></i>
+                        <span class="position-absolute top-0 start-100 translate-middle badge bg-danger text-white font-monospace rounded-circle d-none" style="font-size: 10px; width: 18px; height: 18px; padding: 2px 0; display: flex; align-items: center; justify-content: center;" id="notif-count-badge">0</span>
+                    </button>
+                    <div class="dropdown-menu dropdown-menu-end shadow-lg p-3 border-0 rounded-3" aria-labelledby="notifDropdown" style="width: 320px;">
+                        <div class="d-flex align-items-center justify-content-between mb-2 pb-2 border-bottom">
+                            <h6 class="mb-0 fw-bold text-dark d-flex align-items-center gap-1.5">
+                                <i class="bi bi-bell-fill text-secondary" id="dropdown-bell-icon"></i> Notificações do Sistema
+                            </h6>
+                            <span class="badge bg-success-subtle text-success border border-success-subtle" style="font-size: 10px;" id="notif-status-tag">Operacional</span>
+                        </div>
+                        <div id="notif-list-container">
+                            <div class="p-2.5 rounded bg-light text-muted small text-center">
+                                <i class="bi bi-check-circle-fill text-success me-1"></i> Todos os serviços operando normalmente. Sem alertas.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Refresh Button (Icon Only) -->
+                <button class="btn btn-sm btn-light border text-dark rounded-3 d-flex align-items-center justify-content-center p-2" onclick="refreshCurrentTab()" title="Atualizar dados" style="width: 38px; height: 38px;">
+                    <i class="bi bi-arrow-clockwise fs-6" id="refresh-icon"></i>
                 </button>
             </div>
         </header>
@@ -420,6 +536,29 @@
                 
                 <!-- 1. DASHBOARD & TELEMETRIA TAB -->
                 <div class="tab-section" id="tab-dashboard">
+                    
+                    <!-- NOTIFICAÇÕES DO SISTEMA CARD (Invisível quando 100% OK; só aparece se serviço parar ou log de ataque) -->
+                    <div class="card p-3.5 mb-4 border-start border-4 border-danger bg-white shadow-sm d-none" id="dashboard-notif-card">
+                        <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="p-2.5 rounded-circle bg-danger bg-opacity-15 text-danger position-relative flex-shrink-0" id="dashboard-notif-icon-box">
+                                    <i class="bi bi-exclamation-octagon-fill fs-5" id="dashboard-notif-icon"></i>
+                                </div>
+                                <div>
+                                    <div class="d-flex align-items-center gap-2 mb-0.5">
+                                        <h3 class="h6 mb-0 fw-bold text-dark" id="dashboard-notif-title">Alerta do Sistema</h3>
+                                        <span class="badge bg-danger text-white font-monospace" style="font-size: 10px;" id="dashboard-notif-badge">Ação Necessária</span>
+                                    </div>
+                                    <p class="text-muted small mb-0" id="dashboard-notif-text">
+                                        Carregando status do sistema...
+                                    </p>
+                                </div>
+                            </div>
+                            <button class="btn btn-sm btn-danger text-white fw-semibold px-3 rounded-3 flex-shrink-0" id="dashboard-notif-btn">
+                                <i class="bi bi-eye me-1"></i> Ver Detalhes
+                            </button>
+                        </div>
+                    </div>
                     
                     <!-- Hardware Telemetry Header Banner -->
                     <div class="card p-4 mb-4">
@@ -548,7 +687,10 @@
                             <!-- Populated dynamically -->
                         </div>
                     </div>
+                </div>
 
+                <!-- 2. SERVIDORES TAB -->
+                <div class="tab-section d-none" id="tab-servidores">
                     <!-- Services Grid Controls -->
                     <div class="card p-4 mb-4">
                         <div class="d-flex align-items-center justify-content-between mb-3 border-bottom border-light pb-3">
@@ -642,12 +784,10 @@
                             </table>
                         </div>
                     </div>
-
                 </div>
 
-                <!-- 2. DOMÍNIOS & CONTAS (vmail MariaDB) TAB -->
-                <div class="tab-section d-none" id="tab-vmail">
-                    
+                <!-- 3. DOMÍNIOS TAB -->
+                <div class="tab-section d-none" id="tab-dominios">
                     <!-- DOMÍNIOS -->
                     <div class="card p-4 mb-4">
                         <div class="d-flex align-items-center justify-content-between mb-3">
@@ -689,7 +829,10 @@
                             </table>
                         </div>
                     </div>
+                </div>
 
+                <!-- 4. MAILBOX TAB -->
+                <div class="tab-section d-none" id="tab-mailbox">
                     <!-- MAILBOXES -->
                     <div class="card p-4 mb-4">
                         <div class="d-flex align-items-center justify-content-between mb-3">
@@ -771,18 +914,16 @@
                             </table>
                         </div>
                     </div>
-
-
                 </div>
 
-                <!-- 3. TROUBLESHOOTING TAB -->
-                <div class="tab-section d-none" id="tab-troubleshooting">
+                <!-- 5. FERRAMENTAS TAB -->
+                <div class="tab-section d-none" id="tab-ferramentas">
                     
-                    <!-- Nav Tabs de Troubleshooting -->
+                    <!-- Nav Tabs de Ferramentas -->
                     <ul class="nav nav-tabs mb-4 border-bottom-0" id="troubleshootingTabs" role="tablist">
                         <li class="nav-item" role="presentation">
                             <button class="nav-link active fw-semibold" id="historica-tab" data-bs-toggle="tab" data-bs-target="#tab-historica" type="button" role="tab" aria-controls="tab-historica" aria-selected="true">
-                                <i class="bi bi-clock-history me-1.5 text-primary"></i> Auditoria Histórica
+                                <i class="bi bi-clock-history me-1.5 text-primary"></i> SearchLog
                             </button>
                         </li>
                         <li class="nav-item" role="presentation">
@@ -795,6 +936,11 @@
                                 <i class="bi bi-list-task me-1.5 text-warning"></i> Gestão de Fila (Queue)
                             </button>
                         </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link fw-semibold" id="dns-sub-tab" data-bs-toggle="tab" data-bs-target="#tab-dns-sub" type="button" role="tab" aria-controls="tab-dns-sub" aria-selected="false">
+                                <i class="bi bi-globe me-1.5 text-info"></i> Auditoria DNS
+                            </button>
+                        </li>
                     </ul>
 
                     <div class="tab-content" id="troubleshootingTabsContent">
@@ -805,7 +951,7 @@
                                     <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
                                         <i class="bi bi-search text-primary"></i> Explorador de Logs de E-mail (Log Search)
                                     </h3>
-                                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle font-monospace">Auditoria Histórica</span>
+                                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle font-monospace">SearchLog</span>
                                 </div>
                                 <p class="text-muted small mb-3">Investigue incidentes passados, rastreie mensagens perdidas e analise o status de entrega de e-mails em períodos específicos.</p>
 
@@ -844,15 +990,101 @@
                                             <option value="2000">2000 linhas</option>
                                         </select>
                                     </div>
+                                </div>
+
+                                <!-- CONSTRUTOR DE CONSULTAS INTUITIVO (Query Builder) -->
+                                <div class="card bg-light border border-light-subtle rounded-3 p-3 mb-3">
+                                    <div class="d-flex align-items-center justify-content-between mb-2">
+                                        <h6 class="fw-bold text-dark mb-0 d-flex align-items-center gap-2">
+                                            <i class="bi bi-sliders text-primary"></i> Construtor de Consultas (Query Builder)
+                                        </h6>
+                                        <div class="d-flex gap-2">
+                                            <button class="btn btn-sm btn-outline-secondary rounded-3" onclick="resetQueryBuilder()" title="Limpar Campos">
+                                                <i class="bi bi-arrow-counterclockwise"></i> Limpar
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-primary rounded-3 fw-bold" onclick="saveCurrentQueryToFavorites()" title="Salvar Consulta nos Favoritos">
+                                                <i class="bi bi-star-fill text-warning me-1"></i> Favoritar Consulta
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Campos Dinâmicos (Remetente, Destinatário, Status) -->
+                                    <div class="row g-2 align-items-center mb-2">
+                                        <div class="col-md-4">
+                                            <label class="form-label small text-muted fw-semibold mb-1"><i class="bi bi-person-up me-1 text-success"></i> Remetente (from):</label>
+                                            <div class="input-group input-group-sm">
+                                                <select id="qb-from-op" class="form-select font-monospace text-primary fw-bold" style="max-width: 95px;" onchange="syncQueryBuilderToInput()">
+                                                    <option value=":">contém</option>
+                                                    <option value="=">=</option>
+                                                    <option value="!=">!=</option>
+                                                </select>
+                                                <input type="text" id="qb-from-val" class="form-control font-monospace" placeholder="ex: joao@empresa.com" oninput="syncQueryBuilderToInput()">
+                                            </div>
+                                        </div>
+
+                                        <div class="col-md-4">
+                                            <label class="form-label small text-muted fw-semibold mb-1"><i class="bi bi-person-down me-1 text-warning"></i> Destinatário (to):</label>
+                                            <div class="input-group input-group-sm">
+                                                <select id="qb-to-op" class="form-select font-monospace text-primary fw-bold" style="max-width: 95px;" onchange="syncQueryBuilderToInput()">
+                                                    <option value=":">contém</option>
+                                                    <option value="=">=</option>
+                                                    <option value="!=">!=</option>
+                                                </select>
+                                                <input type="text" id="qb-to-val" class="form-control font-monospace" placeholder="ex: suporte@cliente.com" oninput="syncQueryBuilderToInput()">
+                                            </div>
+                                        </div>
+
+                                        <div class="col-md-4">
+                                            <label class="form-label small text-muted fw-semibold mb-1"><i class="bi bi-check-circle me-1 text-info"></i> Status (status):</label>
+                                            <div class="input-group input-group-sm">
+                                                <select id="qb-status-op" class="form-select font-monospace text-primary fw-bold" style="max-width: 95px;" onchange="syncQueryBuilderToInput()">
+                                                    <option value=":">contém</option>
+                                                    <option value="=">=</option>
+                                                    <option value="!=">!=</option>
+                                                </select>
+                                                <input type="text" id="qb-status-val" class="form-control font-monospace" placeholder="ex: sent, bounced, deferred..." oninput="syncQueryBuilderToInput()" list="status-suggestions">
+                                                <datalist id="status-suggestions">
+                                                    <option value="sent">sent (Enviado)</option>
+                                                    <option value="bounced">bounced (Rejeitado/Falha)</option>
+                                                    <option value="deferred">deferred (Diferido/Aguardando)</option>
+                                                    <option value="reject">reject (Bloqueado)</option>
+                                                    <option value="delivered">delivered (Entregue)</option>
+                                                </datalist>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Atalhos Visuais (Consultas Rápidas e Filtros) -->
+                                    <div class="d-flex flex-wrap align-items-center gap-1.5 pt-2 border-top border-secondary-subtle mt-2">
+                                        <span class="small fw-bold text-dark me-1"><i class="bi bi-lightning-charge-fill text-warning me-1"></i> Consultas Rápidas:</span>
+                                        <button class="btn btn-sm btn-outline-success rounded-pill font-monospace py-0 px-2 fs-7" onclick="applyQuickQuery('status=sent')"><i class="bi bi-send me-1"></i> Enviados</button>
+                                        <button class="btn btn-sm btn-outline-info rounded-pill font-monospace py-0 px-2 fs-7" onclick="applyQuickQuery('status=delivered')"><i class="bi bi-envelope-check me-1"></i> Recebidos</button>
+                                        <button class="btn btn-sm btn-outline-danger rounded-pill font-monospace py-0 px-2 fs-7" onclick="applyQuickQuery('status=bounced')"><i class="bi bi-exclamation-triangle me-1"></i> Falhas</button>
+                                        <button class="btn btn-sm btn-outline-warning text-dark rounded-pill font-monospace py-0 px-2 fs-7" onclick="applyQuickQuery('amavis; SPAM')"><i class="bi bi-bug me-1"></i> SPAM</button>
+                                        <button class="btn btn-sm btn-outline-secondary rounded-pill font-monospace py-0 px-2 fs-7" onclick="applyQuickQuery('smtpd; fail')"><i class="bi bi-shield-x me-1"></i> Ataques SMTP</button>
+                                    </div>
+
+                                    <!-- Seção de Consultas Salvas (Favoritos) -->
+                                    <div class="pt-2 border-top border-secondary-subtle mt-2">
+                                        <div class="d-flex align-items-center justify-content-between mb-1">
+                                            <span class="small fw-bold text-dark"><i class="bi bi-star-fill text-warning me-1"></i> Consultas Salvas (Favoritos):</span>
+                                        </div>
+                                        <div id="saved-queries-container" class="d-flex flex-wrap gap-1.5 align-items-center">
+                                            <!-- Preenchido via JS -->
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row g-2 mb-3 align-items-end">
                                     <div class="col-md-10 col-lg-10">
-                                        <label class="form-label small text-dark fw-bold mb-1">Power Query (Busca Avançada):</label>
+                                        <label class="form-label small text-dark fw-bold mb-1">MailLog Query (Consulta Ativa):</label>
                                         <div class="input-group">
                                             <span class="input-group-text bg-light text-primary border-primary-subtle fw-bold font-monospace"><i class="bi bi-search me-1"></i> Query</span>
-                                            <input type="text" id="log-power-query-input" class="form-control form-control-lg font-monospace border-primary-subtle fs-6" placeholder="from!=zrti.com.br; to:andreza; Inbound" onkeyup="if(event.key==='Enter') trackEmail()">
+                                            <input type="text" id="log-power-query-input" class="form-control form-control-lg font-monospace border-primary-subtle fs-6" placeholder="from!=zrti.com.br; to:andreza; status=sent" onkeyup="if(event.key==='Enter') trackEmail()">
                                         </div>
                                     </div>
                                     <div class="col-md-2 col-lg-2">
-                                        <button class="btn btn-primary btn-lg w-100 fw-bold fs-6" onclick="trackEmail()" title="Executar Power Query">
+                                        <button class="btn btn-primary btn-lg w-100 fw-bold fs-6" onclick="trackEmail()" title="Executar Consulta nos Logs">
                                             <i class="bi bi-play-fill me-1"></i> Executar
                                         </button>
                                     </div>
@@ -860,29 +1092,7 @@
 
                                 <!-- Terminal de Exibição de Logs com Fundo Escuro e Letras Claras -->
                                 <div id="track-results" class="log-terminal" style="background-color: #0a0a0a; color: #FFFFFF !important; font-family: monospace; padding: 15px; border-radius: 8px; min-height: 280px; max-height: 550px; overflow-y: auto; text-align: left !important; word-break: break-all; white-space: pre-wrap;">
-                                    <span style="color: #9ca3af !important; display: block;">Selecione o intervalo de data/hora e digite sua Power Query para realizar a busca avançada nos logs do servidor...</span>
-                                </div>
-
-                                <!-- Cola de Comandos (Power Query Cheat Sheet) -->
-                                <div class="mt-3 p-2.5 px-3 bg-light rounded-3 border text-muted small font-monospace">
-                                    <div class="fw-bold text-dark mb-1 d-flex align-items-center gap-1">
-                                        <i class="bi bi-terminal-fill text-primary"></i> Sintaxe do Motor Power Query:
-                                    </div>
-                                    <div class="row g-2 my-1">
-                                        <div class="col-md-6">
-                                            <span class="text-dark fw-bold d-block mb-0.5"><i class="bi bi-plus-circle text-success me-1"></i> Operadores de Inclusão (:):</span>
-                                            <span class="text-secondary"><code>from:</code> <code>to:</code> <code>prot:</code> <code>status:</code></span>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <span class="text-dark fw-bold d-block mb-0.5"><i class="bi bi-dash-circle text-danger me-1"></i> Operadores de Exclusão (!=):</span>
-                                            <span class="text-secondary"><code>from!=</code> <code>to!=</code> <code>prot!=</code> <code>status!=</code></span>
-                                        </div>
-                                    </div>
-                                    <div class="text-secondary border-top pt-1.5 mt-1 fs-7">
-                                        <div class="mb-1"><i class="bi bi-braces me-1 text-primary"></i> <strong>Separador (;):</strong> Use ponto e vírgula para combinar múltiplos filtros.</div>
-                                        <div class="mb-1"><i class="bi bi-quote me-1 text-primary"></i> <strong>Correspondência Exata (Aspas):</strong> Use aspas duplas para buscar termos exatos preservando espaços. Ex: <code>" ESMTP/ESMTP"</code> ou <code>"status=sent"</code>.</div>
-                                        <div><i class="bi bi-lightning-charge-fill me-1 text-warning"></i> <strong>Exemplo Avançado:</strong> <code>from!=zrti.com.br; to:andreza; " ESMTP/ESMTP"</code></div>
-                                    </div>
+                                    <span style="color: #9ca3af !important; display: block;">Selecione o intervalo de data/hora e monte sua consulta no Query Builder para pesquisar os logs do servidor...</span>
                                 </div>
 
                                 <!-- Tabela Interativa de Transações / SOAR (Oculta por Padrão) -->
@@ -1004,32 +1214,176 @@
                                 </div>
                             </div>
                         </div>
+
+                        <!-- ABA 4: Auditoria DNS -->
+                        <div class="tab-pane fade" id="tab-dns-sub" role="tabpanel" aria-labelledby="dns-sub-tab">
+                            <div class="card p-4">
+                                <div class="d-flex align-items-center justify-content-between mb-2">
+                                    <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                        <i class="bi bi-globe text-success"></i> Validador DNS (MX, SPF, DKIM, DMARC)
+                                    </h3>
+                                    <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle font-monospace">Auditoria Ativa</span>
+                                </div>
+                                <p class="text-muted small mb-3">Executa consultas DNS ativas via biblioteca <code>dnspython</code> para verificação de registros MX, SPF, DKIM e DMARC do domínio.</p>
+
+                                <div class="row g-2 mb-3">
+                                    <div class="col-md-8 col-lg-9">
+                                        <input type="text" id="dns-domain-input" class="form-control font-monospace" placeholder="ex: empresa.com.br" onkeyup="if(event.key==='Enter') checkDNS()">
+                                    </div>
+                                    <div class="col-md-4 col-lg-3">
+                                        <button class="btn btn-success w-100 fw-semibold" onclick="checkDNS()"><i class="bi bi-check-circle me-1"></i> Checar DNS</button>
+                                    </div>
+                                </div>
+
+                                <div id="dns-report-container">
+                                    <div class="alert alert-light border text-muted text-center small mb-0">
+                                        Insira um domínio para verificar registros DNS de autenticação.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- 4. AUDITORIA DNS TAB -->
-                <div class="tab-section d-none" id="tab-dns">
-                    <div class="card p-4">
-                        <div class="d-flex align-items-center justify-content-between mb-2">
-                            <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
-                                <i class="bi bi-globe text-success"></i> Validador DNS (MX, SPF, DKIM, DMARC)
-                            </h3>
-                            <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle font-monospace">Auditoria Ativa</span>
-                        </div>
-                        <p class="text-muted small mb-3">Executa consultas DNS ativas via biblioteca <code>dnspython</code> para verificação de registros MX, SPF, DKIM e DMARC do domínio.</p>
+                <!-- 5.1 STUDIO TAB -->
+                <div class="tab-section d-none" id="tab-studio">
+                    <!-- Nav Tabs do Studio -->
+                    <ul class="nav nav-tabs mb-4 border-bottom-0" id="studioTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active fw-semibold" id="sqlstudio-tab" data-bs-toggle="tab" data-bs-target="#tab-sqlstudio" type="button" role="tab" aria-controls="tab-sqlstudio" aria-selected="true">
+                                <i class="bi bi-database-fill-gear me-1.5 text-primary"></i> SQL Studio (MariaDB Explorer & Query)
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link fw-semibold" id="automacoes-tab" data-bs-toggle="tab" data-bs-target="#tab-automacoes" type="button" role="tab" aria-controls="tab-automacoes" aria-selected="false" onclick="loadCronJobs()">
+                                <i class="bi bi-calendar-check me-1.5 text-purple"></i> Automações & Agendamentos (Crontab Visual)
+                            </button>
+                        </li>
+                    </ul>
 
-                        <div class="row g-2 mb-3">
-                            <div class="col-md-8 col-lg-9">
-                                <input type="text" id="dns-domain-input" class="form-control font-monospace" placeholder="ex: empresa.com.br" onkeyup="if(event.key==='Enter') checkDNS()">
-                            </div>
-                            <div class="col-md-4 col-lg-3">
-                                <button class="btn btn-success w-100 fw-semibold" onclick="checkDNS()"><i class="bi bi-check-circle me-1"></i> Checar DNS</button>
+                    <div class="tab-content" id="studioTabsContent">
+                        <!-- ABA 1: Explorador MariaDB / SQL Studio -->
+                        <div class="tab-pane fade show active" id="tab-sqlstudio" role="tabpanel" aria-labelledby="sqlstudio-tab">
+                            <div class="card p-4">
+                                <div class="d-flex align-items-center justify-content-between mb-3 border-bottom pb-3">
+                                    <div>
+                                        <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                            <i class="bi bi-database-check text-primary"></i> Explorador MariaDB / SQL Studio
+                                        </h3>
+                                        <small class="text-muted">Execute consultas SQL DQL (SELECT, SHOW, EXPLAIN) diretamente no banco MariaDB e inspecione o estado dos logs, domínios e auditoria.</small>
+                                    </div>
+                                    <div class="d-flex gap-2">
+                                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-3 py-2 font-monospace">
+                                            MariaDB / SQLAlchemy
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div id="sql-studio-alert-container"></div>
+
+                                <!-- Seletor Rápido de Tabelas e Atalhos Frequentes -->
+                                <div class="mb-3">
+                                    <label class="form-label text-dark small fw-bold mb-1"><i class="bi bi-lightning-charge-fill text-warning me-1"></i> Consultas Frequentes & Seletor de Tabelas</label>
+                                    <div class="d-flex flex-wrap gap-2 mb-2">
+                                        <button class="btn btn-sm btn-outline-dark font-monospace rounded-3" onclick="setSqlQuery('SHOW DATABASES;')">
+                                            <i class="bi bi-database me-1"></i> SHOW DATABASES;
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-dark font-monospace rounded-3" onclick="setSqlQuery('SHOW TABLES;')">
+                                            <i class="bi bi-table me-1"></i> SHOW TABLES;
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-primary font-monospace rounded-3" onclick="setSqlQuery('SELECT * FROM mail_logs_history ORDER BY timestamp DESC LIMIT 50;')">
+                                            <i class="bi bi-list-stars me-1"></i> Logs Recentes (mail_logs_history)
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-info font-monospace rounded-3" onclick="setSqlQuery('SELECT status, COUNT(*) AS total FROM mail_logs_history GROUP BY status;')">
+                                            <i class="bi bi-pie-chart-fill me-1"></i> Métricas por Status
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-purple font-monospace rounded-3" onclick="setSqlQuery('SELECT * FROM system_audit_logs ORDER BY id DESC LIMIT 20;')">
+                                            <i class="bi bi-shield-lock-fill me-1"></i> Auditoria (system_audit_logs)
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary font-monospace rounded-3" onclick="setSqlQuery('SELECT * FROM domain;')">
+                                            <i class="bi bi-globe me-1"></i> Domínios (domain)
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary font-monospace rounded-3" onclick="setSqlQuery('SELECT username, quota, active, created FROM mailbox LIMIT 50;')">
+                                            <i class="bi bi-mailbox me-1"></i> Caixas Postais (mailbox)
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary font-monospace rounded-3" onclick="setSqlQuery('SELECT * FROM cron_jobs;')">
+                                            <i class="bi bi-calendar-event me-1"></i> Agendamentos (cron_jobs)
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Textarea para Query SQL Livre -->
+                                <div class="mb-3">
+                                    <div class="d-flex align-items-center justify-content-between mb-1">
+                                        <label class="form-label text-dark small fw-bold mb-0">Query SQL (Somente Leitura / SELECT, SHOW, EXPLAIN)</label>
+                                        <small class="text-muted">Pressione Ctrl+Enter ou clique em Executar</small>
+                                    </div>
+                                    <textarea id="sql-query-input" class="form-control font-monospace p-3 bg-dark text-light rounded-3" rows="4" placeholder="SELECT * FROM mail_logs_history ORDER BY timestamp DESC LIMIT 50;"></textarea>
+                                </div>
+
+                                <div class="d-flex align-items-center justify-content-between mb-4">
+                                    <button class="btn btn-primary fw-bold px-4 rounded-3 d-flex align-items-center gap-2" onclick="executeSqlQuery()">
+                                        <i class="bi bi-play-fill fs-5"></i> Executar Query SQL
+                                    </button>
+                                    <div class="d-flex align-items-center gap-3">
+                                        <small class="text-muted">Linhas: <span id="sql-row-count" class="badge bg-secondary font-monospace">0</span></small>
+                                        <small class="text-muted">Tempo: <span id="sql-execution-time" class="badge bg-info font-monospace">0 ms</span></small>
+                                    </div>
+                                </div>
+
+                                <!-- Tabela Dinâmica de Resultados SQL -->
+                                <div class="table-responsive border rounded-3 overflow-hidden">
+                                    <table class="table table-custom align-middle mb-0" id="sql-results-table">
+                                        <thead id="sql-results-thead" class="table-light">
+                                            <tr><th class="text-muted">Nenhuma consulta executada ainda.</th></tr>
+                                        </thead>
+                                        <tbody id="sql-results-tbody" class="font-monospace small">
+                                            <tr><td class="text-center text-muted py-4">Insira uma instrução SQL acima ou clique em um atalho para visualizar os registros.</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
 
-                        <div id="dns-report-container">
-                            <div class="alert alert-light border text-muted text-center small mb-0">
-                                Insira um domínio para verificar registros DNS de autenticação.
+                        <!-- ABA 2: Automações & Agendamentos (Crontab Visual) -->
+                        <div class="tab-pane fade" id="tab-automacoes" role="tabpanel" aria-labelledby="automacoes-tab">
+                            <div class="card p-4">
+                                <div class="d-flex align-items-center justify-content-between mb-3 border-bottom pb-3">
+                                    <div>
+                                        <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                            <i class="bi bi-calendar-check-fill text-primary"></i> Agendamentos & Crontab Visual
+                                        </h3>
+                                        <small class="text-muted">Gerencie cronjobs do sistema Debian, crie agendamentos automáticos e execute tarefas sob demanda.</small>
+                                    </div>
+                                    <div class="d-flex gap-2">
+                                        <button class="btn btn-outline-secondary btn-sm rounded-3" onclick="loadCronJobs()" title="Recarregar Agendamentos">
+                                            <i class="bi bi-arrow-clockwise me-1"></i> Atualizar
+                                        </button>
+                                        <button class="btn btn-primary btn-sm fw-bold px-3 rounded-3" onclick="showCreateCronModal()">
+                                            <i class="bi bi-plus-lg me-1"></i> Nova Automação
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div id="automation-alert-container"></div>
+
+                                <div class="table-responsive">
+                                    <table class="table table-custom align-middle">
+                                        <thead>
+                                            <tr>
+                                                <th>Nome da Automação</th>
+                                                <th>Frequência</th>
+                                                <th>Comando Executado</th>
+                                                <th>Última Execução</th>
+                                                <th>Status</th>
+                                                <th class="text-end">Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="cron-jobs-table-body">
+                                            <tr><td colspan="6" class="text-center text-muted py-3">Carregando tarefas agendadas...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1046,7 +1400,7 @@
                                 </div>
                                 <div>
                                     <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
-                                        Regras e Filtros SpamAssassin
+                                        Filtros e Regras AntiSpam
                                     </h3>
                                     <small class="text-muted">Gerenciamento de listas de bloqueio (Blacklist), liberação (Whitelist) e editor do <code>local.cf</code></small>
                                 </div>
@@ -1179,125 +1533,130 @@
                                     <i class="bi bi-sliders fs-3"></i>
                                 </div>
                                 <div>
-                                    <h2 class="h5 mb-1 fw-bold text-dark">Configurações e Segurança do Sistema</h2>
-                                    <p class="text-muted small mb-0">Gerencie a conexão do banco de dados <code>.env</code> e os Administradores com acesso ao painel (<code>vmail_admins</code>).</p>
+                                    <h2 class="h5 mb-1 fw-bold text-dark">Configurações de Conexão do Banco de Dados</h2>
+                                    <p class="text-muted small mb-0">Gerencie os parâmetros de conexão com o banco de dados MariaDB no arquivo <code>.env</code> do servidor.</p>
                                 </div>
                             </div>
                             <span class="badge bg-secondary-subtle text-secondary border font-monospace">System Admin</span>
                         </div>
 
-                        <!-- Sub-abas do Bootstrap -->
-                        <ul class="nav nav-tabs mb-4" id="settingsTabs" role="tablist">
+                        <form id="db-settings-form" onsubmit="saveDatabaseSettings(event)">
+                            <div id="settings-alert-container"></div>
+                            
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-dark small">Usuário do Banco (DB_USER)</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-person text-muted"></i></span>
+                                        <input type="text" id="cfg-db-user" class="form-control font-monospace" placeholder="vmailadmin" required>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-dark small">Senha do Banco (DB_PASS)</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-key text-muted"></i></span>
+                                        <input type="password" id="cfg-db-pass" class="form-control font-monospace" placeholder="senha_vmail_123" required>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-dark small">Host / IP do Banco (DB_HOST)</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-hdd-network text-muted"></i></span>
+                                        <input type="text" id="cfg-db-host" class="form-control font-monospace" placeholder="127.0.0.1" required>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-dark small">Nome da Base de Dados (DB_NAME)</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-database text-muted"></i></span>
+                                        <input type="text" id="cfg-db-name" class="form-control font-monospace" placeholder="vmail" required>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-dark small">Porta MySQL/MariaDB (DB_PORT)</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-ethernet text-muted"></i></span>
+                                        <input type="text" id="cfg-db-port" class="form-control font-monospace" placeholder="3306" required>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="alert alert-info border-0 bg-info bg-opacity-10 text-info-emphasis mt-4 d-flex align-items-center gap-2 small rounded-3">
+                                <i class="bi bi-info-circle-fill fs-5 flex-shrink-0"></i>
+                                <div>
+                                    Ao salvar, as variáveis serão gravadas fisicamente no arquivo <code>.env</code> no servidor Linux. Para aplicar as alterações de conexão no MailAdmin Suite, reinicie o serviço no Linux.
+                                </div>
+                            </div>
+
+                            <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+                                <button type="button" class="btn btn-outline-secondary btn-sm rounded-3" onclick="loadDatabaseSettings()">
+                                    <i class="bi bi-arrow-clockwise me-1"></i> Recarregar
+                                </button>
+                                <button type="submit" class="btn btn-primary btn-sm fw-bold px-4 rounded-3">
+                                    <i class="bi bi-floppy-fill me-1"></i> Salvar no .env
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- 8. USUÁRIOS TAB -->
+                <div class="tab-section d-none" id="tab-usuarios">
+                    <div class="card p-4">
+                        <div class="d-flex align-items-center justify-content-between mb-4 pb-3 border-bottom">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="p-2.5 rounded-3 bg-success bg-opacity-10 text-success">
+                                    <i class="bi bi-people-fill fs-3"></i>
+                                </div>
+                                <div>
+                                    <h2 class="h5 mb-1 fw-bold text-dark">Gestão de Usuários e Auditoria do Painel</h2>
+                                    <p class="text-muted small mb-0">Gerencie contas de acesso (<code>vmail_admins</code>), controle de MFA e consulte o histórico de auditoria do sistema (Audit Trail).</p>
+                                </div>
+                            </div>
+                            <button class="btn btn-success btn-sm fw-bold px-3 rounded-3" onclick="showCreateAdminModal()">
+                                <i class="bi bi-person-plus-fill me-1"></i> Novo Usuário
+                            </button>
+                        </div>
+
+                        <!-- Sub-abas (Bootstrap Nav-Tabs) -->
+                        <ul class="nav nav-tabs mb-4" id="usersTabs" role="tablist">
                             <li class="nav-item" role="presentation">
-                                <button class="nav-link active fw-bold small text-dark d-flex align-items-center gap-2" id="settings-db-tab" data-bs-toggle="tab" data-bs-target="#settings-tab-db" type="button" role="tab">
-                                    <i class="bi bi-database-gear text-primary"></i> Conexão Banco de Dados (.env)
+                                <button class="nav-link active fw-bold small text-dark d-flex align-items-center gap-2" id="users-accounts-tab" data-bs-toggle="tab" data-bs-target="#users-tab-accounts" type="button" role="tab">
+                                    <i class="bi bi-person-gear text-success"></i> Contas de Usuário & MFA
                                 </button>
                             </li>
                             <li class="nav-item" role="presentation">
-                                <button class="nav-link fw-bold small text-muted d-flex align-items-center gap-2" id="settings-admins-tab" data-bs-toggle="tab" data-bs-target="#settings-tab-admins" type="button" role="tab" onclick="loadAdmins()">
-                                    <i class="bi bi-people-fill text-success"></i> Administradores do Painel
+                                <button class="nav-link fw-bold small text-muted d-flex align-items-center gap-2" id="users-audit-tab" data-bs-toggle="tab" data-bs-target="#users-tab-audit" type="button" role="tab" onclick="loadAuditLogs()">
+                                    <i class="bi bi-shield-check text-primary"></i> Auditoria de Ações (Audit Trail)
                                 </button>
                             </li>
                         </ul>
 
-                        <div class="tab-content" id="settingsTabsContent">
-                            <!-- SUB-TAB 1: BANCO DE DADOS (.env) -->
-                            <div class="tab-pane fade show active" id="settings-tab-db" role="tabpanel">
-                                <form id="db-settings-form" onsubmit="saveDatabaseSettings(event)">
-                                    <div id="settings-alert-container"></div>
-                                    
-                                    <div class="row g-3">
-                                        <div class="col-md-6">
-                                            <label class="form-label fw-semibold text-dark small">Usuário do Banco (DB_USER)</label>
-                                            <div class="input-group">
-                                                <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-person text-muted"></i></span>
-                                                <input type="text" id="cfg-db-user" class="form-control font-monospace" placeholder="vmailadmin" required>
-                                            </div>
-                                        </div>
+                        <div class="tab-content" id="usersTabsContent">
+                            <!-- SUB-TAB 1: CONTAS E MFA -->
+                            <div class="tab-pane fade show active" id="users-tab-accounts" role="tabpanel">
+                                <div id="admin-alert-container-usr"></div>
 
-                                        <div class="col-md-6">
-                                            <label class="form-label fw-semibold text-dark small">Senha do Banco (DB_PASS)</label>
-                                            <div class="input-group">
-                                                <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-key text-muted"></i></span>
-                                                <input type="password" id="cfg-db-pass" class="form-control font-monospace" placeholder="senha_vmail_123" required>
-                                            </div>
-                                        </div>
-
-                                        <div class="col-md-6">
-                                            <label class="form-label fw-semibold text-dark small">Host / IP do Banco (DB_HOST)</label>
-                                            <div class="input-group">
-                                                <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-hdd-network text-muted"></i></span>
-                                                <input type="text" id="cfg-db-host" class="form-control font-monospace" placeholder="127.0.0.1" required>
-                                            </div>
-                                        </div>
-
-                                        <div class="col-md-6">
-                                            <label class="form-label fw-semibold text-dark small">Nome da Base de Dados (DB_NAME)</label>
-                                            <div class="input-group">
-                                                <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-database text-muted"></i></span>
-                                                <input type="text" id="cfg-db-name" class="form-control font-monospace" placeholder="vmail" required>
-                                            </div>
-                                        </div>
-
-                                        <div class="col-md-6">
-                                            <label class="form-label fw-semibold text-dark small">Porta MySQL/MariaDB (DB_PORT)</label>
-                                            <div class="input-group">
-                                                <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-ethernet text-muted"></i></span>
-                                                <input type="text" id="cfg-db-port" class="form-control font-monospace" placeholder="3306" required>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div class="alert alert-info border-0 bg-info bg-opacity-10 text-info-emphasis mt-4 d-flex align-items-center gap-2 small rounded-3">
-                                        <i class="bi bi-info-circle-fill fs-5 flex-shrink-0"></i>
-                                        <div>
-                                            Ao salvar, as variáveis serão gravadas fisicamente no arquivo <code>.env</code> no servidor Linux. Para aplicar as alterações de conexão no MailAdmin Suite, reinicie o serviço no Linux.
-                                        </div>
-                                    </div>
-
-                                    <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
-                                        <button type="button" class="btn btn-outline-secondary btn-sm rounded-3" onclick="loadDatabaseSettings()">
-                                            <i class="bi bi-arrow-clockwise me-1"></i> Recarregar
-                                        </button>
-                                        <button type="submit" class="btn btn-primary btn-sm fw-bold px-4 rounded-3">
-                                            <i class="bi bi-floppy-fill me-1"></i> Salvar no .env
-                                        </button>
-                                    </div>
-                                </form>
-                            </div>
-
-                            <!-- SUB-TAB 2: ADMINISTRADORES DO PAINEL (vmail_admins) -->
-                            <div class="tab-pane fade" id="settings-tab-admins" role="tabpanel">
-                                <div id="admin-alert-container"></div>
-
-                                <div class="d-flex align-items-center justify-content-between mb-3">
-                                    <div>
-                                        <h6 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
-                                            <i class="bi bi-shield-lock-fill text-success"></i> Gestão de Contas de Administrador
-                                        </h6>
-                                        <small class="text-muted">Usuários analistas cadastrados na tabela <code>vmail_admins</code> com permissão de login ao painel.</small>
-                                    </div>
-                                    <button class="btn btn-success btn-sm fw-bold px-3 rounded-3" onclick="showCreateAdminModal()">
-                                        <i class="bi bi-person-plus-fill me-1"></i> Novo Administrador
-                                    </button>
-                                </div>
-
-                                <!-- Barra de Busca de Administradores -->
+                                <!-- Barra de Busca de Usuários -->
                                 <div class="row g-2 mb-3 align-items-center justify-content-between">
                                     <div class="col-md-6 col-lg-4">
                                         <div class="input-group input-group-sm">
                                             <span class="input-group-text bg-light border-light-subtle text-muted">
                                                 <i class="bi bi-search"></i>
                                             </span>
-                                            <input type="text" id="search-admins-input" class="form-control" placeholder="Buscar administrador..." onkeyup="filterTableRows('search-admins-input', 'admins-table-body')">
+                                            <input type="text" id="search-users-vmail-input" class="form-control" placeholder="Buscar usuário..." onkeyup="filterTableRows('search-users-vmail-input', 'vmail-users-table-body')">
                                         </div>
                                     </div>
                                     <div class="col-auto">
-                                        <small class="text-muted">Total de administradores: <span id="admins-count" class="badge bg-secondary font-monospace">0</span></small>
+                                        <small class="text-muted">Total de usuários: <span id="vmail-users-count" class="badge bg-secondary font-monospace">0</span></small>
                                     </div>
                                 </div>
 
-                                <!-- Tabela de Administradores -->
+                                <!-- Tabela de Usuários com MFA Granular -->
                                 <div class="table-responsive">
                                     <table class="table table-custom align-middle">
                                         <thead>
@@ -1305,13 +1664,62 @@
                                                 <th>ID</th>
                                                 <th>Usuário</th>
                                                 <th>Perfil (Role)</th>
-                                                <th>Status Autenticador (MFA)</th>
+                                                <th>MFA Status</th>
                                                 <th>Data de Cadastro</th>
-                                                <th>Ações</th>
+                                                <th>Ações & Controle MFA</th>
                                             </tr>
                                         </thead>
-                                        <tbody id="admins-table-body">
+                                        <tbody id="vmail-users-table-body">
                                             <tr><td colspan="6" class="text-center text-muted py-3">Carregando usuários...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- SUB-TAB 2: AUDITORIA DE AÇÕES (AUDIT TRAIL) -->
+                            <div class="tab-pane fade" id="users-tab-audit" role="tabpanel">
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <div>
+                                        <h6 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
+                                            <i class="bi bi-shield-lock-fill text-primary"></i> Trilha de Auditoria do Sistema (Audit Trail)
+                                        </h6>
+                                        <small class="text-muted">Histórico imutável de ações administrativas registradas na tabela <code>system_audit_logs</code>.</small>
+                                    </div>
+                                    <button class="btn btn-outline-secondary btn-sm rounded-3" onclick="loadAuditLogs()">
+                                        <i class="bi bi-arrow-clockwise me-1"></i> Atualizar Auditoria
+                                    </button>
+                                </div>
+
+                                <!-- Barra de Busca em Logs de Auditoria -->
+                                <div class="row g-2 mb-3 align-items-center justify-content-between">
+                                    <div class="col-md-6 col-lg-4">
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light border-light-subtle text-muted">
+                                                <i class="bi bi-search"></i>
+                                            </span>
+                                            <input type="text" id="search-audit-input" class="form-control" placeholder="Buscar na auditoria (ação, usuário, IP)..." onkeyup="filterTableRows('search-audit-input', 'audit-logs-table-body')">
+                                        </div>
+                                    </div>
+                                    <div class="col-auto">
+                                        <small class="text-muted">Total de registros: <span id="audit-logs-count" class="badge bg-secondary font-monospace">0</span></small>
+                                    </div>
+                                </div>
+
+                                <!-- Tabela de Logs de Auditoria -->
+                                <div class="table-responsive">
+                                    <table class="table table-custom align-middle">
+                                        <thead>
+                                            <tr>
+                                                <th>Data/Hora</th>
+                                                <th>Usuário Admin</th>
+                                                <th>Ação Realizada</th>
+                                                <th>Alvo / Objeto</th>
+                                                <th>Endereço IP</th>
+                                                <th>Detalhes / Payload</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="audit-logs-table-body">
+                                            <tr><td colspan="6" class="text-center text-muted py-3">Carregando histórico de auditoria...</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -1353,6 +1761,76 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-success btn-sm" onclick="enableMfa()">Ativar MFA</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- CREATE / EDIT CRONJOB MODAL -->
+<div class="modal fade" id="createCronModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-dark"><i class="bi bi-calendar-plus me-2 text-primary"></i><span id="cron-modal-title">Nova Automação Agendada</span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="cron-job-id">
+                
+                <div class="mb-3">
+                    <label class="form-label text-dark small fw-bold">Modelo Pronto / Preset</label>
+                    <select id="cron-preset-select" class="form-select font-monospace" onchange="applyCronPreset()">
+                        <option value="custom">-- Agendamento Customizado --</option>
+                        <option value="preset_log_ingest">1. Ingestão de Logs de E-mail para MariaDB (Log-to-DB)</option>
+                        <option value="preset_vmail_backup">2. Backup Automatizado de Tabelas vmail (MariaDB)</option>
+                        <option value="preset_expunge_antispam">3. Expurgar Logs do Antispam (> 30 dias)</option>
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label text-dark small fw-bold">Nome da Automação</label>
+                    <input type="text" id="cron-name-input" class="form-control" placeholder="Ex: Ingestão de Logs para DB">
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label text-dark small fw-bold">Frequência Predefinida</label>
+                        <select id="cron-schedule-preset" class="form-select font-monospace" onchange="syncCronPresetExpression()">
+                            <option value="1h">A cada 1 hora (0 * * * *)</option>
+                            <option value="3h">A cada 3 horas (0 */3 * * *)</option>
+                            <option value="6h">A cada 6 horas (0 */6 * * *)</option>
+                            <option value="daily">Diário às 02:00 (0 2 * * *)</option>
+                            <option value="custom" selected>Expressão Customizada</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label text-dark small fw-bold">Expressão Cron</label>
+                        <input type="text" id="cron-expression-input" class="form-control font-monospace" placeholder="0 * * * *">
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label text-dark small fw-bold">Comando Bash do Linux</label>
+                    <textarea id="cron-command-input" class="form-control font-monospace p-2" rows="2" placeholder="python3 /opt/mailadmin/scripts/script.py"></textarea>
+                </div>
+
+                <div class="mb-3 border-top pt-3">
+                    <div class="d-flex align-items-center justify-content-between mb-1">
+                        <label class="form-label text-dark small fw-bold mb-0">
+                            <i class="bi bi-code-slash text-primary me-1"></i> Editor de Script Inline (Opcional)
+                        </label>
+                        <small class="text-muted">Escreva ou cole um script Bash ou Python</small>
+                    </div>
+                    <input type="text" id="cron-script-filename-input" class="form-control form-control-sm font-monospace mb-2" placeholder="Nome do arquivo ex: backup_custom.sh">
+                    <textarea id="cron-script-content-input" class="form-control font-monospace p-2 small bg-dark text-light" rows="4" placeholder="#!/bin/bash&#10;# Escreva ou cole seu script completo aqui...&#10;echo 'Executando tarefa automatizada...'"></textarea>
+                    <div class="form-text text-muted small">
+                        Ao salvar, o script será salvo em <code>/opt/mailadmin/scripts/</code> com permissão <code>+x</code> e agendado no crontab.
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary btn-sm fw-bold rounded-3" onclick="saveCronJob()"><i class="bi bi-floppy-fill me-1"></i> Salvar Automação</button>
             </div>
         </div>
     </div>
@@ -1648,6 +2126,16 @@
                     currentUsername = data.username || 'admin';
                     showPanelScreen();
                     applyRbacPermissions();
+                    
+                    const hash = window.location.hash.replace('#', '');
+                    if (hash) {
+                        const targetLink = document.querySelector(`.sidebar-nav .nav-link[data-tab="${hash}"]`);
+                        if (targetLink && !targetLink.classList.contains('d-none')) {
+                            targetLink.click();
+                            loadServiceStatus();
+                            return;
+                        }
+                    }
                     loadTelemetry();
                     loadServiceStatus();
                     return;
@@ -1670,6 +2158,16 @@
             } else {
                 badgeContainer.innerHTML = `<span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2.5 py-1.5 font-monospace"><i class="bi bi-shield-lock-fill me-1"></i> ADMIN (${currentUsername})</span>`;
             }
+        }
+
+        // Atualizar nome e foto/inicial do usuário no sidebar
+        const sidebarUserEl = document.getElementById('sidebar-username-display');
+        if (sidebarUserEl) sidebarUserEl.textContent = currentUsername || 'admin';
+
+        const avatarInitialEl = document.getElementById('user-avatar-initial');
+        if (avatarInitialEl) {
+            const name = (currentUsername || 'admin').trim();
+            avatarInitialEl.textContent = name.charAt(0).toUpperCase();
         }
 
         // Esconder aba de configurações para usuário comum
@@ -1913,6 +2411,10 @@
                 const targetId = link.getAttribute('data-target');
                 const tabName = link.getAttribute('data-tab');
 
+                if (tabName && window.location.hash !== '#' + tabName) {
+                    history.pushState(null, null, '#' + tabName);
+                }
+
                 // 3. Esconder todas as seções (adicionando d-none)
                 sections.forEach(sec => sec.classList.add('d-none'));
 
@@ -1931,6 +2433,16 @@
                     setActiveTab(tabName);
                 }
             });
+        });
+
+        window.addEventListener('hashchange', () => {
+            const hash = window.location.hash.replace('#', '');
+            if (hash) {
+                const targetLink = document.querySelector(`.sidebar-nav .nav-link[data-tab="${hash}"]`);
+                if (targetLink && !targetLink.classList.contains('d-none')) {
+                    targetLink.click();
+                }
+            }
         });
     }
 
@@ -1970,10 +2482,14 @@
 
     function setActiveTab(tabName) {
         if (tabName === 'dashboard') loadTelemetry();
-        else if (tabName === 'vmail') { loadDomains(); loadMailboxes(); loadAliases(); }
-        else if (tabName === 'troubleshooting') { loadQueue(); loadLogs(); }
+        else if (tabName === 'servidores') { loadTelemetry(); loadServiceStatus(); }
+        else if (tabName === 'dominios') loadDomains();
+        else if (tabName === 'mailbox') { loadMailboxes(); loadAliases(); }
         else if (tabName === 'spam') loadSpamRules();
-        else if (tabName === 'settings') { loadDatabaseSettings(); loadAdmins(); }
+        else if (tabName === 'ferramentas') { loadQueue(); loadLogs(); renderSavedQueries(); }
+        else if (tabName === 'studio') { loadCronJobs(); }
+        else if (tabName === 'settings') { loadDatabaseSettings(); }
+        else if (tabName === 'usuarios') loadAdmins();
     }
 
     function refreshCurrentTab() {
@@ -2133,36 +2649,196 @@
 
     // 3. FETCH SERVICES STATUS
     async function loadServiceStatus() {
+        let stoppedList = [];
+        let attackList = [];
+
+        // 1. Checar status dos serviços
         try {
             const data = await fetchJson('/api/services/status');
             if (data.services) {
-                let allActive = true;
                 for (const [svc, info] of Object.entries(data.services)) {
                     const badge = document.getElementById(`badge-${svc}`);
                     if (badge) {
                         badge.textContent = info.active ? 'active' : 'stopped';
                         badge.className = info.active ? 'badge bg-success' : 'badge bg-danger';
                     }
-                    if (!info.active) allActive = false;
-                }
-
-                const dot = document.getElementById('global-status-dot');
-                const txt = document.getElementById('global-status-text');
-                if (allActive) {
-                    dot.className = 'status-dot pulse-emerald';
-                    txt.textContent = 'Serviços 100% OK';
-                } else {
-                    dot.className = 'status-dot pulse-rose';
-                    txt.textContent = 'Alerta de Serviço';
+                    if (!info.active) {
+                        stoppedList.push(svc);
+                    }
                 }
             }
         } catch (e) {
             console.warn("Status de serviços indisponível no momento:", e.message);
-            const dot = document.getElementById('global-status-dot');
-            const txt = document.getElementById('global-status-text');
-            if (dot && txt) {
-                dot.className = 'status-dot pulse-amber';
-                txt.textContent = 'Conectando ao Servidor...';
+        }
+
+        // 2. Checar se existem alertas de ataque nos logs
+        try {
+            const secData = await fetchJson('/api/troubleshooting/security-alerts');
+            if (secData && secData.alerts && secData.alerts.length > 0) {
+                attackList = secData.alerts;
+            }
+        } catch (e) {
+            // Ignora se não houver registros
+        }
+
+        // Elementos DOM
+        const bellIcon = document.getElementById('notif-bell-icon');
+        const dropdownBellIcon = document.getElementById('dropdown-bell-icon');
+        const notifBadge = document.getElementById('notif-count-badge');
+        const notifTag = document.getElementById('notif-status-tag');
+        const notifListContainer = document.getElementById('notif-list-container');
+        
+        const dashboardCard = document.getElementById('dashboard-notif-card');
+        const dashboardNotifIconBox = document.getElementById('dashboard-notif-icon-box');
+        const dashboardNotifIcon = document.getElementById('dashboard-notif-icon');
+        const dashboardNotifTitle = document.getElementById('dashboard-notif-title');
+        const dashboardNotifBadge = document.getElementById('dashboard-notif-badge');
+        const dashboardNotifText = document.getElementById('dashboard-notif-text');
+        const dashboardNotifBtn = document.getElementById('dashboard-notif-btn');
+
+        const hasStopped = stoppedList.length > 0;
+        const hasAttacks = attackList.length > 0;
+
+        if (hasStopped) {
+            // -------------------------------------------------------------
+            // CASO 1: SERVIÇO INDISPONÍVEL -> LED / BADGE VERMELHO
+            // -------------------------------------------------------------
+            if (bellIcon) bellIcon.className = 'bi bi-bell-fill text-danger fs-6';
+            if (dropdownBellIcon) dropdownBellIcon.className = 'bi bi-bell-fill text-danger';
+
+            if (notifBadge) {
+                notifBadge.classList.remove('d-none');
+                notifBadge.textContent = `${stoppedList.length}`;
+                notifBadge.className = 'position-absolute top-0 start-100 translate-middle badge bg-danger text-white font-monospace rounded-circle';
+            }
+
+            if (notifTag) {
+                notifTag.textContent = 'Alerta Crítico';
+                notifTag.className = 'badge bg-danger-subtle text-danger border border-danger-subtle';
+            }
+
+            if (notifListContainer) {
+                notifListContainer.innerHTML = `
+                    <div class="p-2.5 rounded bg-danger bg-opacity-10 border border-danger border-opacity-25">
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <span class="status-dot pulse-rose"></span>
+                            <strong class="small text-danger">${stoppedList.length} Serviço(s) Indisponível(is)</strong>
+                        </div>
+                        <p class="text-dark mb-0" style="font-size: 11px;">
+                            Serviço(s) parado(s): <strong>${stoppedList.join(', ')}</strong>.
+                        </p>
+                    </div>
+                `;
+            }
+
+            // Exibir Painel do Dashboard com Alerta Vermelho
+            if (dashboardCard) {
+                dashboardCard.classList.remove('d-none');
+                dashboardCard.className = 'card p-3.5 mb-4 border-start border-4 border-danger bg-white shadow-sm';
+            }
+            if (dashboardNotifIconBox) dashboardNotifIconBox.className = 'p-2.5 rounded-circle bg-danger bg-opacity-15 text-danger position-relative flex-shrink-0';
+            if (dashboardNotifIcon) dashboardNotifIcon.className = 'bi bi-exclamation-octagon-fill fs-5';
+            if (dashboardNotifTitle) dashboardNotifTitle.textContent = 'Alerta de Indisponibilidade de Serviço';
+            if (dashboardNotifBadge) {
+                dashboardNotifBadge.textContent = 'Serviço Indisponível';
+                dashboardNotifBadge.className = 'badge bg-danger text-white font-monospace';
+            }
+            if (dashboardNotifText) {
+                dashboardNotifText.innerHTML = `<span class="text-danger fw-bold"><i class="bi bi-exclamation-octagon-fill me-1"></i> Falha Detectada:</span> ${stoppedList.length} serviço(s) parado(s) no servidor: <strong>${stoppedList.join(', ')}</strong>. Acesse a aba Servidores para reiniciar o daemon.`;
+            }
+            if (dashboardNotifBtn) {
+                dashboardNotifBtn.className = 'btn btn-sm btn-danger text-white fw-semibold px-3 rounded-3 flex-shrink-0';
+                dashboardNotifBtn.innerHTML = '<i class="bi bi-gear-fill me-1"></i> Ir para Servidores';
+                dashboardNotifBtn.onclick = () => {
+                    const navItem = document.querySelector('[data-tab="servidores"]');
+                    if (navItem) navItem.click();
+                };
+            }
+
+        } else if (hasAttacks) {
+            // -------------------------------------------------------------
+            // CASO 2: LOG DE ATAQUE / INTRUSÃO DETECTADO -> SINO LARANJA
+            // -------------------------------------------------------------
+            if (bellIcon) bellIcon.className = 'bi bi-bell-fill text-warning fs-6';
+            if (dropdownBellIcon) dropdownBellIcon.className = 'bi bi-bell-fill text-warning';
+
+            if (notifBadge) {
+                notifBadge.classList.remove('d-none');
+                notifBadge.textContent = `${attackList.length}`;
+                notifBadge.className = 'position-absolute top-0 start-100 translate-middle badge bg-warning text-dark font-monospace rounded-circle';
+            }
+
+            if (notifTag) {
+                notifTag.textContent = 'Aviso de Segurança';
+                notifTag.className = 'badge bg-warning-subtle text-warning border border-warning-subtle';
+            }
+
+            if (notifListContainer) {
+                notifListContainer.innerHTML = `
+                    <div class="p-2.5 rounded bg-warning bg-opacity-10 border border-warning border-opacity-25">
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <span class="status-dot bg-warning"></span>
+                            <strong class="small text-dark">Log de Ataque / Intrusão</strong>
+                        </div>
+                        <p class="text-muted mb-0" style="font-size: 11px;">
+                            ${attackList.length} tentativa(s) suspeita(s) recente(s) registrada(s) nos logs de e-mail.
+                        </p>
+                    </div>
+                `;
+            }
+
+            // Exibir Painel do Dashboard com Alerta Laranja e Botão Ver Logs
+            if (dashboardCard) {
+                dashboardCard.classList.remove('d-none');
+                dashboardCard.className = 'card p-3.5 mb-4 border-start border-4 border-warning bg-white shadow-sm';
+            }
+            if (dashboardNotifIconBox) dashboardNotifIconBox.className = 'p-2.5 rounded-circle bg-warning bg-opacity-15 text-warning position-relative flex-shrink-0';
+            if (dashboardNotifIcon) dashboardNotifIcon.className = 'bi bi-shield-exclamation fs-5';
+            if (dashboardNotifTitle) dashboardNotifTitle.textContent = 'Alerta de Segurança & Intrusão';
+            if (dashboardNotifBadge) {
+                dashboardNotifBadge.textContent = 'Ataque Detectado';
+                dashboardNotifBadge.className = 'badge bg-warning text-dark font-monospace';
+            }
+            if (dashboardNotifText) {
+                dashboardNotifText.innerHTML = `<span class="text-warning-emphasis fw-bold"><i class="bi bi-shield-exclamation me-1"></i> Atenção:</span> Detectada(s) <strong>${attackList.length} tentativa(s) de acesso não autorizado</strong> ou conexões suspeitas nos logs de e-mail.`;
+            }
+            if (dashboardNotifBtn) {
+                dashboardNotifBtn.className = 'btn btn-sm btn-outline-warning text-dark fw-semibold px-3 rounded-3 flex-shrink-0';
+                dashboardNotifBtn.innerHTML = '<i class="bi bi-file-text me-1"></i> Ver Logs do Sistema';
+                dashboardNotifBtn.onclick = () => {
+                    const navItem = document.querySelector('[data-tab="ferramentas"]');
+                    if (navItem) navItem.click();
+                };
+            }
+
+        } else {
+            // -------------------------------------------------------------
+            // CASO 3: TUDO 100% OK -> SINO CINZA E PAINEL ESCONDIDO
+            // -------------------------------------------------------------
+            if (bellIcon) bellIcon.className = 'bi bi-bell-fill text-secondary fs-6';
+            if (dropdownBellIcon) dropdownBellIcon.className = 'bi bi-bell-fill text-secondary';
+
+            if (notifBadge) {
+                notifBadge.classList.add('d-none');
+                notifBadge.textContent = '0';
+            }
+
+            if (notifTag) {
+                notifTag.textContent = 'Operacional';
+                notifTag.className = 'badge bg-success-subtle text-success border border-success-subtle';
+            }
+
+            if (notifListContainer) {
+                notifListContainer.innerHTML = `
+                    <div class="p-2.5 rounded bg-light text-muted small text-center">
+                        <i class="bi bi-check-circle-fill text-success me-1"></i> Todos os serviços operando normalmente. Sem alertas.
+                    </div>
+                `;
+            }
+
+            // Esconder o painel do Dashboard se tudo estiver 100% OK
+            if (dashboardCard) {
+                dashboardCard.classList.add('d-none');
             }
         }
     }
@@ -2699,13 +3375,45 @@
                                                  lowerSender === 'n/a' || 
                                                  lowerSender === '';
 
-                        const blockBtnHtml = isInternalSender
-                            ? `<button class="btn btn-secondary btn-sm px-2 py-0.5 fs-7 me-1 fw-bold opacity-50" disabled title="Bloqueio desabilitado para conta/domínio interno de sistema">
-                                    <i class="fas fa-ban me-1"></i> Bloquear
-                               </button>`
-                            : `<button class="btn btn-danger btn-sm px-2 py-0.5 fs-7 me-1 fw-bold" onclick="soarAction('block', '${safeSender}', this)" title="Bloquear Remetente">
-                                    <i class="fas fa-ban me-1"></i> Bloquear
+                        const ruleStatus = t.rule_status || null;
+
+                        let blockBtnHtml = '';
+                        let spamBtnHtml = '';
+                        let whitelistBtnHtml = '';
+
+                        if (isInternalSender) {
+                            blockBtnHtml = `<button class="btn btn-outline-secondary btn-sm px-2 py-1 me-1 opacity-40" disabled title="Bloqueio indisponível para conta/domínio interno">
+                                    <i class="fas fa-ban fs-6"></i>
                                </button>`;
+                        } else if (ruleStatus === 'block') {
+                            blockBtnHtml = `<button class="btn btn-danger btn-sm px-2 py-1 me-1 shadow-sm" disabled title="Status: Bloqueado">
+                                    <i class="fas fa-ban fs-6"></i>
+                               </button>`;
+                        } else {
+                            blockBtnHtml = `<button class="btn btn-outline-danger btn-sm px-2 py-1 me-1" onclick="soarAction('block', '${safeSender}', this)" title="Bloquear Remetente">
+                                    <i class="fas fa-ban fs-6"></i>
+                               </button>`;
+                        }
+
+                        if (ruleStatus === 'spam') {
+                            spamBtnHtml = `<button class="btn btn-warning text-dark btn-sm px-2 py-1 me-1 shadow-sm" disabled title="Status: Marcado como SPAM">
+                                    <i class="fas fa-spider fs-6"></i>
+                               </button>`;
+                        } else {
+                            spamBtnHtml = `<button class="btn btn-outline-warning btn-sm px-2 py-1 me-1" onclick="soarAction('spam', '${safeSender}', this)" title="Marcar como SPAM">
+                                    <i class="fas fa-spider fs-6"></i>
+                               </button>`;
+                        }
+
+                        if (ruleStatus === 'whitelist') {
+                            whitelistBtnHtml = `<button class="btn btn-success btn-sm px-2 py-1 shadow-sm" disabled title="Status: Em Whitelist">
+                                    <i class="fas fa-check-circle fs-6"></i>
+                               </button>`;
+                        } else {
+                            whitelistBtnHtml = `<button class="btn btn-outline-success btn-sm px-2 py-1" onclick="soarAction('whitelist', '${safeSender}', this)" title="Adicionar à Whitelist">
+                                    <i class="fas fa-check-circle fs-6"></i>
+                               </button>`;
+                        }
 
                         const tr = document.createElement('tr');
                         tr.className = 'border-bottom border-dark-subtle';
@@ -2718,12 +3426,8 @@
                             <td class="py-2">${verdictBadge}</td>
                             <td class="py-2 text-end pe-3 text-nowrap">
                                 ${blockBtnHtml}
-                                <button class="btn btn-warning btn-sm px-2 py-0.5 fs-7 me-1 text-dark fw-bold" onclick="soarAction('spam', '${safeSender}', this)" title="Marcar como SPAM">
-                                    <i class="fas fa-spider me-1"></i> Marcar SPAM
-                                </button>
-                                <button class="btn btn-success btn-sm px-2 py-0.5 fs-7 fw-bold" onclick="soarAction('whitelist', '${safeSender}', this)" title="Adicionar à Whitelist">
-                                    <i class="fas fa-check me-1"></i> Whitelist
-                                </button>
+                                ${spamBtnHtml}
+                                ${whitelistBtnHtml}
                             </td>
                         `;
                         soarTbody.appendChild(tr);
@@ -2756,8 +3460,17 @@
             return;
         }
 
+        let parentTd = null;
+        if (btnEl) {
+            parentTd = btnEl.closest('td');
+            if (parentTd) {
+                parentTd.querySelectorAll('button').forEach(b => b.disabled = true);
+            }
+        }
+
         try {
-            const endpoint = "{{ url_for('troubleshooting.add_mail_rule') }}";
+            const rawEndpoint = "{{ url_for('troubleshooting.add_mail_rule') }}";
+            const endpoint = (rawEndpoint && !rawEndpoint.includes('{{')) ? rawEndpoint : '/api/troubleshooting/rules/add';
             const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: {
@@ -2815,13 +3528,172 @@
                         setTimeout(() => toastDiv.remove(), 300);
                     }
                 }, 4500);
+
+                // ATUALIZAÇÃO VISUAL IMEDIATA DOS BOTÕES NA LINHA DA TABELA
+                if (parentTd) {
+                    const safeSender = target.replace(/'/g, "\\'");
+                    if (actionType === 'block') {
+                        parentTd.innerHTML = `
+                            <button class="btn btn-danger btn-sm px-2 py-1 me-1 shadow-sm" disabled title="Status: Bloqueado">
+                                <i class="fas fa-ban fs-6"></i>
+                            </button>
+                            <button class="btn btn-outline-warning btn-sm px-2 py-1 me-1" onclick="soarAction('spam', '${safeSender}', this)" title="Marcar como SPAM">
+                                <i class="fas fa-spider fs-6"></i>
+                            </button>
+                            <button class="btn btn-outline-success btn-sm px-2 py-1" onclick="soarAction('whitelist', '${safeSender}', this)" title="Adicionar à Whitelist">
+                                <i class="fas fa-check-circle fs-6"></i>
+                            </button>
+                        `;
+                    } else if (actionType === 'spam') {
+                        parentTd.innerHTML = `
+                            <button class="btn btn-outline-danger btn-sm px-2 py-1 me-1" onclick="soarAction('block', '${safeSender}', this)" title="Bloquear Remetente">
+                                <i class="fas fa-ban fs-6"></i>
+                            </button>
+                            <button class="btn btn-warning text-dark btn-sm px-2 py-1 me-1 shadow-sm" disabled title="Status: Marcado como SPAM">
+                                <i class="fas fa-spider fs-6"></i>
+                            </button>
+                            <button class="btn btn-outline-success btn-sm px-2 py-1" onclick="soarAction('whitelist', '${safeSender}', this)" title="Adicionar à Whitelist">
+                                <i class="fas fa-check-circle fs-6"></i>
+                            </button>
+                        `;
+                    } else if (actionType === 'whitelist') {
+                        parentTd.innerHTML = `
+                            <button class="btn btn-outline-danger btn-sm px-2 py-1 me-1" onclick="soarAction('block', '${safeSender}', this)" title="Bloquear Remetente">
+                                <i class="fas fa-ban fs-6"></i>
+                            </button>
+                            <button class="btn btn-outline-warning btn-sm px-2 py-1 me-1" onclick="soarAction('spam', '${safeSender}', this)" title="Marcar como SPAM">
+                                <i class="fas fa-spider fs-6"></i>
+                            </button>
+                            <button class="btn btn-success btn-sm px-2 py-1 shadow-sm" disabled title="Status: Em Whitelist">
+                                <i class="fas fa-check-circle fs-6"></i>
+                            </button>
+                        `;
+                    }
+                }
             } else {
+                if (parentTd) {
+                    parentTd.querySelectorAll('button').forEach(b => b.disabled = false);
+                }
                 alert(`Erro ao gravar regra SOAR: ${data.message || 'Erro desconhecido'}`);
             }
         } catch (err) {
+            if (parentTd) {
+                parentTd.querySelectorAll('button').forEach(b => b.disabled = false);
+            }
             console.error('Erro na requisição SOAR:', err);
             alert(`Erro ao conectar à API SOAR: ${err.message}`);
         }
+    }
+
+    // ------------------------------------------------------------------
+    // QUERY BUILDER & FAVORITOS DE CONSULTA (MailLog Query)
+    // ------------------------------------------------------------------
+    function syncQueryBuilderToInput() {
+        const fromOp = document.getElementById('qb-from-op') ? document.getElementById('qb-from-op').value : ':';
+        const fromVal = document.getElementById('qb-from-val') ? document.getElementById('qb-from-val').value.trim() : '';
+        const toOp = document.getElementById('qb-to-op') ? document.getElementById('qb-to-op').value : ':';
+        const toVal = document.getElementById('qb-to-val') ? document.getElementById('qb-to-val').value.trim() : '';
+        const statusOp = document.getElementById('qb-status-op') ? document.getElementById('qb-status-op').value : ':';
+        const statusVal = document.getElementById('qb-status-val') ? document.getElementById('qb-status-val').value.trim() : '';
+
+        const parts = [];
+        if (fromVal) {
+            parts.push(`from${fromOp}${fromVal}`);
+        }
+        if (toVal) {
+            parts.push(`to${toOp}${toVal}`);
+        }
+        if (statusVal) {
+            parts.push(`status${statusOp}${statusVal}`);
+        }
+
+        const pqInput = document.getElementById('log-power-query-input');
+        if (pqInput) {
+            pqInput.value = parts.join('; ');
+        }
+    }
+
+    function resetQueryBuilder() {
+        if (document.getElementById('qb-from-val')) document.getElementById('qb-from-val').value = '';
+        if (document.getElementById('qb-to-val')) document.getElementById('qb-to-val').value = '';
+        if (document.getElementById('qb-status-val')) document.getElementById('qb-status-val').value = '';
+        const pqInput = document.getElementById('log-power-query-input');
+        if (pqInput) pqInput.value = '';
+    }
+
+    function applyQuickQuery(queryStr) {
+        const input = document.getElementById('log-power-query-input');
+        if (input) {
+            input.value = queryStr;
+            trackEmail();
+        }
+    }
+
+    function saveCurrentQueryToFavorites() {
+        const input = document.getElementById('log-power-query-input');
+        const queryVal = input ? input.value.trim() : '';
+        if (!queryVal) {
+            alert('Digite ou construa uma consulta antes de favoritar.');
+            return;
+        }
+        const name = prompt('Nome para esta consulta salva (favorito):', queryVal);
+        if (!name) return;
+
+        let saved = [];
+        try {
+            saved = JSON.parse(localStorage.getItem('mailadmin_saved_queries') || '[]');
+        } catch (e) {
+            saved = [];
+        }
+        saved.push({ id: Date.now(), name: name.trim(), query: queryVal });
+        localStorage.setItem('mailadmin_saved_queries', JSON.stringify(saved));
+        renderSavedQueries();
+        showAlert(`Consulta "${name}" salva nos favoritos!`, 'success');
+    }
+
+    function renderSavedQueries() {
+        const container = document.getElementById('saved-queries-container');
+        if (!container) return;
+
+        let saved = [];
+        try {
+            saved = JSON.parse(localStorage.getItem('mailadmin_saved_queries') || '[]');
+        } catch (e) {
+            saved = [];
+        }
+
+        if (saved.length === 0) {
+            saved = [
+                { id: 1, name: 'Enviados com Sucesso', query: 'status=sent' },
+                { id: 2, name: 'Rejeições SPAM', query: 'amavis; SPAM' },
+                { id: 3, name: 'Falhas de Conexão', query: 'status=bounced' }
+            ];
+        }
+
+        container.innerHTML = saved.map(q => {
+            const safeQuery = q.query.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            return `
+                <span class="badge bg-white text-dark border shadow-sm font-monospace fs-7 p-1.5 px-2.5 d-inline-flex align-items-center gap-1.5">
+                    <span class="cursor-pointer fw-semibold text-primary" onclick="applyQuickQuery('${safeQuery}')" title="Executar: ${safeQuery}">
+                        <i class="bi bi-star-fill text-warning me-1"></i>${q.name}
+                    </span>
+                    <button class="btn-close ms-1" style="font-size: 8px;" onclick="deleteSavedQuery(${q.id}, event)" title="Excluir Favorito"></button>
+                </span>
+            `;
+        }).join('');
+    }
+
+    function deleteSavedQuery(id, event) {
+        if (event) event.stopPropagation();
+        let saved = [];
+        try {
+            saved = JSON.parse(localStorage.getItem('mailadmin_saved_queries') || '[]');
+        } catch (e) {
+            saved = [];
+        }
+        saved = saved.filter(q => q.id !== id);
+        localStorage.setItem('mailadmin_saved_queries', JSON.stringify(saved));
+        renderSavedQueries();
     }
 
     function showDnsDetails(type) {
@@ -3158,58 +4030,90 @@
         }
     }
 
+    async function toggleUserMfa(id, enable, username) {
+        const actionText = enable ? 'habilitar' : 'desabilitar';
+        if (!confirm(`Deseja ${actionText} o MFA para o usuário "${username}"?`)) return;
+
+        try {
+            const data = await fetchJson(`/api/auth/admins/${id}/toggle-mfa`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enable })
+            });
+            showAlert(data.message, 'success');
+            loadAdmins();
+        } catch (e) {
+            showAlert(`Erro ao alterar MFA do usuário: ${e.message}`, 'danger');
+        }
+    }
+
     // 9. GESTÃO DE ADMINISTRADORES DO PAINEL (vmail_admins)
     async function loadAdmins() {
-        const tbody = document.getElementById('admins-table-body');
-        const countSpan = document.getElementById('admins-count');
-        if (!tbody) return;
+        const tbodySettings = document.getElementById('admins-table-body');
+        const tbodyVmail = document.getElementById('vmail-users-table-body');
+        const countSpanSettings = document.getElementById('admins-count');
+        const countSpanVmail = document.getElementById('vmail-users-count');
 
         try {
             const data = await fetchJson('/api/auth/admins');
             if (data.admins) {
-                if (countSpan) countSpan.textContent = data.admins.length;
+                if (countSpanSettings) countSpanSettings.textContent = data.admins.length;
+                if (countSpanVmail) countSpanVmail.textContent = data.admins.length;
 
-                if (data.admins.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Nenhum usuário cadastrado no banco.</td></tr>';
-                    return;
-                }
+                const rowsHtml = data.admins.length === 0
+                    ? '<tr><td colspan="6" class="text-center text-muted py-3">Nenhum usuário cadastrado no banco.</td></tr>'
+                    : data.admins.map(a => {
+                        const mfaBadge = a.otp_enabled
+                            ? `<span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1 font-monospace"><i class="bi bi-shield-lock-fill me-1"></i> Ativado</span>`
+                            : `<span class="badge bg-secondary-subtle text-secondary border px-2.5 py-1 font-monospace"><i class="bi bi-shield-slash me-1"></i> Desativado</span>`;
 
-                tbody.innerHTML = data.admins.map(a => `
-                    <tr>
-                        <td class="font-monospace text-muted small">#${a.id}</td>
-                        <td class="fw-bold text-dark font-monospace"><i class="bi bi-person-fill text-primary me-1"></i> ${a.username}</td>
-                        <td>
-                            ${a.role === 'user'
-                                ? `<span class="badge bg-info-subtle text-info border border-info-subtle px-2.5 py-1 font-monospace"><i class="bi bi-person me-1"></i> Usuário</span>`
-                                : `<span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2.5 py-1 font-monospace"><i class="bi bi-shield-check me-1"></i> Admin</span>`
-                            }
-                        </td>
-                        <td>
-                            ${a.otp_enabled
-                                ? `<span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1 font-monospace"><i class="bi bi-shield-lock-fill me-1"></i> MFA Ativado</span>`
-                                : `<span class="badge bg-secondary-subtle text-secondary border px-2.5 py-1 font-monospace"><i class="bi bi-shield-slash me-1"></i> MFA Desativado</span>`
-                            }
-                        </td>
-                        <td class="font-monospace text-secondary small">${a.created_at || '-'}</td>
-                        <td>
-                            <div class="d-flex gap-1">
-                                <button class="btn btn-sm btn-outline-warning text-dark border-0 p-1.5 btn-delete-rbac" onclick="showChangeAdminPasswordModal(${a.id}, '${a.username}')" title="Trocar Senha">
-                                    <i class="bi bi-key-fill"></i>
-                                </button>
-                                <button class="btn btn-sm btn-outline-danger border-0 p-1.5 btn-delete-rbac" onclick="deleteAdminUser(${a.id}, '${a.username}')" title="Excluir Administrador">
-                                    <i class="bi bi-trash-fill"></i>
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
-                `).join('');
+                        const mfaBtn = a.otp_enabled
+                            ? `<button class="btn btn-sm btn-outline-danger border-0 p-1.5 btn-delete-rbac" onclick="toggleUserMfa(${a.id}, false, '${a.username}')" title="Desabilitar MFA para ${a.username}">
+                                    <i class="bi bi-shield-slash-fill me-1"></i> Desabilitar MFA
+                               </button>`
+                            : `<button class="btn btn-sm btn-outline-success border-0 text-success fw-semibold btn-delete-rbac" onclick="toggleUserMfa(${a.id}, true, '${a.username}')" title="Habilitar MFA para ${a.username}">
+                                    <i class="bi bi-shield-check me-1"></i> Habilitar MFA
+                               </button>`;
+
+                        return `
+                            <tr>
+                                <td class="font-monospace text-muted small">#${a.id}</td>
+                                <td class="fw-bold text-dark font-monospace"><i class="bi bi-person-fill text-primary me-1"></i> ${a.username}</td>
+                                <td>
+                                    ${a.role === 'user'
+                                        ? `<span class="badge bg-info-subtle text-info border border-info-subtle px-2.5 py-1 font-monospace"><i class="bi bi-person me-1"></i> Usuário</span>`
+                                        : `<span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2.5 py-1 font-monospace"><i class="bi bi-shield-check me-1"></i> Admin</span>`
+                                    }
+                                </td>
+                                <td>${mfaBadge}</td>
+                                <td class="font-monospace text-secondary small">${a.created_at || '-'}</td>
+                                <td>
+                                    <div class="d-flex align-items-center gap-1">
+                                        ${mfaBtn}
+                                        <button class="btn btn-sm btn-outline-warning text-dark border-0 p-1.5 btn-delete-rbac" onclick="showChangeAdminPasswordModal(${a.id}, '${a.username}')" title="Trocar Senha">
+                                            <i class="bi bi-key-fill"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger border-0 p-1.5 btn-delete-rbac" onclick="deleteAdminUser(${a.id}, '${a.username}')" title="Excluir Administrador">
+                                            <i class="bi bi-trash-fill"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        `;
+                    }).join('');
+
+                if (tbodySettings) tbodySettings.innerHTML = rowsHtml;
+                if (tbodyVmail) tbodyVmail.innerHTML = rowsHtml;
 
                 filterTableRows('search-admins-input', 'admins-table-body');
+                filterTableRows('search-users-vmail-input', 'vmail-users-table-body');
                 applyRbacPermissions();
             }
         } catch (e) {
             console.error("Erro ao carregar administradores:", e);
-            tbody.innerHTML = `<tr><td colspan="6" class="text-danger font-monospace text-center py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar administradores: ${e.message}</td></tr>`;
+            const errHtml = `<tr><td colspan="6" class="text-danger font-monospace text-center py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar administradores: ${e.message}</td></tr>`;
+            if (tbodySettings) tbodySettings.innerHTML = errHtml;
+            if (tbodyVmail) tbodyVmail.innerHTML = errHtml;
         }
     }
 
@@ -3299,6 +4203,387 @@
             loadAdmins();
         } catch (e) {
             showAlert(`Erro ao excluir administrador: ${e.message}`, 'danger');
+        }
+    }
+
+    // 10. CRONTAB VISUAL & AUTOMAÇÕES DE SISTEMA
+    let cronJobsCache = [];
+
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    async function loadCronJobs() {
+        const tbody = document.getElementById('cron-jobs-table-body');
+        if (!tbody) return;
+
+        try {
+            const res = await fetch('/api/automation/jobs');
+            const contentType = res.headers.get('content-type');
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+            }
+            if (!contentType || !contentType.includes('application/json')) {
+                const textOutput = await res.text();
+                console.error("Resposta do servidor não é JSON:", textOutput);
+                throw new Error("A resposta do servidor para a API de agendamentos não é um JSON válido.");
+            }
+
+            const data = await res.json();
+            if (data.status !== 'success' && !data.success) {
+                throw new Error(data.message || "Erro retornado pela API de automações.");
+            }
+
+            cronJobsCache = data.jobs || [];
+
+            if (cronJobsCache.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Nenhum agendamento cadastrado. Clique em "Nova Automação" para criar.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = cronJobsCache.map(j => {
+                const scheduleDisplay = j.schedule || j.cron_expression || '0 * * * *';
+                const presetLabel = {
+                    '1h': 'A cada 1 hora',
+                    '3h': 'A cada 3 horas',
+                    '6h': 'A cada 6 horas',
+                    'daily': 'Diário (02:00)',
+                    'custom': 'Customizado'
+                }[j.schedule_preset] || 'Customizado';
+
+                return `
+                    <tr>
+                        <td class="fw-bold text-dark">
+                            <i class="bi bi-clock-history text-primary me-1.5"></i> ${escapeHtml(j.name)}
+                        </td>
+                        <td>
+                            <div class="fw-semibold text-dark small">${presetLabel}</div>
+                            <span class="badge bg-light text-dark border font-monospace small px-2 py-0.5">${escapeHtml(scheduleDisplay)}</span>
+                        </td>
+                        <td>
+                            <code class="text-primary small bg-light px-2 py-1 rounded border d-inline-block text-truncate" style="max-width: 280px;" title="${escapeHtml(j.command)}">${escapeHtml(j.command)}</code>
+                        </td>
+                        <td class="font-monospace text-muted small">
+                            ${j.last_run ? j.last_run : '<span class="text-muted">Ainda não executado</span>'}
+                        </td>
+                        <td>
+                            <div class="form-check form-switch cursor-pointer">
+                                <input class="form-check-input" type="checkbox" role="switch" ${j.enabled ? 'checked' : ''} onchange="toggleCronJob(${j.id}, this.checked)">
+                            </div>
+                        </td>
+                        <td class="text-end">
+                            <div class="d-flex align-items-center justify-content-end gap-1">
+                                <button class="btn btn-sm btn-outline-success fw-bold border-0 px-2 py-1" onclick="runCronNow(${j.id}, '${escapeHtml(j.name)}')" title="Executar Agora via Subprocess">
+                                    <i class="bi bi-play-circle-fill me-1"></i> Executar
+                                </button>
+                                <button class="btn btn-sm btn-outline-primary border-0 p-1.5" onclick="editCronJob(${j.id})" title="Editar Agendamento">
+                                    <i class="bi bi-pencil-square"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger border-0 p-1.5" onclick="deleteCronJob(${j.id}, '${escapeHtml(j.name)}')" title="Excluir Agendamento">
+                                    <i class="bi bi-trash-fill"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        } catch (e) {
+            console.error("Erro ao carregar cronjobs:", e);
+            tbody.innerHTML = `<tr><td colspan="6" class="text-danger font-monospace text-center py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar agendamentos: ${escapeHtml(e.message)}</td></tr>`;
+        }
+    }
+
+    function showCreateCronModal() {
+        document.getElementById('cron-job-id').value = '';
+        document.getElementById('cron-modal-title').textContent = 'Nova Automação Agendada';
+        document.getElementById('cron-preset-select').value = 'custom';
+        document.getElementById('cron-name-input').value = '';
+        document.getElementById('cron-schedule-preset').value = '1h';
+        document.getElementById('cron-expression-input').value = '0 * * * *';
+        document.getElementById('cron-command-input').value = '';
+        if (document.getElementById('cron-script-filename-input')) document.getElementById('cron-script-filename-input').value = '';
+        if (document.getElementById('cron-script-content-input')) document.getElementById('cron-script-content-input').value = '';
+        new bootstrap.Modal(document.getElementById('createCronModal')).show();
+    }
+
+    function editCronJob(jobId) {
+        const job = cronJobsCache.find(j => j.id === jobId);
+        if (!job) return;
+
+        document.getElementById('cron-job-id').value = job.id;
+        document.getElementById('cron-modal-title').textContent = 'Editar Automação #' + job.id;
+        document.getElementById('cron-preset-select').value = 'custom';
+        document.getElementById('cron-name-input').value = job.name;
+        document.getElementById('cron-schedule-preset').value = job.schedule_preset || 'custom';
+        document.getElementById('cron-expression-input').value = job.schedule || job.cron_expression || '0 * * * *';
+        document.getElementById('cron-command-input').value = job.command;
+        if (document.getElementById('cron-script-filename-input')) document.getElementById('cron-script-filename-input').value = '';
+        if (document.getElementById('cron-script-content-input')) document.getElementById('cron-script-content-input').value = '';
+        new bootstrap.Modal(document.getElementById('createCronModal')).show();
+    }
+
+    function applyCronPreset() {
+        const preset = document.getElementById('cron-preset-select').value;
+        if (preset === 'preset_log_ingest') {
+            document.getElementById('cron-name-input').value = 'Ingestão de Logs de E-mail para MariaDB (Log-to-DB)';
+            document.getElementById('cron-schedule-preset').value = '1h';
+            document.getElementById('cron-expression-input').value = '0 * * * *';
+            document.getElementById('cron-command-input').value = 'python3 /opt/mailadmin/scripts/mail_log_ingestor.py';
+        } else if (preset === 'preset_vmail_backup') {
+            document.getElementById('cron-name-input').value = 'Backup Automatizado das Tabelas vmail';
+            document.getElementById('cron-schedule-preset').value = 'daily';
+            document.getElementById('cron-expression-input').value = '0 2 * * *';
+            document.getElementById('cron-command-input').value = "mysqldump -u vmailadmin -p'senha_vmail_123' vmail > /var/backups/vmail_backup.sql";
+        } else if (preset === 'preset_expunge_antispam') {
+            document.getElementById('cron-name-input').value = 'Expurgar Logs de Antispam Antigos (>30 Dias)';
+            document.getElementById('cron-schedule-preset').value = 'daily';
+            document.getElementById('cron-expression-input').value = '0 3 * * *';
+            document.getElementById('cron-command-input').value = "find /var/log/amavis -name '*.gz' -mtime +30 -delete 2>/dev/null || true";
+        }
+    }
+
+    function syncCronPresetExpression() {
+        const preset = document.getElementById('cron-schedule-preset').value;
+        const exprInput = document.getElementById('cron-expression-input');
+        if (preset === '1h') exprInput.value = '0 * * * *';
+        else if (preset === '3h') exprInput.value = '0 */3 * * *';
+        else if (preset === '6h') exprInput.value = '0 */6 * * *';
+        else if (preset === 'daily') exprInput.value = '0 2 * * *';
+    }
+
+    async function saveCronJob() {
+        const jobId = document.getElementById('cron-job-id').value;
+        const name = document.getElementById('cron-name-input').value.trim();
+        const schedule_preset = document.getElementById('cron-schedule-preset').value;
+        const cron_expression = document.getElementById('cron-expression-input').value.trim();
+        let command = document.getElementById('cron-command-input').value.trim();
+        const script_filename = document.getElementById('cron-script-filename-input') ? document.getElementById('cron-script-filename-input').value.trim() : '';
+        const script_content = document.getElementById('cron-script-content-input') ? document.getElementById('cron-script-content-input').value.trim() : '';
+
+        if (!name || (!command && !script_content) || !cron_expression) {
+            alert("Por favor, preencha o Nome, Frequência e o Comando ou Script Inline.");
+            return;
+        }
+
+        const method = jobId ? 'PUT' : 'POST';
+        const url = jobId ? `/api/automation/jobs/${jobId}` : '/api/automation/jobs';
+
+        try {
+            const data = await fetchJson(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name,
+                    schedule_preset,
+                    cron_expression,
+                    schedule: cron_expression,
+                    command,
+                    script_filename,
+                    script_content,
+                    enabled: true
+                })
+            });
+
+            showAlert(data.message || 'Automação salva com sucesso!', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('createCronModal')).hide();
+            loadCronJobs();
+        } catch (e) {
+            showAlert(`Erro ao salvar automação: ${e.message}`, 'danger');
+        }
+    }
+
+    async function toggleCronJob(jobId, enabled) {
+        try {
+            const data = await fetchJson(`/api/automation/jobs/${jobId}/toggle`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled })
+            });
+            showAlert(data.message, 'success');
+            loadCronJobs();
+        } catch (e) {
+            showAlert(`Erro ao alterar status da automação: ${e.message}`, 'danger');
+        }
+    }
+
+    async function runCronNow(jobId, name) {
+        showAlert(`Executando "${name}" imediatamente via subprocess...`, 'info');
+        try {
+            const data = await fetchJson(`/api/automation/run-now/${jobId}`, { method: 'POST' });
+            if (data.success) {
+                showAlert(`Automação "${name}" executada com sucesso! Output: ${data.output || data.stdout || 'OK'}`, 'success');
+            } else {
+                showAlert(`Atenção na execução de "${name}": ${data.output || data.stderr || data.message}`, 'warning');
+            }
+            loadCronJobs();
+        } catch (e) {
+            showAlert(`Erro ao disparar automação: ${e.message}`, 'danger');
+        }
+    }
+
+    async function deleteCronJob(jobId, name) {
+        if (!confirm(`Deseja realmente excluir a automação "${name}"?`)) return;
+
+        try {
+            const data = await fetchJson(`/api/automation/jobs/${jobId}`, { method: 'DELETE' });
+            showAlert(data.message, 'success');
+            loadCronJobs();
+        } catch (e) {
+            showAlert(`Erro ao excluir automação: ${e.message}`, 'danger');
+        }
+    }
+
+    // 12. EXPLORADOR MARIADB / SQL STUDIO
+    function setSqlQuery(sqlText) {
+        const input = document.getElementById('sql-query-input');
+        if (input) {
+            input.value = sqlText;
+        }
+    }
+
+    async function executeSqlQuery() {
+        const input = document.getElementById('sql-query-input');
+        const thead = document.getElementById('sql-results-thead');
+        const tbody = document.getElementById('sql-results-tbody');
+        const rowCountSpan = document.getElementById('sql-row-count');
+        const timeSpan = document.getElementById('sql-execution-time');
+        const alertContainer = document.getElementById('sql-studio-alert-container');
+
+        if (alertContainer) alertContainer.innerHTML = '';
+
+        if (!input || !input.value.trim()) {
+            if (alertContainer) {
+                alertContainer.innerHTML = `
+                    <div class="alert alert-warning border-0 shadow-sm d-flex align-items-center justify-content-between mb-3 rounded-3" role="alert">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-exclamation-circle-fill fs-5 flex-shrink-0 text-warning"></i>
+                            <div>Por favor, insira uma instrução SQL antes de executar.</div>
+                        </div>
+                        <button type="button" class="btn-close" onclick="document.getElementById('sql-studio-alert-container').innerHTML=''"></button>
+                    </div>
+                `;
+            } else {
+                alert("Por favor, digite uma consulta SQL.");
+            }
+            return;
+        }
+
+        const query = input.value.trim();
+
+        tbody.innerHTML = '<tr><td colspan="100%" class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm me-2 text-primary"></div>Executando instrução no MariaDB...</td></tr>';
+
+        try {
+            const res = await fetch('/api/troubleshooting/sql-query', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: query })
+            });
+
+            const contentType = res.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                throw new Error("A resposta do servidor para a consulta SQL não é JSON válido.");
+            }
+
+            const data = await res.json();
+
+            if (!res.ok || (!data.success && data.status !== 'success')) {
+                throw new Error(data.message || "Erro desconhecido na execução da query SQL.");
+            }
+
+            if (rowCountSpan) rowCountSpan.textContent = `${data.row_count} linhas`;
+            if (timeSpan) timeSpan.textContent = `${data.execution_time_ms} ms`;
+
+            if (!data.columns || data.columns.length === 0) {
+                thead.innerHTML = '<tr><th>Resultado</th></tr>';
+                tbody.innerHTML = `<tr><td class="text-success"><i class="bi bi-check-circle-fill me-1"></i> ${escapeHtml(data.message || "Comando executado com sucesso.")}</td></tr>`;
+                return;
+            }
+
+            thead.innerHTML = '<tr>' + data.columns.map(c => `<th class="text-dark fw-bold font-monospace small">${escapeHtml(c)}</th>`).join('') + '</tr>';
+
+            if (!data.rows || data.rows.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="${data.columns.length}" class="text-center text-muted py-3">Consulta concluída com sucesso. Nenhuma linha retornada.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = data.rows.map(row => {
+                return '<tr>' + data.columns.map(c => {
+                    const val = row[c] !== null && row[c] !== undefined ? row[c] : '<span class="text-muted font-italic">NULL</span>';
+                    return `<td class="text-truncate" style="max-width: 300px;" title="${escapeHtml(String(val))}">${escapeHtml(String(val))}</td>`;
+                }).join('') + '</tr>';
+            }).join('');
+
+        } catch (e) {
+            console.error("Erro na consulta SQL:", e);
+            if (rowCountSpan) rowCountSpan.textContent = '0 linhas';
+            if (timeSpan) timeSpan.textContent = '0 ms';
+
+            if (alertContainer) {
+                alertContainer.innerHTML = `
+                    <div class="alert alert-danger border-0 shadow-sm d-flex align-items-center justify-content-between mb-3 rounded-3" role="alert">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-exclamation-triangle-fill fs-5 flex-shrink-0 text-danger"></i>
+                            <div>
+                                <strong>Erro na execução da query SQL:</strong>
+                                <div class="font-monospace small mt-1">${escapeHtml(e.message)}</div>
+                            </div>
+                        </div>
+                        <button type="button" class="btn-close" onclick="document.getElementById('sql-studio-alert-container').innerHTML=''"></button>
+                    </div>
+                `;
+            }
+
+            thead.innerHTML = '<tr><th class="text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro SQL</th></tr>';
+            tbody.innerHTML = `<tr><td class="text-danger font-monospace py-3"><i class="bi bi-x-circle me-1"></i> ${escapeHtml(e.message)}</td></tr>`;
+        }
+    }
+
+    // 11. TRILHA DE AUDITORIA DE AÇÕES (AUDIT TRAIL)
+    async function loadAuditLogs() {
+        const tbody = document.getElementById('audit-logs-table-body');
+        const countSpan = document.getElementById('audit-logs-count');
+        if (!tbody) return;
+
+        try {
+            const data = await fetchJson('/api/auth/audit-logs');
+            const logs = data.audit_logs || [];
+            if (countSpan) countSpan.textContent = logs.length;
+
+            if (logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Nenhum registro de auditoria encontrado.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = logs.map(l => {
+                let badgeClass = 'bg-primary-subtle text-primary border-primary-subtle';
+                if (l.action.includes('MFA')) badgeClass = 'bg-info-subtle text-info border-info-subtle';
+                if (l.action.includes('DELETE') || l.action.includes('FLUSH')) badgeClass = 'bg-danger-subtle text-danger border-danger-subtle';
+                if (l.action.includes('RULE') || l.action.includes('CRON')) badgeClass = 'bg-purple-subtle text-purple border-purple-subtle';
+
+                const detailsText = l.details ? JSON.stringify(l.details) : '-';
+
+                return `
+                    <tr>
+                        <td class="font-monospace text-muted small">${l.created_at || '-'}</td>
+                        <td class="fw-bold text-dark font-monospace"><i class="bi bi-person-fill text-secondary me-1"></i> ${l.username}</td>
+                        <td><span class="badge ${badgeClass} border font-monospace px-2.5 py-1">${l.action}</span></td>
+                        <td class="font-monospace text-dark small">${l.target || '-'}</td>
+                        <td class="font-monospace text-muted small">${l.ip_address || '-'}</td>
+                        <td class="font-monospace text-muted small text-truncate" style="max-width: 220px;" title="${detailsText}">${detailsText}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            filterTableRows('search-audit-input', 'audit-logs-table-body');
+        } catch (e) {
+            console.error("Erro ao carregar logs de auditoria:", e);
+            tbody.innerHTML = `<tr><td colspan="6" class="text-danger font-monospace text-center py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar auditoria: ${e.message}</td></tr>`;
         }
     }
 </script>

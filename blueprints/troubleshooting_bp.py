@@ -6,6 +6,7 @@ import re
 import glob
 import datetime
 import dns.resolver
+from blueprints.audit_helper import log_audit_action
 
 troubleshooting_bp = Blueprint('troubleshooting', __name__, url_prefix='/api/troubleshooting')
 
@@ -478,6 +479,21 @@ def track_email():
                 'veredito': veredito
             })
 
+        # Mapeamento de Regras SOAR Ativas para os Remetentes
+        rules_map = {}
+        try:
+            from models import MailRule
+            active_rules = MailRule.query.all()
+            for r in active_rules:
+                if r.target:
+                    rules_map[r.target.strip().lower()] = r.action_type
+        except Exception:
+            pass
+
+        for t in transacoes:
+            snd = (t.get('remetente') or '').strip().lower()
+            t['rule_status'] = rules_map.get(snd, None)
+
         total_matches = len(filtered_lines)
         if total_matches > limit:
             result_lines = filtered_lines[-limit:]
@@ -601,6 +617,7 @@ def delete_queue_message():
     try:
         res = run_cmd(['sudo', 'postsuper', '-d', queue_id])
         if res['returncode'] == 0:
+            log_audit_action('QUEUE_DELETE_MESSAGE', target=queue_id)
             return jsonify({'success': True, 'message': f'Mensagem {queue_id} deletada da fila com sucesso!'})
         else:
             return jsonify({'success': False, 'message': f'Erro ao deletar: {res["stderr"] or res["stdout"]}'}), 500
@@ -614,6 +631,7 @@ def flush_queue():
     try:
         res = run_cmd(['sudo', 'postqueue', '-f'])
         if res['returncode'] == 0:
+            log_audit_action('QUEUE_FLUSH', target='Postfix Queue')
             return jsonify({'success': True, 'message': 'Comando de liberação/flush enviado com sucesso para a fila Postfix!'})
         else:
             return jsonify({'success': False, 'message': f'Erro ao dar flush na fila: {res["stderr"] or res["stdout"]}'}), 500
@@ -758,6 +776,40 @@ def ensure_mail_rules_table():
     except Exception:
         pass
 
+def sync_spamassassin_local_cf(target, action_type):
+    """Sincroniza a regra no local.cf do SpamAssassin: remove regras anteriores do target e aplica a nova."""
+    local_cf_path = os.environ.get('LOCAL_CF_PATH', '/etc/spamassassin/local.cf')
+    if not os.path.exists(local_cf_path):
+        return
+    try:
+        with open(local_cf_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        target_clean = target.strip().lower()
+        new_lines = []
+        for line in lines:
+            line_str = line.strip().lower()
+            if line_str == f"blacklist_from {target_clean}" or line_str == f"whitelist_from {target_clean}":
+                continue
+            new_lines.append(line)
+
+        rule_line = f"whitelist_from {target.strip()}\n" if action_type == 'whitelist' else f"blacklist_from {target.strip()}\n"
+        new_lines.append(rule_line)
+
+        content = "".join(new_lines)
+        tmp_file = '/tmp/local.cf.tmp'
+        with open(tmp_file, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        subprocess.run(['sudo', 'cp', tmp_file, local_cf_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if os.path.exists(tmp_file):
+            os.remove(tmp_file)
+
+        subprocess.run(['sudo', 'systemctl', 'restart', 'spamassassin'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(['sudo', 'systemctl', 'restart', 'amavis'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except Exception as e:
+        pass
+
 @troubleshooting_bp.route('/rules/add', methods=['POST'])
 def add_mail_rule():
     try:
@@ -773,24 +825,43 @@ def add_mail_rule():
             return jsonify({'status': 'error', 'message': 'Ação inválida. Escolha entre: block, spam ou whitelist.'}), 400
 
         from models import db, MailRule
-        
+        from sqlalchemy import text
+
+        target_clean = target.lower()
+
+        # 1. Remover TODAS as regras anteriores para este mesmo target no MariaDB
+        # Isso impede registros duplicados/triplicados e limpa Bloquear/SPAM ao aceitar Whitelist
+        try:
+            MailRule.query.filter(db.func.lower(MailRule.target) == target_clean).delete(synchronize_session=False)
+            db.session.commit()
+        except Exception:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            for tbl in ['vmail.mail_rules', 'mail_rules']:
+                try:
+                    db.session.execute(text(f"DELETE FROM {tbl} WHERE LOWER(target) = :target"), {'target': target_clean})
+                    db.session.commit()
+                except Exception:
+                    try:
+                        db.session.rollback()
+                    except Exception:
+                        pass
+
+        # 2. Inserir a nova regra única no MariaDB
+        new_rule_dict = {'target': target, 'action_type': action_type}
         try:
             new_rule = MailRule(target=target, action_type=action_type)
             db.session.add(new_rule)
             db.session.commit()
-            return jsonify({
-                'status': 'success',
-                'message': 'Regra aplicada com sucesso!',
-                'rule': new_rule.to_dict() if hasattr(new_rule, 'to_dict') else {'target': target, 'action_type': action_type}
-            })
+            if hasattr(new_rule, 'to_dict'):
+                new_rule_dict = new_rule.to_dict()
         except Exception as orm_err:
             try:
                 db.session.rollback()
             except Exception:
                 pass
-            
-            # Fallback com SQL puro em vmail.mail_rules e mail_rules
-            from sqlalchemy import text
             inserted = False
             for tbl in ['vmail.mail_rules', 'mail_rules']:
                 try:
@@ -807,14 +878,16 @@ def add_mail_rule():
                     except Exception:
                         pass
 
-            if inserted:
-                return jsonify({
-                    'status': 'success',
-                    'message': 'Regra aplicada com sucesso!',
-                    'rule': {'target': target, 'action_type': action_type}
-                })
-            else:
-                raise orm_err
+        # 3. Sincronizar com SpamAssassin /local.cf (remover se divergente e aplicar a nova)
+        sync_spamassassin_local_cf(target, action_type)
+
+        log_audit_action('SOAR_RULE_ADD', target=target, details={'action_type': action_type})
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Regra aplicada com sucesso!',
+            'rule': new_rule_dict
+        })
 
     except Exception as e:
         try:
@@ -823,4 +896,121 @@ def add_mail_rule():
         except Exception:
             pass
         return jsonify({'status': 'error', 'message': f'Erro ao gravar regra no MariaDB: {str(e)}'}), 500
+
+
+# ==========================================
+# 6. MONITOREMENTO DE ALERTAS DE SEGURANÇA E ATAQUES
+# ==========================================
+
+@troubleshooting_bp.route('/security-alerts', methods=['GET'])
+@login_required
+def check_security_alerts():
+    """Verifica logs recentes no mail.log para detectar tentativas de ataque, falhas SASL ou bloqueios Anvil."""
+    alerts = []
+    try:
+        if os.path.exists('/var/log/mail.log'):
+            cmd = "sudo tail -n 250 /var/log/mail.log 2>/dev/null | grep -iE 'sasl authentication failed|improper command pipelining|too many errors|blocked|denied|warning: hostname|attack|brute' | tail -n 5"
+            res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
+            if res.stdout:
+                alerts = [l.strip() for l in res.stdout.splitlines() if l.strip()]
+        else:
+            res_j = run_cmd(['sudo', 'journalctl', '-u', 'postfix', '-n', '100', '--no-pager'])
+            if res_j['stdout']:
+                lines = [l.strip() for l in res_j['stdout'].splitlines() if l.strip()]
+                for l in lines:
+                    if any(k in l.lower() for k in ['sasl authentication failed', 'improper command', 'too many errors', 'blocked', 'denied']):
+                        alerts.append(l)
+                alerts = alerts[-5:]
+    except Exception as e:
+        pass
+
+    return jsonify({
+        'success': True,
+        'has_attacks': len(alerts) > 0,
+        'count': len(alerts),
+        'alerts': alerts
+    })
+
+
+# ==========================================
+# 7. EXPLORADOR MARIADB / SQL STUDIO
+# ==========================================
+
+@troubleshooting_bp.route('/sql-query', methods=['POST'])
+@login_required
+def execute_sql_query():
+    """
+    Executa uma consulta SQL DQL (SELECT, SHOW, EXPLAIN) no banco MariaDB/SQLAlchemy e retorna resultados formatados.
+    """
+    import time
+    from sqlalchemy import text
+    from models import db
+
+    data = request.get_json(silent=True) or request.form or {}
+    query_str = (data.get('query') or '').strip()
+
+    if not query_str:
+        return jsonify({'status': 'error', 'success': False, 'message': 'Nenhuma instrução SQL fornecida.'}), 400
+
+    first_word = query_str.split()[0].upper() if query_str.split() else ''
+    if first_word not in ['SELECT', 'SHOW', 'EXPLAIN', 'DESCRIBE', 'WITH']:
+        return jsonify({
+            'status': 'error',
+            'success': False,
+            'message': 'Por segurança do painel, o SQL Studio aceita apenas comandos de consulta de dados (SELECT, SHOW, EXPLAIN).'
+        }), 403
+
+    try:
+        start_time = time.perf_counter()
+        result = db.session.execute(text(query_str))
+
+        if result.returns_rows:
+            columns = list(result.keys())
+            raw_rows = result.fetchall()
+
+            formatted_rows = []
+            for row in raw_rows:
+                row_dict = {}
+                for col, val in zip(columns, row):
+                    if isinstance(val, (datetime.datetime, datetime.date)):
+                        row_dict[col] = val.strftime('%Y-%m-%d %H:%M:%S')
+                    elif isinstance(val, bytes):
+                        row_dict[col] = val.decode('utf-8', errors='ignore')
+                    else:
+                        row_dict[col] = val
+                formatted_rows.append(row_dict)
+
+            elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+            return jsonify({
+                'status': 'success',
+                'success': True,
+                'execution_time_ms': elapsed_ms,
+                'row_count': len(formatted_rows),
+                'columns': columns,
+                'rows': formatted_rows
+            })
+        else:
+            elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+            return jsonify({
+                'status': 'success',
+                'success': True,
+                'execution_time_ms': elapsed_ms,
+                'row_count': 0,
+                'columns': [],
+                'rows': [],
+                'message': 'Instrução executada com sucesso (0 linhas retornadas).'
+            })
+
+    except Exception as e:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return jsonify({
+            'status': 'error',
+            'success': False,
+            'message': f'Erro na execução da query: {str(e)}'
+        }), 400
+
 

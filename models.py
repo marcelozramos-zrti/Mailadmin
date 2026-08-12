@@ -155,3 +155,82 @@ class MailRule(db.Model):
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None
         }
 
+
+class MailLogHistory(db.Model):
+    __tablename__ = 'mail_logs_history'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
+    queue_id = db.Column(db.String(50), nullable=True, index=True)
+    sender = db.Column(db.String(255), nullable=True, index=True)
+    recipient = db.Column(db.String(255), nullable=True, index=True)
+    client_ip = db.Column(db.String(45), nullable=True)
+    status = db.Column(db.String(50), nullable=True, index=True) # 'Sent', 'Bounced', 'Spam', 'Rejected', etc.
+    message = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'timestamp': self.timestamp.strftime('%Y-%m-%d %H:%M:%S') if self.timestamp else None,
+            'queue_id': self.queue_id or '-',
+            'sender': self.sender or '-',
+            'recipient': self.recipient or '-',
+            'client_ip': self.client_ip or '-',
+            'status': self.status or '-',
+            'message': self.message or '',
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None
+        }
+
+
+class SystemAuditLog(db.Model):
+    __tablename__ = 'system_audit_logs'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
+    admin_user = db.Column(db.String(80), nullable=False, default='System')
+    action = db.Column(db.String(100), nullable=False)
+    target = db.Column(db.String(255), nullable=True)
+    ip_address = db.Column(db.String(45), nullable=True)
+    details_json = db.Column(db.Text, nullable=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'timestamp': self.timestamp.strftime('%Y-%m-%d %H:%M:%S') if self.timestamp else None,
+            'admin_user': self.admin_user or 'System',
+            'action': self.action,
+            'target': self.target or '-',
+            'ip_address': self.ip_address or '-',
+            'details_json': self.details_json or '{}'
+        }
+
+
+class CronJob(db.Model):
+    __tablename__ = 'cron_jobs'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    name = db.Column(db.String(100), nullable=False)
+    schedule_preset = db.Column(db.String(50), default='custom') # '1h', '3h', '6h', 'daily', 'custom'
+    cron_expression = db.Column(db.String(100), nullable=False)  # ex: '0 * * * *'
+    command = db.Column(db.Text, nullable=False)
+    enabled = db.Column(db.Boolean, default=True)
+    last_run = db.Column(db.DateTime, nullable=True)
+    last_output = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'schedule': self.cron_expression,
+            'schedule_preset': self.schedule_preset or 'custom',
+            'cron_expression': self.cron_expression,
+            'command': self.command,
+            'enabled': self.enabled,
+            'last_run': self.last_run.strftime('%Y-%m-%d %H:%M:%S') if self.last_run else None,
+            'last_output': self.last_output or '',
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None
+        }
+
+
