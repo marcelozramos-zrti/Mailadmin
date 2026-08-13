@@ -1093,6 +1093,13 @@ def list_security_incidents():
             'stats': stats
         })
     except Exception as e:
+        err_str = str(e)
+        if "doesn't exist" in err_str.lower() or "no such table" in err_str.lower():
+            return jsonify({
+                'success': False,
+                'module_inactive': True,
+                'message': 'O Módulo de Incidentes & Auditoria ainda não foi ativado no banco MariaDB. Clique no botão de ativação para criar as tabelas.'
+            }), 200
         return jsonify({'success': False, 'message': f'Erro ao obter incidentes: {str(e)}'}), 500
 
 
@@ -1257,7 +1264,195 @@ def get_audit_logs():
             'counts': counts
         })
     except Exception as e:
+        err_str = str(e)
+        if "doesn't exist" in err_str.lower() or "no such table" in err_str.lower():
+            return jsonify({
+                'success': False,
+                'module_inactive': True,
+                'message': 'O Módulo de Incidentes & Auditoria ainda não foi ativado no banco MariaDB. Clique no botão de ativação para criar as tabelas.'
+            }), 200
         return jsonify({'success': False, 'message': f'Erro ao obter logs de auditoria: {str(e)}'}), 500
+
+
+@troubleshooting_bp.route('/module-status', methods=['GET'])
+@login_required
+def get_module_status():
+    """Retorna o status de ativação das tabelas no MariaDB e estatísticas."""
+    try:
+        from models import db, SecurityIncident, SystemAuditLog, MailLogHistory, CronJob
+        
+        inc_count = SecurityIncident.query.count()
+        audit_count = SystemAuditLog.query.count()
+        maillog_count = MailLogHistory.query.count()
+        
+        maillog_job = CronJob.query.filter(CronJob.name.like('%Ingestão de Logs%')).first()
+        maillog_auto = maillog_job.enabled if maillog_job else False
+
+        return jsonify({
+            'success': True,
+            'active': True,
+            'incidents_count': inc_count,
+            'audit_count': audit_count,
+            'maillog_count': maillog_count,
+            'maillog_auto': maillog_auto
+        })
+    except Exception as e:
+        return jsonify({
+            'success': True,
+            'active': False,
+            'incidents_count': 0,
+            'audit_count': 0,
+            'maillog_count': 0,
+            'maillog_auto': False,
+            'message': 'Módulo desativado ou tabelas ainda não criadas no MariaDB.'
+        })
+
+
+@troubleshooting_bp.route('/activate-module', methods=['POST'])
+@login_required
+def activate_incidents_module():
+    """Ativa o Módulo de Incidentes e Auditoria no MariaDB criando todas as tabelas necessárias."""
+    try:
+        from models import db, SecurityIncident, SystemAuditLog, MailLogHistory, AdminUser
+        db.create_all()
+
+        log_audit_action(
+            'MODULE_ACTIVATED',
+            target='Módulo de Incidentes & Auditoria MariaDB',
+            details={'action': 'create_all_tables'},
+            severity_level='normal'
+        )
+
+        return jsonify({
+            'success': True,
+            'active': True,
+            'message': 'Módulo de Incidentes e Auditoria ativado com sucesso! Tabelas criadas no MariaDB.'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Erro ao ativar módulo: {str(e)}'}), 500
+
+
+@troubleshooting_bp.route('/purge-data', methods=['POST'])
+@login_required
+def purge_incidents_and_audit():
+    """Expurga os registros das tabelas de Incidentes e Auditoria mantendo as tabelas ativas."""
+    try:
+        from models import db, SecurityIncident, SystemAuditLog
+        
+        data = request.get_json(silent=True) or request.form or {}
+        target_type = data.get('target', 'all')
+        
+        deleted_inc = 0
+        deleted_audit = 0
+
+        if target_type in ['incidents', 'all']:
+            deleted_inc = SecurityIncident.query.delete()
+        if target_type in ['audit', 'all']:
+            deleted_audit = SystemAuditLog.query.delete()
+
+        db.session.commit()
+
+        log_audit_action(
+            'PURGE_DATA',
+            target=f'Expurgo de Dados ({target_type})',
+            details={'deleted_incidents': deleted_inc, 'deleted_audit': deleted_audit},
+            severity_level='potential'
+        )
+
+        return jsonify({
+            'success': True,
+            'message': f'Expurgo concluído! {deleted_inc} incidentes e {deleted_audit} logs de auditoria foram expurgados. Módulo permanece ativo.'
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': f'Erro ao expurgar dados: {str(e)}'}), 500
+
+
+@troubleshooting_bp.route('/maillog/ingest', methods=['POST'])
+@login_required
+def ingest_maillog():
+    """Lê o arquivo /var/log/mail.log ou maillog e salva novos registros na tabela MariaDB mail_logs_history."""
+    try:
+        import os, sys, subprocess
+        from models import db, MailLogHistory
+        
+        db.create_all()
+        
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        script_path = os.path.join(root_dir, "scripts", "mail_log_ingestor.py")
+
+        records_inserted = 0
+        output_msg = ""
+
+        if os.path.exists(script_path):
+            try:
+                res = subprocess.run([sys.executable, script_path], capture_output=True, text=True, timeout=30)
+                output_msg = res.stdout or res.stderr or "Script executado."
+            except Exception as se:
+                output_msg = f"Aviso na execução do subprocesso: {se}"
+        else:
+            output_msg = "Script mail_log_ingestor.py não encontrado no caminho padrão."
+
+        total_count = MailLogHistory.query.count()
+
+        log_audit_action(
+            'MAILLOG_INGEST',
+            target='Importação MailLog MariaDB',
+            details={'total_records': total_count, 'output': output_msg[:200]},
+            severity_level='normal'
+        )
+
+        return jsonify({
+            'success': True,
+            'total_records': total_count,
+            'message': f'Ingestão de MailLog executada com sucesso! Total de {total_count} registros gravados no MariaDB.',
+            'output': output_msg
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Erro na ingestão do MailLog: {str(e)}'}), 500
+
+
+@troubleshooting_bp.route('/maillog/toggle-auto', methods=['POST'])
+@login_required
+def toggle_maillog_auto_ingest():
+    """Ativa ou desativa a ingestão automática do MailLog no CronJob."""
+    try:
+        from models import db, CronJob
+        from blueprints.automation_bp import sync_system_crontab
+
+        job = CronJob.query.filter(CronJob.name.like('%Ingestão de Logs%')).first()
+        if not job:
+            job = CronJob(
+                name="Ingestão de Logs de E-mail para MariaDB (Log-to-DB)",
+                schedule_preset="1h",
+                cron_expression="0 * * * *",
+                command="python3 /opt/mailadmin/scripts/mail_log_ingestor.py",
+                enabled=True
+            )
+            db.session.add(job)
+        else:
+            job.enabled = not job.enabled
+
+        db.session.commit()
+        sync_system_crontab()
+
+        status_str = "ativada" if job.enabled else "desativada"
+
+        log_audit_action(
+            'MAILLOG_AUTO_TOGGLE',
+            target='Ingestão Automática MailLog (Cron)',
+            details={'enabled': job.enabled},
+            severity_level='suspicious'
+        )
+
+        return jsonify({
+            'success': True,
+            'enabled': job.enabled,
+            'message': f'Ingestão automática do MailLog no MariaDB foi {status_str}.'
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': f'Erro ao alterar agendamento do MailLog: {str(e)}'}), 500
 
 
 # ==========================================

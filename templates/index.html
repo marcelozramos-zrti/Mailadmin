@@ -956,6 +956,34 @@
                     <div class="tab-content" id="troubleshootingTabsContent">
                         <!-- ABA 1: Auditoria Histórica -->
                         <div class="tab-pane fade show active" id="tab-historica" role="tabpanel" aria-labelledby="historica-tab">
+                            
+                            <!-- Card de Importação e Ingestão do MailLog para MariaDB -->
+                            <div class="card p-3 mb-3 border bg-light">
+                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                                    <div>
+                                        <h4 class="h6 fw-bold text-dark mb-1 d-flex align-items-center gap-2">
+                                            <i class="bi bi-database-up text-primary"></i> Importação de MailLog para o MariaDB (Log-to-DB)
+                                        </h4>
+                                        <span class="text-muted small">
+                                            Sincronize incrementalmente os arquivos de log do servidor (`/var/log/mail.log`) diretamente para a tabela `mail_logs_history` do MariaDB.
+                                        </span>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="text-end me-2">
+                                            <span class="d-block text-muted" style="font-size: 11px;">Registros no MariaDB:</span>
+                                            <span class="fw-bold text-dark font-monospace" id="maillog-stat-total-count">0</span>
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle font-monospace ms-1" id="maillog-cron-status-badge">🟢 Cron Ativo (1h)</span>
+                                        </div>
+                                        <button class="btn btn-sm btn-primary fw-semibold rounded-3" onclick="triggerMailLogIngestion()" id="btn-ingest-maillog">
+                                            <i class="bi bi-database-add me-1"></i> Importar MailLog Agora
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary font-monospace rounded-3" onclick="toggleMailLogAuto()" id="btn-toggle-maillog-cron" title="Ativar ou Desativar execução automática no Cron">
+                                            <i class="bi bi-clock-history me-1"></i> Cron Automático
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div class="card p-4 mb-4">
                                 <div class="d-flex align-items-center justify-content-between mb-2">
                                     <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
@@ -1266,6 +1294,28 @@
                                     <button class="btn btn-sm btn-outline-secondary font-monospace rounded-3" onclick="loadIncidents()">
                                         <i class="bi bi-arrow-clockwise me-1"></i> Atualizar Incidentes
                                     </button>
+                                </div>
+
+                                <!-- Banner de Estado e Controle do Módulo MariaDB -->
+                                <div class="card bg-light border p-3 mb-3 rounded-3" id="incidents-module-control-banner">
+                                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle font-monospace p-2" id="module-status-badge">
+                                                <i class="bi bi-check-circle-fill me-1"></i> Módulo Ativo no MariaDB
+                                            </span>
+                                            <small class="text-muted" id="module-status-desc">
+                                                Tabelas de Incidentes (`security_incidents`) e Auditoria (`system_audit_logs`) ativas no MariaDB.
+                                            </small>
+                                        </div>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <button class="btn btn-sm btn-outline-secondary font-monospace" id="btn-activate-module" disabled title="Após ativado, o módulo permanece ativo no MariaDB.">
+                                                <i class="bi bi-power me-1"></i> Módulo Ativo
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger font-monospace" onclick="confirmPurgeData()" id="btn-purge-module" title="Expurgar registros mantendo as tabelas ativas">
+                                                <i class="bi bi-trash3 me-1"></i> Expurgar Dados
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <!-- Métricas do Incidente -->
@@ -4958,6 +5008,27 @@
         try {
             const data = await fetchJson(`/api/troubleshooting/incidents?status=${encodeURIComponent(statusFilter)}&severity=${encodeURIComponent(severityFilter)}&search=${encodeURIComponent(searchVal)}`);
 
+            if (data.module_inactive) {
+                updateModuleUI(false);
+                tableBody.innerHTML = `
+                    <tr>
+                        <td colspan="6" class="p-4">
+                            <div class="alert alert-warning border-warning d-flex align-items-center justify-content-between p-3 mb-0 rounded-3">
+                                <div>
+                                    <h6 class="alert-heading fw-bold mb-1"><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i> Módulo de Incidentes Inativo</h6>
+                                    <p class="small mb-0 text-muted">As tabelas no MariaDB ainda não foram criadas. Clique no botão de ativação para executar o script de criação das tabelas.</p>
+                                </div>
+                                <button class="btn btn-warning btn-sm fw-bold px-3 py-2 ms-3" onclick="activateIncidentsModule()">
+                                    <i class="bi bi-play-circle-fill me-1"></i> Ativar Módulo MariaDB
+                                </button>
+                            </div>
+                        </td>
+                    </tr>`;
+                return;
+            } else {
+                updateModuleUI(true);
+            }
+
             if (data.stats) {
                 document.getElementById('inc-stat-total').textContent = data.stats.total || 0;
                 document.getElementById('inc-stat-critical').textContent = (data.incidents || []).filter(i => i.level === 3 || i.severity_code === 'critical').length;
@@ -5142,6 +5213,29 @@
         try {
             const data = await fetchJson(`/api/troubleshooting/audit-logs?severity=${encodeURIComponent(severityFilter)}&date_preset=${encodeURIComponent(dateFilter)}&search=${encodeURIComponent(searchVal)}`);
 
+            if (data.module_inactive) {
+                updateModuleUI(false);
+                if (tableBody) {
+                    tableBody.innerHTML = `
+                        <tr>
+                            <td colspan="6" class="p-4">
+                                <div class="alert alert-warning border-warning d-flex align-items-center justify-content-between p-3 mb-0 rounded-3">
+                                    <div>
+                                        <h6 class="alert-heading fw-bold mb-1"><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i> Módulo de Log de Auditoria Inativo</h6>
+                                        <p class="small mb-0 text-muted">As tabelas no MariaDB ainda não foram criadas. Clique no botão de ativação para executar o script e criar as tabelas.</p>
+                                    </div>
+                                    <button class="btn btn-warning btn-sm fw-bold px-3 py-2 ms-3" onclick="activateIncidentsModule()">
+                                        <i class="bi bi-play-circle-fill me-1"></i> Ativar Módulo MariaDB
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>`;
+                }
+                return;
+            } else {
+                updateModuleUI(true);
+            }
+
             if (data.counts) {
                 if (document.getElementById('audit-count-normal')) document.getElementById('audit-count-normal').textContent = data.counts.normal || 0;
                 if (document.getElementById('audit-count-suspicious')) document.getElementById('audit-count-suspicious').textContent = data.counts.suspicious || 0;
@@ -5213,6 +5307,159 @@
             if (tableBody) tableBody.innerHTML = `<tr><td colspan="6" class="text-danger font-monospace text-center py-4"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar auditoria: ${e.message}</td></tr>`;
         }
     }
+
+    // 12. GESTÃO DE MÓDULOS, CRIAÇÃO DE TABELAS E INGESTÃO DE MAILLOG
+    async function checkModuleStatus() {
+        try {
+            const data = await fetchJson('/api/troubleshooting/module-status');
+            updateModuleUI(data.active, data.total_maillog_records, data.auto_ingest_cron);
+        } catch (e) {
+            console.error('Erro ao verificar status do módulo:', e);
+        }
+    }
+
+    function updateModuleUI(isActive, mailCount = null, autoCron = true) {
+        const badge = document.getElementById('module-status-badge');
+        const desc = document.getElementById('module-status-desc');
+        const btnActivate = document.getElementById('btn-activate-module');
+        const btnPurge = document.getElementById('btn-purge-module');
+
+        if (badge) {
+            if (isActive) {
+                badge.className = 'badge bg-success-subtle text-success border border-success-subtle font-monospace p-2';
+                badge.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> Módulo Ativo no MariaDB';
+            } else {
+                badge.className = 'badge bg-warning-subtle text-warning-emphasis border border-warning-subtle font-monospace p-2';
+                badge.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1"></i> Módulo Inativo';
+            }
+        }
+
+        if (desc) {
+            desc.textContent = isActive
+                ? 'Tabelas de Incidentes (`security_incidents`) e Auditoria (`system_audit_logs`) ativas no MariaDB.'
+                : 'Tabelas ainda não foram criadas no MariaDB. Clique no botão para inicializar o script de criação.';
+        }
+
+        if (btnActivate) {
+            if (isActive) {
+                btnActivate.disabled = true;
+                btnActivate.className = 'btn btn-sm btn-outline-secondary font-monospace opacity-75';
+                btnActivate.innerHTML = '<i class="bi bi-power me-1 text-success"></i> Módulo Ativo';
+                btnActivate.onclick = null;
+            } else {
+                btnActivate.disabled = false;
+                btnActivate.className = 'btn btn-sm btn-primary fw-bold font-monospace';
+                btnActivate.innerHTML = '<i class="bi bi-play-circle-fill me-1"></i> Ativar Módulo';
+                btnActivate.onclick = activateIncidentsModule;
+            }
+        }
+
+        if (btnPurge) {
+            btnPurge.disabled = !isActive;
+        }
+
+        if (mailCount !== null) {
+            const countEl = document.getElementById('maillog-stat-total-count');
+            if (countEl) countEl.textContent = mailCount;
+        }
+
+        const cronBadge = document.getElementById('maillog-cron-status-badge');
+        if (cronBadge) {
+            if (autoCron) {
+                cronBadge.className = 'badge bg-success-subtle text-success border border-success-subtle font-monospace ms-1';
+                cronBadge.innerHTML = '🟢 Cron Ativo (1h)';
+            } else {
+                cronBadge.className = 'badge bg-secondary-subtle text-secondary border border-secondary-subtle font-monospace ms-1';
+                cronBadge.innerHTML = '⚪ Cron Inativo';
+            }
+        }
+    }
+
+    async function activateIncidentsModule() {
+        const btnActivate = document.getElementById('btn-activate-module');
+        if (btnActivate) {
+            btnActivate.disabled = true;
+            btnActivate.innerHTML = '<div class="spinner-border spinner-border-sm me-1"></div> Criando Tabelas...';
+        }
+
+        try {
+            const data = await fetchJson('/api/troubleshooting/activate-module', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            showAlert(data.message || 'Módulo e tabelas inicializados no MariaDB!', 'success');
+            await checkModuleStatus();
+            loadIncidents();
+            loadAuditLogs();
+        } catch (e) {
+            showAlert(`Erro ao ativar módulo: ${e.message}`, 'danger');
+            if (btnActivate) {
+                btnActivate.disabled = false;
+                btnActivate.innerHTML = '<i class="bi bi-play-circle-fill me-1"></i> Ativar Módulo';
+            }
+        }
+    }
+
+    async function confirmPurgeData() {
+        if (!confirm("Tem certeza de que deseja expurgar todos os dados de incidentes e auditoria do MariaDB? As tabelas continuarão ativas.")) {
+            return;
+        }
+
+        try {
+            const data = await fetchJson('/api/troubleshooting/purge-data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target: 'all' })
+            });
+            showAlert(data.message || 'Dados expurgados com sucesso!', 'success');
+            loadIncidents();
+            loadAuditLogs();
+        } catch (e) {
+            showAlert(`Erro ao expurgar dados: ${e.message}`, 'danger');
+        }
+    }
+
+    async function triggerMailLogIngestion() {
+        const btn = document.getElementById('btn-ingest-maillog');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<div class="spinner-border spinner-border-sm me-1"></div> Importando MailLog...';
+        }
+
+        try {
+            const data = await fetchJson('/api/troubleshooting/maillog/ingest', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            showAlert(data.message || 'Sincronização do MailLog concluída!', 'success');
+            await checkModuleStatus();
+        } catch (e) {
+            showAlert(`Erro na importação do MailLog: ${e.message}`, 'danger');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-database-add me-1"></i> Importar MailLog Agora';
+            }
+        }
+    }
+
+    async function toggleMailLogAuto() {
+        try {
+            const data = await fetchJson('/api/troubleshooting/maillog/toggle-auto', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            showAlert(data.message || 'Status da automação atualizado!', 'success');
+            await checkModuleStatus();
+        } catch (e) {
+            showAlert(`Erro ao alterar automação: ${e.message}`, 'danger');
+        }
+    }
+
+    // Inicialização ao carregar
+    document.addEventListener('DOMContentLoaded', () => {
+        checkModuleStatus();
+    });
 </script>
 </body>
 </html>

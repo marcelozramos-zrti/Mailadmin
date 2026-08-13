@@ -1088,6 +1088,75 @@ blacklist_from *@spammerdomain.net
     });
   });
 
+  let isIncidentsModuleActive = true;
+  let maillogAutoIngest = true;
+  let virtualMailLogCount = 1840;
+
+  // Status do Módulo de Incidentes & Auditoria MariaDB
+  app.get("/api/troubleshooting/module-status", (req, res) => {
+    res.json({
+      success: true,
+      active: isIncidentsModuleActive,
+      incidents_count: virtualIncidents.length,
+      audit_count: virtualAuditLogs.length,
+      maillog_count: virtualMailLogCount,
+      maillog_auto: maillogAutoIngest
+    });
+  });
+
+  // Ativar Módulo de Incidentes & Auditoria
+  app.post("/api/troubleshooting/activate-module", (req, res) => {
+    isIncidentsModuleActive = true;
+    res.json({
+      success: true,
+      active: true,
+      message: "Módulo de Incidentes e Auditoria ativado com sucesso! Tabelas criadas no MariaDB."
+    });
+  });
+
+  // Expurgar Dados de Incidentes e Auditoria
+  app.post("/api/troubleshooting/purge-data", (req, res) => {
+    const target = (req.body && req.body.target) || "all";
+    let deletedInc = 0;
+    let deletedAudit = 0;
+
+    if (target === "incidents" || target === "all") {
+      deletedInc = virtualIncidents.length;
+      virtualIncidents = [];
+    }
+
+    if (target === "audit" || target === "all") {
+      deletedAudit = virtualAuditLogs.length;
+      virtualAuditLogs = [];
+    }
+
+    res.json({
+      success: true,
+      message: `Expurgo concluído! ${deletedInc} incidentes e ${deletedAudit} logs de auditoria foram expurgados. Módulo permanece ativo.`
+    });
+  });
+
+  // Importar MailLog para o MariaDB
+  app.post("/api/troubleshooting/maillog/ingest", (req, res) => {
+    virtualMailLogCount += Math.floor(Math.random() * 25) + 10;
+    res.json({
+      success: true,
+      total_records: virtualMailLogCount,
+      message: `Ingestão de MailLog executada com sucesso! Total de ${virtualMailLogCount} registros gravados no MariaDB.`,
+      output: "Ingestão concluída via mail_log_ingestor.py"
+    });
+  });
+
+  // Alternar Ingestão Automática MailLog
+  app.post("/api/troubleshooting/maillog/toggle-auto", (req, res) => {
+    maillogAutoIngest = !maillogAutoIngest;
+    res.json({
+      success: true,
+      enabled: maillogAutoIngest,
+      message: `Ingestão automática do MailLog no MariaDB foi ${maillogAutoIngest ? 'ativada' : 'desativada'}.`
+    });
+  });
+
   // Simulated dynamic state for hardware history
   let cpuHistoryBuffer: { time: string; usage: number; iowait: number; system: number }[] = [];
   const initTime = Date.now();
