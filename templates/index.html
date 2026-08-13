@@ -2873,6 +2873,15 @@
         document.getElementById('sidebar').classList.toggle('mobile-open');
     }
 
+    function closeModal(modalId) {
+        const el = document.getElementById(modalId);
+        if (!el) return;
+        const inst = bootstrap.Modal.getInstance(el) || bootstrap.Modal.getOrCreateInstance(el);
+        if (inst) {
+            try { inst.hide(); } catch (e) {}
+        }
+    }
+
     function showAlert(message, type = 'success') {
         const container = document.getElementById('global-alert-container');
         const alertHtml = `
@@ -3353,13 +3362,19 @@
     }
 
     function showCreateDomainModal() {
-        new bootstrap.Modal(document.getElementById('createDomainModal')).show();
+        const modalEl = document.getElementById('createDomainModal');
+        if (modalEl) (bootstrap.Modal.getInstance(modalEl) || bootstrap.Modal.getOrCreateInstance(modalEl)).show();
     }
 
     async function submitCreateDomain() {
-        const domain = document.getElementById('dom-name-input').value;
-        const description = document.getElementById('dom-desc-input').value;
+        const domain = document.getElementById('dom-name-input').value.trim();
+        const description = document.getElementById('dom-desc-input').value.trim();
         const maxquota = document.getElementById('dom-quota-input').value;
+
+        if (!domain) {
+            showAlert('Informe o nome do domínio.', 'danger');
+            return;
+        }
 
         try {
             const data = await fetchJson('/api/vmail/domains', {
@@ -3368,8 +3383,11 @@
                 body: JSON.stringify({ domain, description, maxquota })
             });
             showAlert(data.message, 'success');
-            bootstrap.Modal.getInstance(document.getElementById('createDomainModal')).hide();
+            closeModal('createDomainModal');
+            document.getElementById('dom-name-input').value = '';
+            document.getElementById('dom-desc-input').value = '';
             loadDomains();
+            loadAuditLogs();
         } catch (e) {
             showAlert(`Erro ao criar domínio: ${e.message}`, 'danger');
         }
@@ -3381,6 +3399,9 @@
             const data = await fetchJson(`/api/vmail/domains/${dom}`, { method: 'DELETE' });
             showAlert(data.message, 'success');
             loadDomains();
+            loadMailboxes();
+            loadAliases();
+            loadAuditLogs();
         } catch (e) {
             showAlert(`Erro ao excluir domínio: ${e.message}`, 'danger');
         }
@@ -3425,11 +3446,11 @@
 
                     return `
                         <tr>
-                            <td class="fw-bold text-dark">${m.username}</td>
-                            <td class="text-muted">${m.name || '-'}</td>
-                            <td class="font-monospace text-primary small">${m.maildir}</td>
+                            <td class="fw-bold text-dark">${escapeHtml(m.username)}</td>
+                            <td class="text-muted">${escapeHtml(m.name) || '-'}</td>
+                            <td class="font-monospace text-primary small">${escapeHtml(m.maildir)}</td>
                             <td>${usageHtml}</td>
-                            <td class="fw-semibold text-secondary small">${m.domain}</td>
+                            <td class="fw-semibold text-secondary small">${escapeHtml(m.domain)}</td>
                             <td>
                                 <button class="btn btn-sm btn-outline-danger p-1 border-0" onclick="deleteMailbox('${encodeURIComponent(m.username)}')" title="Excluir"><i class="bi bi-trash"></i></button>
                             </td>
@@ -3444,16 +3465,21 @@
         }
     }
 
-
     function showCreateMailboxModal() {
-        new bootstrap.Modal(document.getElementById('createMailboxModal')).show();
+        const modalEl = document.getElementById('createMailboxModal');
+        if (modalEl) (bootstrap.Modal.getInstance(modalEl) || bootstrap.Modal.getOrCreateInstance(modalEl)).show();
     }
 
     async function submitCreateMailbox() {
-        const username = document.getElementById('mb-user-input').value;
-        const name = document.getElementById('mb-name-input').value;
+        const username = document.getElementById('mb-user-input').value.trim();
+        const name = document.getElementById('mb-name-input').value.trim();
         const password = document.getElementById('mb-pass-input').value;
         const quota = document.getElementById('mb-quota-input').value;
+
+        if (!username) {
+            showAlert('Informe o endereço de e-mail.', 'danger');
+            return;
+        }
 
         try {
             const data = await fetchJson('/api/vmail/mailboxes', {
@@ -3462,8 +3488,13 @@
                 body: JSON.stringify({ username, name, password, quota })
             });
             showAlert(data.message, 'success');
-            bootstrap.Modal.getInstance(document.getElementById('createMailboxModal')).hide();
+            closeModal('createMailboxModal');
+            document.getElementById('mb-user-input').value = '';
+            document.getElementById('mb-name-input').value = '';
+            document.getElementById('mb-pass-input').value = '';
             loadMailboxes();
+            loadDomains();
+            loadAuditLogs();
         } catch (e) {
             showAlert(`Erro ao criar caixa postal: ${e.message}`, 'danger');
         }
@@ -3475,6 +3506,8 @@
             const data = await fetchJson(`/api/vmail/mailboxes/${email}`, { method: 'DELETE' });
             showAlert(data.message, 'success');
             loadMailboxes();
+            loadDomains();
+            loadAuditLogs();
         } catch (e) {
             showAlert(`Erro ao excluir caixa postal: ${e.message}`, 'danger');
         }
@@ -3491,9 +3524,9 @@
             }
             tbody.innerHTML = aliasList.map(a => `
                 <tr>
-                    <td class="fw-bold text-dark">${a.address}</td>
-                    <td class="font-monospace text-warning-emphasis small">${a.goto}</td>
-                    <td>${a.domain}</td>
+                    <td class="fw-bold text-dark">${escapeHtml(a.address)}</td>
+                    <td class="font-monospace text-warning-emphasis small">${escapeHtml(a.goto)}</td>
+                    <td>${escapeHtml(a.domain)}</td>
                     <td>
                         <button class="btn btn-sm btn-outline-danger p-1 border-0 btn-delete-rbac" onclick="deleteAlias('${encodeURIComponent(a.address)}')" title="Excluir"><i class="bi bi-trash"></i></button>
                     </td>
@@ -3508,12 +3541,18 @@
     }
 
     function showCreateAliasModal() {
-        new bootstrap.Modal(document.getElementById('createAliasModal')).show();
+        const modalEl = document.getElementById('createAliasModal');
+        if (modalEl) (bootstrap.Modal.getInstance(modalEl) || bootstrap.Modal.getOrCreateInstance(modalEl)).show();
     }
 
     async function submitCreateAlias() {
-        const address = document.getElementById('al-addr-input').value;
-        const goto = document.getElementById('al-goto-input').value;
+        const address = document.getElementById('al-addr-input').value.trim();
+        const goto = document.getElementById('al-goto-input').value.trim();
+
+        if (!address || !goto) {
+            showAlert('Informe o endereço do Alias e os Destinos.', 'danger');
+            return;
+        }
 
         try {
             const data = await fetchJson('/api/vmail/aliases', {
@@ -3522,8 +3561,12 @@
                 body: JSON.stringify({ address, goto })
             });
             showAlert(data.message, 'success');
-            bootstrap.Modal.getInstance(document.getElementById('createAliasModal')).hide();
+            closeModal('createAliasModal');
+            document.getElementById('al-addr-input').value = '';
+            document.getElementById('al-goto-input').value = '';
             loadAliases();
+            loadDomains();
+            loadAuditLogs();
         } catch (e) {
             showAlert(`Erro ao criar alias: ${e.message}`, 'danger');
         }
@@ -3535,6 +3578,8 @@
             const data = await fetchJson(`/api/vmail/aliases/${address}`, { method: 'DELETE' });
             showAlert(data.message, 'success');
             loadAliases();
+            loadDomains();
+            loadAuditLogs();
         } catch (e) {
             showAlert(`Erro ao excluir alias: ${e.message}`, 'danger');
         }
@@ -4428,7 +4473,7 @@
                 body: JSON.stringify({ token })
             });
             showAlert(data.message, 'success');
-            bootstrap.Modal.getInstance(document.getElementById('mfaModal')).hide();
+            closeModal('mfaModal');
         } catch (e) {
             showAlert(`Erro ao ativar MFA: ${e.message}`, 'danger');
         }
@@ -4606,7 +4651,7 @@
             });
 
             showAlert(data.message, 'success');
-            bootstrap.Modal.getInstance(document.getElementById('createAdminModal')).hide();
+            closeModal('createAdminModal');
             loadAdmins();
         } catch (e) {
             alertBox.innerHTML = `<div class="alert alert-danger py-2 px-3 small border-0 mb-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> ${e.message}</div>`;
@@ -4643,7 +4688,7 @@
             });
 
             showAlert(data.message, 'success');
-            bootstrap.Modal.getInstance(document.getElementById('changeAdminPasswordModal')).hide();
+            closeModal('changeAdminPasswordModal');
             loadAdmins();
         } catch (e) {
             alertBox.innerHTML = `<div class="alert alert-danger py-2 px-3 small border-0 mb-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> ${e.message}</div>`;
@@ -4847,7 +4892,7 @@
             });
 
             showAlert(data.message || 'Automação salva com sucesso!', 'success');
-            bootstrap.Modal.getInstance(document.getElementById('createCronModal')).hide();
+            closeModal('createCronModal');
             loadCronJobs();
         } catch (e) {
             showAlert(`Erro ao salvar automação: ${e.message}`, 'danger');
@@ -5135,7 +5180,7 @@
                 body: JSON.stringify({ target, action_type: actionType })
             });
             showAlert(data.message, 'success');
-            bootstrap.Modal.getInstance(document.getElementById('incidentMitigateModal')).hide();
+            closeModal('incidentMitigateModal');
             loadIncidents();
         } catch (e) {
             showAlert(`Erro ao aplicar mitigação: ${e.message}`, 'danger');
@@ -5164,7 +5209,7 @@
                 body: JSON.stringify({ status, action_note: actionNote })
             });
             showAlert(data.message, 'success');
-            bootstrap.Modal.getInstance(document.getElementById('incidentNoteModal')).hide();
+            closeModal('incidentNoteModal');
             loadIncidents();
         } catch (e) {
             showAlert(`Erro ao registrar ação: ${e.message}`, 'danger');

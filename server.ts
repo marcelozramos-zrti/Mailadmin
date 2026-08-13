@@ -45,16 +45,20 @@ async function startServer() {
   ];
 
   let virtualDomains = [
-    { domain: "empresa.com.br", description: "Domínio Principal da Empresa", aliases: 3, mailboxes: 12, maxquota: 51200, transport: "virtual", active: true, created: "2026-01-15 10:00:00" },
-    { domain: "parceiro.com.br", description: "Domínio de Parceiro Comercial", aliases: 1, mailboxes: 4, maxquota: 20480, transport: "virtual", active: true, created: "2026-02-01 14:30:00" },
-    { domain: "loja-online.com", description: "E-commerce e Vendas", aliases: 5, mailboxes: 8, maxquota: 30720, transport: "virtual", active: false, created: "2026-03-10 09:15:00" }
+    { domain: "zrti.com.br", description: "Domínio Principal ZRTI", aliases: 4, mailboxes: 8, maxquota: 51200, transport: "virtual", active: true, created: "2026-01-15 10:00:00" },
+    { domain: "zrti.tech", description: "Domínio Técnico ZRTI Tech", aliases: 1, mailboxes: 2, maxquota: 20480, transport: "virtual", active: true, created: "2026-02-01 14:30:00" },
+    { domain: "empresa.com.br", description: "Domínio Corporativo Demo", aliases: 3, mailboxes: 5, maxquota: 30720, transport: "virtual", active: true, created: "2026-01-10 09:15:00" },
+    { domain: "emporiomisticosaboaria.com.br", description: "Empório Místico Saboaria", aliases: 1, mailboxes: 2, maxquota: 20480, transport: "virtual", active: true, created: "2026-03-01 11:00:00" }
   ];
 
   let virtualMailboxes = [
-    { username: "diretoria@empresa.com.br", name: "Diretoria Executiva", maildir: "empresa.com.br/diretoria/", quota: 10240, bytes_used: 3221225472, domain: "empresa.com.br", active: true, created: "2026-01-15 10:05:00" },
-    { username: "financeiro@empresa.com.br", name: "Setor Financeiro", maildir: "empresa.com.br/financeiro/", quota: 5120, bytes_used: 4194304000, domain: "empresa.com.br", active: true, created: "2026-01-15 10:10:00" },
-    { username: "suporte@empresa.com.br", name: "Atendimento & Suporte", maildir: "empresa.com.br/suporte/", quota: 5120, bytes_used: 838860800, domain: "empresa.com.br", active: true, created: "2026-01-16 08:00:00" },
-    { username: "vendas@loja-online.com", name: "Equipe de Vendas", maildir: "loja-online.com/vendas/", quota: 2048, bytes_used: 1258291200, domain: "loja-online.com", active: true, created: "2026-03-10 09:20:00" }
+    { username: "suporte@zrti.com.br", name: "Suporte Técnico", maildir: "zrti.com.br/suporte/", quota: 5120, bytes_used: 1048576000, domain: "zrti.com.br", active: true, created: "2026-01-15 10:05:00" },
+    { username: "comercial@zrti.com.br", name: "Comercial & Vendas", maildir: "zrti.com.br/comercial/", quota: 5120, bytes_used: 2097152000, domain: "zrti.com.br", active: true, created: "2026-01-15 10:10:00" },
+    { username: "wilker.oliveira@zrti.com.br", name: "Wilker Oliveira", maildir: "zrti.com.br/wilker.oliveira/", quota: 10240, bytes_used: 3145728000, domain: "zrti.com.br", active: true, created: "2026-01-16 08:00:00" },
+    { username: "andreza.carvalho@zrti.com.br", name: "Andreza Carvalho", maildir: "zrti.com.br/andreza.carvalho/", quota: 5120, bytes_used: 524288000, domain: "zrti.com.br", active: true, created: "2026-01-16 08:30:00" },
+    { username: "noreply@zrti.com.br", name: "No-Reply Notifications", maildir: "zrti.com.br/noreply/", quota: 2048, bytes_used: 104857600, domain: "zrti.com.br", active: true, created: "2026-01-17 09:00:00" },
+    { username: "postmaster@zrti.tech", name: "Postmaster Tech", maildir: "zrti.tech/postmaster/", quota: 2048, bytes_used: 52428800, domain: "zrti.tech", active: true, created: "2026-02-01 14:35:00" },
+    { username: "andreza@emporiomisticosaboaria.com.br", name: "Andreza Saboaria", maildir: "emporiomisticosaboaria.com.br/andreza/", quota: 2048, bytes_used: 157286400, domain: "emporiomisticosaboaria.com.br", active: true, created: "2026-03-01 11:05:00" }
   ];
 
   let virtualAliases = [
@@ -519,30 +523,51 @@ blacklist_from *@spammerdomain.net
 
   app.post("/api/vmail/mailboxes", (req, res) => {
     const { username, domain, name, password, quota, scheme } = req.body || {};
-    const fullEmail = username.includes("@") ? username : `${username}@${domain}`;
+    if (!username) {
+      return res.status(400).json({ success: false, message: "Endereço de e-mail é obrigatório." });
+    }
+    const fullEmail = (username.includes("@") ? username : `${username}@${domain || ""}`).toLowerCase().trim();
     const domName = domain || fullEmail.split("@")[1];
 
-    if (virtualMailboxes.some(m => m.username === fullEmail)) {
-      return res.status(400).json({ success: false, message: "Caixa postal já existente." });
+    if (!domName) {
+      return res.status(400).json({ success: false, message: "Domínio é obrigatório." });
+    }
+
+    if (virtualMailboxes.some(m => m.username.toLowerCase() === fullEmail)) {
+      return res.status(400).json({ success: false, message: `Caixa postal ${fullEmail} já existe.` });
+    }
+
+    // Auto-create domain if missing
+    let d = virtualDomains.find(dom => dom.domain.toLowerCase() === domName.toLowerCase());
+    if (!d) {
+      d = {
+        domain: domName.toLowerCase(),
+        description: "Domínio gerado automaticamente",
+        aliases: 0,
+        mailboxes: 0,
+        maxquota: 10240,
+        transport: "virtual",
+        active: true,
+        created: new Date().toISOString().replace("T", " ").substring(0, 19)
+      };
+      virtualDomains.push(d);
     }
 
     const newMb = {
       username: fullEmail,
       name: name || "",
-      maildir: `${domName}/${fullEmail.split("@")[0]}/`,
-      quota: quota || 1024,
+      maildir: `${domName.toLowerCase()}/${fullEmail.split("@")[0]}/`,
+      quota: quota ? parseInt(quota) : 1024,
       bytes_used: 0,
-      domain: domName,
+      domain: domName.toLowerCase(),
       active: true,
       created: new Date().toISOString().replace("T", " ").substring(0, 19)
     };
-    virtualMailboxes.push(newMb);
-
-    const d = virtualDomains.find(dom => dom.domain === domName);
-    if (d) d.mailboxes += 1;
+    virtualMailboxes.unshift(newMb);
+    d.mailboxes = (d.mailboxes || 0) + 1;
 
     addAuditLog("MAILBOX_CREATE", fullEmail, { quota: newMb.quota, domain: domName, scheme: scheme || 'SSHA512' }, "normal", req);
-    res.json({ success: true, message: `Caixa postal ${fullEmail} criada com hash Dovecot ${scheme || 'SSHA512'}!`, mailbox: newMb });
+    res.json({ success: true, message: `Caixa postal ${fullEmail} criada com sucesso!`, mailbox: newMb });
   });
 
   app.put("/api/vmail/mailboxes/:email/quota", (req, res) => {
@@ -573,17 +598,46 @@ blacklist_from *@spammerdomain.net
 
   app.post("/api/vmail/aliases", (req, res) => {
     const { address, goto } = req.body || {};
-    const domName = address.split("@")[1];
+    if (!address || !goto) {
+      return res.status(400).json({ success: false, message: "Endereço do Alias e Destino são obrigatórios." });
+    }
+    const fullAddress = address.toLowerCase().trim();
+    const domName = fullAddress.split("@")[1] || "local";
+
+    if (virtualAliases.some(a => a.address.toLowerCase() === fullAddress)) {
+      return res.status(400).json({ success: false, message: `Alias ${fullAddress} já existe.` });
+    }
+
+    let d = virtualDomains.find(dom => dom.domain.toLowerCase() === domName.toLowerCase());
+    if (!d && domName !== "local") {
+      d = {
+        domain: domName.toLowerCase(),
+        description: "Domínio gerado automaticamente",
+        aliases: 0,
+        mailboxes: 0,
+        maxquota: 10240,
+        transport: "virtual",
+        active: true,
+        created: new Date().toISOString().replace("T", " ").substring(0, 19)
+      };
+      virtualDomains.push(d);
+    }
+
     const newAl = {
-      address,
-      goto,
-      domain: domName,
+      address: fullAddress,
+      goto: goto.trim(),
+      domain: domName.toLowerCase(),
       active: true,
       created: new Date().toISOString().replace("T", " ").substring(0, 19)
     };
-    virtualAliases.push(newAl);
-    addAuditLog("ALIAS_CREATE", address, { goto }, "normal", req);
-    res.json({ success: true, message: `Alias ${address} -> ${goto} cadastrado!` });
+    virtualAliases.unshift(newAl);
+
+    if (d) {
+      d.aliases = (d.aliases || 0) + 1;
+    }
+
+    addAuditLog("ALIAS_CREATE", fullAddress, { goto: newAl.goto, domain: domName }, "normal", req);
+    res.json({ success: true, message: `Alias ${fullAddress} -> ${newAl.goto} cadastrado com sucesso!`, alias: newAl });
   });
 
   app.delete("/api/vmail/aliases/:address", (req, res) => {
