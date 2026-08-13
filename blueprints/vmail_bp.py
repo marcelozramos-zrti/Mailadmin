@@ -197,7 +197,6 @@ def handle_mailboxes():
                     alias_self = Alias(
                         address=full_email,
                         goto=full_email,
-                        name=name or '',
                         domain=domain_name,
                         active=True
                     )
@@ -334,8 +333,6 @@ def handle_aliases():
                 alias_obj = Alias(
                     address=address,
                     goto=goto,
-                    name='',
-                    accesspolicy='',
                     domain=domain_name,
                     active=True
                 )

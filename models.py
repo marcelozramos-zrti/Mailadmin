@@ -109,21 +109,15 @@ class Alias(db.Model):
     __tablename__ = 'alias'
 
     address = db.Column(db.String(255), primary_key=True) # e-mail virtual ex: vendas@domain.com
-    goto = db.Column(db.Text, nullable=False)             # destino ex: joao@domain.com, maria@domain.com
-    name = db.Column(db.String(255), default='')
-    moderators = db.Column(db.Text, nullable=True, default='')
-    accesspolicy = db.Column(db.String(30), default='')
+    goto = db.Column('goto', db.Text, nullable=False, quote=True) # destino ex: joao@domain.com, maria@domain.com
     domain = db.Column(db.String(255), db.ForeignKey('domain.domain'), nullable=False)
     created = db.Column(db.DateTime, default=datetime.datetime.utcnow)
-    modified = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
-    expired = db.Column(db.DateTime, default=lambda: datetime.datetime(9999, 12, 31, 0, 0, 0))
     active = db.Column(db.Boolean, default=True)
 
     def to_dict(self):
         return {
             'address': self.address,
             'goto': self.goto,
-            'name': getattr(self, 'name', '') or '',
             'domain': self.domain,
             'active': self.active,
             'created': self.created.strftime('%Y-%m-%d %H:%M:%S') if self.created else None
