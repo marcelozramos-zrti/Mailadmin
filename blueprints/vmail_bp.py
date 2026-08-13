@@ -35,6 +35,12 @@ def handle_domains():
             )
             db.session.add(new_domain)
             db.session.commit()
+
+            try:
+                log_audit_action("DOMAIN_CREATE", domain_name, {"description": description, "maxquota": maxquota}, "normal")
+            except Exception:
+                pass
+
             return jsonify({'success': True, 'message': f'Domínio {domain_name} criado com sucesso!', 'domain': new_domain.to_dict()})
         except Exception as e:
             db.session.rollback()
@@ -94,6 +100,12 @@ def delete_domain(domain_name):
 
         db.session.delete(domain)
         db.session.commit()
+
+        try:
+            log_audit_action("DOMAIN_DELETE", domain_name, {}, "critical")
+        except Exception:
+            pass
+
         return jsonify({'success': True, 'message': f'Domínio {domain_name} e seus usuários foram removidos!'})
     except Exception as e:
         db.session.rollback()
@@ -149,9 +161,13 @@ def handle_mailboxes():
                 active=True
             )
 
-            domain_obj.mailboxes += 1
             db.session.add(new_mailbox)
             db.session.commit()
+
+            try:
+                log_audit_action("MAILBOX_CREATE", full_email, {"quota": quota_mb, "domain": domain_name, "scheme": hash_scheme}, "normal")
+            except Exception:
+                pass
 
             return jsonify({
                 'success': True,
@@ -219,12 +235,14 @@ def delete_mailbox(email):
         if not mb:
             return jsonify({'success': False, 'message': 'Caixa não encontrada.'}), 404
 
-        domain_obj = Domain.query.filter_by(domain=mb.domain).first()
-        if domain_obj and domain_obj.mailboxes > 0:
-            domain_obj.mailboxes -= 1
-
         db.session.delete(mb)
         db.session.commit()
+
+        try:
+            log_audit_action("MAILBOX_DELETE", email, {}, "potential")
+        except Exception:
+            pass
+
         return jsonify({'success': True, 'message': f'Caixa postal {email} removida do banco vmail!'})
     except Exception as e:
         db.session.rollback()
@@ -258,6 +276,12 @@ def handle_aliases():
                 {'address': address, 'goto': goto, 'domain': domain_name}
             )
             db.session.commit()
+
+            try:
+                log_audit_action("ALIAS_CREATE", address, {"goto": goto, "domain": domain_name}, "normal")
+            except Exception:
+                pass
+
             return jsonify({'success': True, 'message': f'Alias {address} -> {goto} criado com sucesso!'})
         except Exception as e:
             db.session.rollback()
@@ -289,6 +313,12 @@ def delete_alias(address):
     try:
         db.session.execute(text("DELETE FROM alias WHERE address = :addr"), {'addr': address})
         db.session.commit()
+
+        try:
+            log_audit_action("ALIAS_DELETE", address, {}, "normal")
+        except Exception:
+            pass
+
         return jsonify({'success': True, 'message': f'Alias {address} removido!'})
     except Exception as e:
         db.session.rollback()
