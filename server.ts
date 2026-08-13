@@ -604,8 +604,11 @@ blacklist_from *@spammerdomain.net
     const fullAddress = address.toLowerCase().trim();
     const domName = fullAddress.split("@")[1] || "local";
 
-    if (virtualAliases.some(a => a.address.toLowerCase() === fullAddress)) {
-      return res.status(400).json({ success: false, message: `Alias ${fullAddress} já existe.` });
+    const existingAl = virtualAliases.find(a => a.address.toLowerCase() === fullAddress);
+    if (existingAl) {
+      existingAl.goto = goto.trim();
+      addAuditLog("ALIAS_CREATE", fullAddress, { goto: existingAl.goto, domain: domName }, "normal", req);
+      return res.json({ success: true, message: `Alias ${fullAddress} atualizado para redirecionar para ${existingAl.goto}!`, alias: existingAl });
     }
 
     let d = virtualDomains.find(dom => dom.domain.toLowerCase() === domName.toLowerCase());

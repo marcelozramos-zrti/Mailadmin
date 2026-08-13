@@ -189,6 +189,22 @@ def handle_mailboxes():
             )
 
             db.session.add(new_mailbox)
+
+            # Garante entrada correspondente em 'alias' para o Postfix (padrão iRedMail)
+            try:
+                alias_self = Alias.query.filter_by(address=full_email).first()
+                if not alias_self:
+                    alias_self = Alias(
+                        address=full_email,
+                        goto=full_email,
+                        name=name or '',
+                        domain=domain_name,
+                        active=True
+                    )
+                    db.session.add(alias_self)
+            except Exception:
+                pass
+
             db.session.commit()
 
             try:
@@ -306,28 +322,36 @@ def handle_aliases():
                 db.session.add(domain_obj)
                 db.session.flush()
 
-            check_res = Alias.query.filter_by(address=address).first()
-            if check_res:
-                return jsonify({'success': False, 'message': 'Este alias já está registrado.'}), 400
-
-            new_alias = Alias(
-                address=address,
-                goto=goto,
-                domain=domain_name,
-                active=True
-            )
-            db.session.add(new_alias)
-            db.session.commit()
+            alias_obj = Alias.query.filter_by(address=address).first()
+            if alias_obj:
+                # Se o alias já existe, atualiza os destinos (goto) e reativa
+                alias_obj.goto = goto
+                alias_obj.domain = domain_name
+                alias_obj.active = True
+                db.session.commit()
+                msg = f'Alias {address} atualizado para redirecionar para {goto}!'
+            else:
+                alias_obj = Alias(
+                    address=address,
+                    goto=goto,
+                    name='',
+                    accesspolicy='',
+                    domain=domain_name,
+                    active=True
+                )
+                db.session.add(alias_obj)
+                db.session.commit()
+                msg = f'Alias {address} -> {goto} criado com sucesso!'
 
             try:
                 log_audit_action("ALIAS_CREATE", address, {"goto": goto, "domain": domain_name}, "normal")
             except Exception:
                 pass
 
-            return jsonify({'success': True, 'message': f'Alias {address} -> {goto} criado com sucesso!', 'alias': new_alias.to_dict()})
+            return jsonify({'success': True, 'message': msg, 'alias': alias_obj.to_dict()})
         except Exception as e:
             db.session.rollback()
-            return jsonify({'success': False, 'message': format_vmail_db_error(e, 'criar alias')}), 500
+            return jsonify({'success': False, 'message': format_vmail_db_error(e, 'criar/atualizar alias')}), 500
     else:
         try:
             aliases_db = Alias.query.all()
@@ -342,21 +366,26 @@ def delete_alias(address):
     if current_user.role == 'user':
         return jsonify({'success': False, 'message': 'Acesso negado: Perfil de Usuário não possui permissão de exclusão de aliases.'}), 403
 
+    clean_addr = address.strip().lower()
+
     try:
-        alias_obj = Alias.query.filter_by(address=address).first()
+        alias_obj = Alias.query.filter_by(address=clean_addr).first()
+        if not alias_obj:
+            alias_obj = Alias.query.filter(func.lower(Alias.address) == clean_addr).first()
+
         if alias_obj:
             db.session.delete(alias_obj)
             db.session.commit()
         else:
-            db.session.execute(text("DELETE FROM alias WHERE address = :addr"), {'addr': address})
+            db.session.execute(text("DELETE FROM alias WHERE LOWER(address) = :addr"), {'addr': clean_addr})
             db.session.commit()
 
         try:
-            log_audit_action("ALIAS_DELETE", address, {}, "normal")
+            log_audit_action("ALIAS_DELETE", clean_addr, {}, "normal")
         except Exception:
             pass
 
-        return jsonify({'success': True, 'message': f'Alias {address} removido!'})
+        return jsonify({'success': True, 'message': f'Alias {clean_addr} removido!'})
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': format_vmail_db_error(e, 'excluir alias')}), 500
