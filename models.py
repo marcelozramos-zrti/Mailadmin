@@ -192,7 +192,24 @@ class SystemAuditLog(db.Model):
     action = db.Column(db.String(100), nullable=False)
     target = db.Column(db.String(255), nullable=True)
     ip_address = db.Column(db.String(45), nullable=True)
+    severity_level = db.Column(db.String(20), default='normal') # 'normal', 'suspicious', 'potential', 'critical'
     details_json = db.Column(db.Text, nullable=True)
+
+    def get_severity_level(self):
+        try:
+            val = getattr(self, 'severity_level', None)
+            if val:
+                return val
+        except Exception:
+            pass
+        act = (self.action or '').upper()
+        if any(k in act for k in ['FAIL', 'DELETE', 'DROP', 'ATTACK', 'CRITICAL', 'RESTART', 'DISABLE']):
+            return 'critical'
+        elif any(k in act for k in ['BLOCK', 'SPAM', 'POTENTIAL', 'PASSWORD', 'CONFIG', 'SOAR']):
+            return 'potential'
+        elif any(k in act for k in ['TOGGLE', 'SUSPICIOUS', 'WHITELIST', 'EDIT', 'RULE']):
+            return 'suspicious'
+        return 'normal'
 
     def to_dict(self):
         return {
@@ -202,7 +219,41 @@ class SystemAuditLog(db.Model):
             'action': self.action,
             'target': self.target or '-',
             'ip_address': self.ip_address or '-',
+            'severity_level': self.get_severity_level(),
             'details_json': self.details_json or '{}'
+        }
+
+
+class SecurityIncident(db.Model):
+    __tablename__ = 'security_incidents'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
+    title = db.Column(db.String(255), nullable=False)
+    severity_code = db.Column(db.String(50), nullable=False, default='suspicious') # 'normal', 'suspicious', 'potential', 'critical'
+    level = db.Column(db.Integer, default=1) # 1: 🟡 Evento Suspeito, 2: 🟠 Incidente Potencial, 3: 🔴 Possível Ataque
+    status = db.Column(db.String(50), default='Pendente', index=True) # 'Pendente', 'Em Análise', 'Mitigado', 'Resolvido', 'Ignorado'
+    summary = db.Column(db.Text, nullable=True)
+    raw_logs = db.Column(db.Text, nullable=True)
+    action_taken = db.Column(db.Text, nullable=True)
+    affected_target = db.Column(db.String(255), nullable=True)
+    resolved_by = db.Column(db.String(80), nullable=True)
+    resolved_at = db.Column(db.DateTime, nullable=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'timestamp': self.timestamp.strftime('%Y-%m-%d %H:%M:%S') if self.timestamp else None,
+            'title': self.title,
+            'severity_code': self.severity_code or 'suspicious',
+            'level': self.level or 1,
+            'status': self.status or 'Pendente',
+            'summary': self.summary or '',
+            'raw_logs': self.raw_logs or '',
+            'action_taken': self.action_taken or 'Nenhuma ação registrada',
+            'affected_target': self.affected_target or '-',
+            'resolved_by': self.resolved_by or '-',
+            'resolved_at': self.resolved_at.strftime('%Y-%m-%d %H:%M:%S') if self.resolved_at else None
         }
 
 

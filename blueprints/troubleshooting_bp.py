@@ -905,11 +905,11 @@ def add_mail_rule():
 @troubleshooting_bp.route('/security-alerts', methods=['GET'])
 @login_required
 def check_security_alerts():
-    """Verifica logs recentes no mail.log para detectar tentativas de ataque, falhas SASL ou bloqueios Anvil."""
+    """Verifica e classifica logs recentes no mail.log para um sistema de alerta em 4 níveis (Normal, Suspeito, Potencial, Ataque)."""
     alerts = []
     try:
         if os.path.exists('/var/log/mail.log'):
-            cmd = "sudo tail -n 250 /var/log/mail.log 2>/dev/null | grep -iE 'sasl authentication failed|improper command pipelining|too many errors|blocked|denied|warning: hostname|attack|brute' | tail -n 5"
+            cmd = "sudo tail -n 250 /var/log/mail.log 2>/dev/null | grep -iE 'sasl authentication failed|improper command pipelining|too many errors|blocked|denied|warning: hostname|attack|brute' | tail -n 15"
             res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
             if res.stdout:
                 alerts = [l.strip() for l in res.stdout.splitlines() if l.strip()]
@@ -920,16 +920,344 @@ def check_security_alerts():
                 for l in lines:
                     if any(k in l.lower() for k in ['sasl authentication failed', 'improper command', 'too many errors', 'blocked', 'denied']):
                         alerts.append(l)
-                alerts = alerts[-5:]
+                alerts = alerts[-15:]
     except Exception as e:
         pass
 
+    count = len(alerts)
+    sasl_fails = sum(1 for a in alerts if 'sasl authentication failed' in a.lower())
+
+    # Classificação em 4 Níveis
+    # 🟢 Level 0: Normal
+    # 🟡 Level 1: Evento Suspeito (1-2 falhas pontuais/scanners)
+    # 🟠 Level 2: Incidente Potencial (3-9 conexões suspeitas/bloqueios de taxa)
+    # 🔴 Level 3: Possível Ataque (>= 10 falhas ou ataques de força bruta)
+    if count == 0:
+        level = 0
+        severity_code = 'normal'
+        severity_label = '🟢 Normal'
+        title = 'Status de Segurança Normal'
+        message = 'Nenhum evento anômalo registrado recentemente nos logs.'
+        badge_class = 'bg-success-subtle text-success border border-success-subtle'
+        recommended_term = ''
+    elif count < 3 and sasl_fails < 3:
+        level = 1
+        severity_code = 'suspicious'
+        severity_label = '🟡 Evento Suspeito'
+        title = 'Evento Suspeito Detectado'
+        message = f'{count} conexão(ões) SMTP anômala(s) ou scanner pontual identificada nos logs.'
+        badge_class = 'bg-warning text-dark font-monospace'
+        recommended_term = 'smtpd'
+    elif count < 10 and sasl_fails < 5:
+        level = 2
+        severity_code = 'potential'
+        severity_label = '🟠 Incidente Potencial'
+        title = 'Incidente Potencial Detectado'
+        message = f'{count} conexões suspeitas ou eventos de bloqueio identificados nos logs.'
+        badge_class = 'bg-warning text-dark font-monospace'
+        recommended_term = 'blocked'
+    else:
+        level = 3
+        severity_code = 'critical'
+        severity_label = '🔴 Possível Ataque de Força Bruta'
+        title = 'Alerta Crítico: Possível Ataque'
+        message = f'Detectadas {count} falhas brutas ou conexões anômalas intensas nos logs ({sasl_fails} falhas SASL).'
+        badge_class = 'bg-danger text-white font-monospace'
+        recommended_term = 'sasl'
+
+    if count > 0:
+        record_security_incident(level, severity_code, title, message, alerts)
+
     return jsonify({
         'success': True,
-        'has_attacks': len(alerts) > 0,
-        'count': len(alerts),
-        'alerts': alerts
+        'has_attacks': count > 0,
+        'count': count,
+        'alerts': alerts,
+        'level': level,
+        'severity_code': severity_code,
+        'severity_label': severity_label,
+        'title': title,
+        'message': message,
+        'badge_class': badge_class,
+        'recommended_lens': 'smtpd|anvil',
+        'recommended_term': recommended_term,
+        'thresholds': {
+            'normal': 0,
+            'suspicious': '1-2 eventos',
+            'potential': '3-9 eventos',
+            'critical': '>=10 eventos / força bruta'
+        }
     })
+
+
+def record_security_incident(level, severity_code, title, message, alerts):
+    if level < 1 or not alerts:
+        return None
+    try:
+        from models import SecurityIncident, db
+        fifteen_min_ago = datetime.datetime.utcnow() - datetime.timedelta(minutes=15)
+        recent = SecurityIncident.query.filter(
+            SecurityIncident.status.in_(['Pendente', 'Em Análise']),
+            SecurityIncident.timestamp >= fifteen_min_ago
+        ).order_by(SecurityIncident.id.desc()).first()
+
+        raw_logs_str = "\n".join(alerts)
+        affected = '-'
+        for a in alerts:
+            import re
+            m = re.search(r'\[(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\]', a)
+            if m:
+                affected = m.group(1)
+                break
+            m_email = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', a)
+            if m_email:
+                affected = m_email.group(0)
+
+        if recent:
+            recent.timestamp = datetime.datetime.utcnow()
+            recent.title = title
+            recent.level = max(recent.level or 1, level)
+            recent.severity_code = severity_code
+            recent.summary = message
+            recent.raw_logs = raw_logs_str
+            if affected != '-':
+                recent.affected_target = affected
+            db.session.commit()
+            return recent
+        else:
+            inc = SecurityIncident(
+                title=title,
+                severity_code=severity_code,
+                level=level,
+                status='Pendente',
+                summary=message,
+                raw_logs=raw_logs_str,
+                affected_target=affected,
+                action_taken='Incidente automático registrado pelo radar de segurança.'
+            )
+            db.session.add(inc)
+            db.session.commit()
+            if level >= 2:
+                log_audit_action('INCIDENT_DETECTED', target=title, details={'level': level, 'alerts_count': len(alerts)}, severity_level=severity_code)
+            return inc
+    except Exception as e:
+        print(f"Erro ao gravar incidente de segurança: {e}")
+        try:
+            from models import db
+            db.session.rollback()
+        except Exception:
+            pass
+        return None
+
+
+@troubleshooting_bp.route('/incidents', methods=['GET'])
+@login_required
+def list_security_incidents():
+    """Retorna a lista de incidentes de segurança registrados para o gerenciamento de incidentes."""
+    try:
+        from models import SecurityIncident
+        status_filter = request.args.get('status', 'all')
+        severity_filter = request.args.get('severity', 'all')
+        search = request.args.get('search', '').strip()
+
+        query = SecurityIncident.query.order_by(SecurityIncident.id.desc())
+
+        if status_filter != 'all':
+            query = query.filter(SecurityIncident.status == status_filter)
+
+        if severity_filter != 'all':
+            query = query.filter(SecurityIncident.severity_code == severity_filter)
+
+        if search:
+            search_pattern = f"%{search}%"
+            query = query.filter(
+                (SecurityIncident.title.like(search_pattern)) |
+                (SecurityIncident.summary.like(search_pattern)) |
+                (SecurityIncident.affected_target.like(search_pattern)) |
+                (SecurityIncident.raw_logs.like(search_pattern))
+            )
+
+        incidents_all = query.limit(300).all()
+
+        stats = {
+            'total': len(incidents_all),
+            'pendente': sum(1 for i in incidents_all if i.status == 'Pendente'),
+            'em_analise': sum(1 for i in incidents_all if i.status == 'Em Análise'),
+            'mitigado': sum(1 for i in incidents_all if i.status == 'Mitigado'),
+            'resolvido': sum(1 for i in incidents_all if i.status == 'Resolvido')
+        }
+
+        return jsonify({
+            'success': True,
+            'incidents': [i.to_dict() for i in incidents_all],
+            'stats': stats
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Erro ao obter incidentes: {str(e)}'}), 500
+
+
+@troubleshooting_bp.route('/incidents/<int:inc_id>/status', methods=['POST'])
+@login_required
+def update_incident_status(inc_id):
+    """Atualiza o status e/ou registra observações/ações em um incidente de segurança."""
+    try:
+        from models import SecurityIncident, db
+        inc = SecurityIncident.query.get(inc_id)
+        if not inc:
+            return jsonify({'success': False, 'message': 'Incidente não encontrado.'}), 404
+
+        data = request.get_json(silent=True) or request.form or {}
+        new_status = data.get('status')
+        action_note = data.get('action_note', '').strip()
+
+        if new_status:
+            inc.status = new_status
+            if new_status in ['Mitigado', 'Resolvido']:
+                inc.resolved_at = datetime.datetime.utcnow()
+                inc.resolved_by = getattr(current_user, 'username', 'Admin')
+
+        if action_note:
+            now_str = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M')
+            usr_str = getattr(current_user, 'username', 'Admin')
+            existing_actions = inc.action_taken or ''
+            new_entry = f"[{now_str} - {usr_str}] {action_note}"
+            inc.action_taken = f"{existing_actions}\n{new_entry}".strip() if existing_actions else new_entry
+
+        db.session.commit()
+
+        log_audit_action(
+            'INCIDENT_STATUS_UPDATE',
+            target=f"Incidente #{inc.id}",
+            details={'status': inc.status, 'action_note': action_note},
+            severity_level='potential' if inc.level >= 2 else 'suspicious'
+        )
+
+        return jsonify({
+            'success': True,
+            'message': f'Incidente #{inc.id} atualizado para {inc.status}.',
+            'incident': inc.to_dict()
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': f'Erro ao atualizar incidente: {str(e)}'}), 500
+
+
+@troubleshooting_bp.route('/incidents/<int:inc_id>/mitigate', methods=['POST'])
+@login_required
+def mitigate_incident(inc_id):
+    """Aplica uma ação direta de mitigação SOAR (Bloquear, SPAM, Whitelist) a partir do incidente."""
+    try:
+        from models import SecurityIncident, db
+        inc = SecurityIncident.query.get(inc_id)
+        if not inc:
+            return jsonify({'success': False, 'message': 'Incidente não encontrado.'}), 404
+
+        data = request.get_json(silent=True) or request.form or {}
+        action_type = data.get('action_type', 'block')
+        target_val = (data.get('target') or inc.affected_target or '').strip()
+
+        if not target_val or target_val == '-':
+            return jsonify({'success': False, 'message': 'Informe um alvo (e-mail, domínio ou IP) válido para mitigação.'}), 400
+
+        add_mail_rule_internal(target_val, action_type)
+
+        now_str = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M')
+        usr_str = getattr(current_user, 'username', 'Admin')
+
+        inc.status = 'Mitigado'
+        inc.resolved_at = datetime.datetime.utcnow()
+        inc.resolved_by = usr_str
+        mitigation_note = f"[{now_str} - {usr_str}] Mitigação executada: Regra '{action_type.upper()}' aplicada ao alvo '{target_val}'."
+        inc.action_taken = f"{inc.action_taken or ''}\n{mitigation_note}".strip()
+
+        db.session.commit()
+
+        log_audit_action(
+            'INCIDENT_MITIGATED',
+            target=f"Incidente #{inc.id} ({target_val})",
+            details={'action_type': action_type, 'target': target_val},
+            severity_level='potential'
+        )
+
+        return jsonify({
+            'success': True,
+            'message': f'Mitigação aplicada com sucesso ao alvo {target_val} e incidente marcado como Mitigado.',
+            'incident': inc.to_dict()
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': f'Erro ao mitigar incidente: {str(e)}'}), 500
+
+
+def add_mail_rule_internal(target, action_type):
+    from models import db, MailRule
+    target = target.strip().lower()
+    if action_type not in ['block', 'spam', 'whitelist']:
+        action_type = 'block'
+
+    existing = MailRule.query.filter_by(target=target).first()
+    if existing:
+        existing.action_type = action_type
+        existing.created_at = datetime.datetime.utcnow()
+    else:
+        new_rule = MailRule(target=target, action_type=action_type)
+        db.session.add(new_rule)
+    db.session.commit()
+    sync_spamassassin_local_cf(target, action_type)
+    return True, 200
+
+
+@troubleshooting_bp.route('/audit-logs', methods=['GET'])
+@login_required
+def get_audit_logs():
+    """Retorna os logs de auditoria do sistema com suporte a filtros por Nível de Severidade, busca por texto e intervalo de datas."""
+    try:
+        from models import SystemAuditLog
+        severity = request.args.get('severity', 'all').lower()
+        search = request.args.get('search', '').strip()
+        date_preset = request.args.get('date_preset', 'all').lower()
+
+        query = SystemAuditLog.query.order_by(SystemAuditLog.id.desc())
+
+        now = datetime.datetime.utcnow()
+        if date_preset == 'today':
+            start_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            query = query.filter(SystemAuditLog.timestamp >= start_today)
+        elif date_preset == '7days':
+            query = query.filter(SystemAuditLog.timestamp >= now - datetime.timedelta(days=7))
+        elif date_preset == '30days':
+            query = query.filter(SystemAuditLog.timestamp >= now - datetime.timedelta(days=30))
+
+        if search:
+            search_pattern = f"%{search}%"
+            query = query.filter(
+                (SystemAuditLog.admin_user.like(search_pattern)) |
+                (SystemAuditLog.action.like(search_pattern)) |
+                (SystemAuditLog.target.like(search_pattern)) |
+                (SystemAuditLog.ip_address.like(search_pattern)) |
+                (SystemAuditLog.details_json.like(search_pattern))
+            )
+
+        logs_raw = query.limit(500).all()
+
+        filtered = []
+        counts = {'normal': 0, 'suspicious': 0, 'potential': 0, 'critical': 0}
+
+        for item in logs_raw:
+            sev = item.get_severity_level()
+            if sev in counts:
+                counts[sev] += 1
+            if severity == 'all' or sev == severity:
+                filtered.append(item.to_dict())
+
+        return jsonify({
+            'success': True,
+            'logs': filtered,
+            'total': len(filtered),
+            'counts': counts
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Erro ao obter logs de auditoria: {str(e)}'}), 500
 
 
 # ==========================================

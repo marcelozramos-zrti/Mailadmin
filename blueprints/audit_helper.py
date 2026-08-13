@@ -4,7 +4,7 @@ import json
 import datetime
 from models import db, SystemAuditLog
 
-def log_audit_action(action_type, target=None, details=None):
+def log_audit_action(action_type, target=None, details=None, severity_level=None):
     """
     Helper para registrar ações administrativas no Audit Trail (system_audit_logs).
     """
@@ -26,14 +26,18 @@ def log_audit_action(action_type, target=None, details=None):
         elif details is not None:
             details_str = str(details)
 
-        audit_entry = SystemAuditLog(
-            timestamp=datetime.datetime.utcnow(),
-            admin_user=user,
-            action=str(action_type),
-            target=str(target) if target is not None else None,
-            ip_address=ip_addr,
-            details_json=details_str
-        )
+        kwargs = {
+            'timestamp': datetime.datetime.utcnow(),
+            'admin_user': user,
+            'action': str(action_type),
+            'target': str(target) if target is not None else None,
+            'ip_address': ip_addr,
+            'details_json': details_str
+        }
+        if severity_level:
+            kwargs['severity_level'] = severity_level
+
+        audit_entry = SystemAuditLog(**kwargs)
         db.session.add(audit_entry)
         db.session.commit()
     except Exception as e:

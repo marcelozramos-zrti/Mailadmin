@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy import func, text
 from models import db, Domain, Mailbox, Alias, UsedQuota
+from blueprints.audit_helper import log_audit_action
 
 vmail_bp = Blueprint('vmail', __name__, url_prefix='/api/vmail')
 

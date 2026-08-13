@@ -94,6 +94,51 @@ async function startServer() {
     { id: 4, username: "admin", action: "MFA_TOGGLE", target: "analista_suporte", ip_address: "127.0.0.1", details: { enabled: true }, created_at: "2026-08-11 17:45:10" }
   ];
 
+  let virtualIncidents = [
+    {
+      id: 101,
+      title: "Múltiplas Falhas de Autenticação SASL (Possível Ataque Brute-force)",
+      severity_code: "critical",
+      level: 3,
+      status: "Pendente",
+      summary: "Detectadas 24 tentativas consecutivas de autenticação falhada vindas do IP 185.220.101.5 em menos de 5 minutos.",
+      raw_logs: "Aug 13 09:45:12 mailserver postfix/smtpd[14201]: warning: unknown[185.220.101.5]: SASL LOGIN authentication failed: U3Vwb3J0ZQ==\nAug 13 09:45:14 mailserver postfix/smtpd[14201]: warning: unknown[185.220.101.5]: SASL LOGIN authentication failed: YWRtaW4=\nAug 13 09:45:18 mailserver postfix/smtpd[14201]: warning: unknown[185.220.101.5]: SASL LOGIN authentication failed: cm9vdA==",
+      affected_target: "185.220.101.5",
+      action_taken: "Incidente automático registrado pelo radar de segurança.",
+      timestamp: "2026-08-13 09:45:12",
+      resolved_at: null,
+      resolved_by: null
+    },
+    {
+      id: 102,
+      title: "Tentativa de Relay Aberto Rejeitada",
+      severity_code: "potential",
+      level: 2,
+      status: "Em Análise",
+      summary: "Endereço IP 198.51.100.77 tentou enviar e-mail não autenticado para destinatário externo via Postfix.",
+      raw_logs: "Aug 13 08:30:00 mailserver postfix/smtpd[13110]: NOQUEUE: reject: RCPT from unknown[198.51.100.77]: 554 5.7.1 <test@external.org>: Relay access denied;",
+      affected_target: "198.51.100.77",
+      action_taken: "Bloqueio automático na etapa RCPT TO.",
+      timestamp: "2026-08-13 08:30:00",
+      resolved_at: null,
+      resolved_by: null
+    },
+    {
+      id: 103,
+      title: "Spam em Massa Rejeitado por SpamAssassin",
+      severity_code: "suspicious",
+      level: 1,
+      status: "Mitigado",
+      summary: "Mensagem vinda de promo@cheap-deals-online.biz com score 14.2 pontuada como SPAM crítico.",
+      raw_logs: "Aug 12 16:15:22 mailserver amavis[8841]: (08841-03) Blocked SPAM {DiscardedInbound}, [192.0.2.14] <promo@cheap-deals-online.biz> -> <diretoria@empresa.com.br>, Hits: 14.2",
+      affected_target: "cheap-deals-online.biz",
+      action_taken: "Regra BLOCK aplicada ao domínio.",
+      timestamp: "2026-08-12 16:15:22",
+      resolved_at: "2026-08-12 16:20:00",
+      resolved_by: "admin"
+    }
+  ];
+
   const virtualServices: Record<string, { active: boolean; state: string }> = {
     postfix: { active: true, state: "active" },
     amavis: { active: true, state: "active" },
@@ -863,6 +908,183 @@ blacklist_from *@spammerdomain.net
           details: "Política DMARC com quarentena e relatórios configurada."
         }
       }
+    });
+  });
+
+  // Incidente de Segurança - Listagem com Filtros
+  app.get("/api/troubleshooting/incidents", (req, res) => {
+    const statusFilter = String(req.query.status || "all");
+    const severityFilter = String(req.query.severity || "all");
+    const search = String(req.query.search || "").toLowerCase().trim();
+
+    let filtered = [...virtualIncidents];
+
+    if (statusFilter !== "all") {
+      filtered = filtered.filter(i => i.status === statusFilter);
+    }
+
+    if (severityFilter !== "all") {
+      filtered = filtered.filter(i =>
+        i.severity_code === severityFilter ||
+        (severityFilter === "critical" && i.level === 3) ||
+        (severityFilter === "potential" && i.level === 2) ||
+        (severityFilter === "suspicious" && i.level === 1)
+      );
+    }
+
+    if (search) {
+      filtered = filtered.filter(i =>
+        i.title.toLowerCase().includes(search) ||
+        i.summary.toLowerCase().includes(search) ||
+        i.affected_target.toLowerCase().includes(search) ||
+        i.raw_logs.toLowerCase().includes(search)
+      );
+    }
+
+    const stats = {
+      total: virtualIncidents.length,
+      pendente: virtualIncidents.filter(i => i.status === "Pendente").length,
+      em_analise: virtualIncidents.filter(i => i.status === "Em Análise").length,
+      mitigado: virtualIncidents.filter(i => i.status === "Mitigado").length,
+      resolvido: virtualIncidents.filter(i => i.status === "Resolvido").length
+    };
+
+    res.json({
+      success: true,
+      incidents: filtered,
+      stats
+    });
+  });
+
+  // Atualizar Status / Nota do Incidente
+  app.post("/api/troubleshooting/incidents/:inc_id/status", (req, res) => {
+    const incId = parseInt(req.params.inc_id, 10);
+    const inc = virtualIncidents.find(i => i.id === incId);
+    if (!inc) {
+      return res.status(404).json({ success: false, message: "Incidente não encontrado." });
+    }
+
+    const { status, action_note } = req.body || {};
+    if (status) {
+      inc.status = status;
+      if (status === "Mitigado" || status === "Resolvido") {
+        inc.resolved_at = new Date().toISOString().replace('T', ' ').substring(0, 19);
+        inc.resolved_by = "admin";
+      }
+    }
+
+    if (action_note && String(action_note).trim()) {
+      const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
+      const newEntry = `[${nowStr} - admin] ${String(action_note).trim()}`;
+      inc.action_taken = inc.action_taken ? `${inc.action_taken}\n${newEntry}` : newEntry;
+    }
+
+    res.json({
+      success: true,
+      message: `Incidente #${inc.id} atualizado para ${inc.status}.`,
+      incident: inc
+    });
+  });
+
+  // Mitigação Direta SOAR
+  app.post("/api/troubleshooting/incidents/:inc_id/mitigate", (req, res) => {
+    const incId = parseInt(req.params.inc_id, 10);
+    const inc = virtualIncidents.find(i => i.id === incId);
+    if (!inc) {
+      return res.status(404).json({ success: false, message: "Incidente não encontrado." });
+    }
+
+    const { target, action_type } = req.body || {};
+    const targetVal = String(target || inc.affected_target || "").trim();
+    if (!targetVal || targetVal === "-") {
+      return res.status(400).json({ success: false, message: "Informe um alvo (e-mail, domínio ou IP) válido para mitigação." });
+    }
+
+    const actType = String(action_type || "block").toLowerCase();
+
+    const existingRule = virtualMailRules.find(r => r.target.toLowerCase() === targetVal.toLowerCase());
+    if (existingRule) {
+      existingRule.action_type = actType;
+    } else {
+      virtualMailRules.push({
+        id: virtualMailRules.length + 1,
+        target: targetVal,
+        action_type: actType,
+        created_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
+      });
+    }
+
+    inc.status = "Mitigado";
+    inc.resolved_at = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    inc.resolved_by = "admin";
+
+    const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
+    const mitigationNote = `[${nowStr} - admin] Mitigação executada: Regra '${actType.toUpperCase()}' aplicada ao alvo '${targetVal}'.`;
+    inc.action_taken = inc.action_taken ? `${inc.action_taken}\n${mitigationNote}` : mitigationNote;
+
+    res.json({
+      success: true,
+      message: `Mitigação aplicada com sucesso ao alvo ${targetVal} e incidente marcado como Mitigado.`,
+      incident: inc
+    });
+  });
+
+  // Log de Auditoria do Sistema
+  app.get("/api/troubleshooting/audit-logs", (req, res) => {
+    const severity = String(req.query.severity || "all").toLowerCase();
+    const datePreset = String(req.query.date_preset || "all").toLowerCase();
+    const search = String(req.query.search || "").toLowerCase().trim();
+
+    let logs = virtualAuditLogs.map(l => {
+      const detailsStr = typeof l.details === "object" ? JSON.stringify(l.details) : String(l.details || "{}");
+      let sevLevel = (l as any).severity_level;
+      if (!sevLevel) {
+        if (l.action.includes("DELETE") || l.action.includes("FLUSH") || l.action.includes("FAIL")) {
+          sevLevel = "critical";
+        } else if (l.action.includes("RULE") || l.action.includes("MFA") || l.action.includes("CRON")) {
+          sevLevel = "suspicious";
+        } else {
+          sevLevel = "normal";
+        }
+      }
+      return {
+        id: l.id,
+        admin_user: l.username || (l as any).admin_user || "admin",
+        action: l.action,
+        target: l.target || "-",
+        ip_address: l.ip_address || "127.0.0.1",
+        details_json: detailsStr,
+        severity_level: sevLevel,
+        timestamp: l.created_at || (l as any).timestamp || new Date().toISOString().replace('T', ' ').substring(0, 19)
+      };
+    });
+
+    if (severity !== "all") {
+      logs = logs.filter(l => l.severity_level === severity);
+    }
+
+    if (search) {
+      logs = logs.filter(l =>
+        l.admin_user.toLowerCase().includes(search) ||
+        l.action.toLowerCase().includes(search) ||
+        l.target.toLowerCase().includes(search) ||
+        l.ip_address.toLowerCase().includes(search) ||
+        l.details_json.toLowerCase().includes(search)
+      );
+    }
+
+    const counts = {
+      normal: logs.filter(l => l.severity_level === "normal").length,
+      suspicious: logs.filter(l => l.severity_level === "suspicious").length,
+      potential: logs.filter(l => l.severity_level === "potential").length,
+      critical: logs.filter(l => l.severity_level === "critical").length
+    };
+
+    res.json({
+      success: true,
+      logs: logs,
+      total: logs.length,
+      counts: counts
     });
   });
 

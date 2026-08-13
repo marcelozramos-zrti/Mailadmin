@@ -932,6 +932,16 @@
                             </button>
                         </li>
                         <li class="nav-item" role="presentation">
+                            <button class="nav-link fw-semibold" id="incidentes-tab" data-bs-toggle="tab" data-bs-target="#tab-incidentes" type="button" role="tab" aria-controls="tab-incidentes" aria-selected="false" onclick="loadIncidents()">
+                                <i class="bi bi-shield-slash me-1.5 text-danger"></i> Gerenciamento de Incidentes
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link fw-semibold" id="auditoria-tab" data-bs-toggle="tab" data-bs-target="#tab-auditoria" type="button" role="tab" aria-controls="tab-auditoria" aria-selected="false" onclick="loadAuditLogs()">
+                                <i class="bi bi-journal-text me-1.5 text-primary"></i> Log de Auditoria
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
                             <button class="nav-link fw-semibold" id="fila-tab" data-bs-toggle="tab" data-bs-target="#tab-fila" type="button" role="tab" aria-controls="tab-fila" aria-selected="false">
                                 <i class="bi bi-list-task me-1.5 text-warning"></i> Gestão de Fila (Queue)
                             </button>
@@ -1239,6 +1249,203 @@
                                     <div class="alert alert-light border text-muted text-center small mb-0">
                                         Insira um domínio para verificar registros DNS de autenticação.
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ABA: GERENCIAMENTO DE INCIDENTES DE SEGURANÇA -->
+                        <div class="tab-pane fade" id="tab-incidentes" role="tabpanel" aria-labelledby="incidentes-tab">
+                            <div class="card p-4">
+                                <div class="d-flex align-items-center justify-content-between mb-3 border-bottom pb-3">
+                                    <div>
+                                        <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                            <i class="bi bi-shield-exclamation text-danger"></i> Central de Gerenciamento de Incidentes & Resposta SOAR
+                                        </h3>
+                                        <small class="text-muted">Registro consolidado de eventos suspeitos, incidentes potenciais e possíveis ataques de força bruta, com controle de status e histórico de ações tomadas.</small>
+                                    </div>
+                                    <button class="btn btn-sm btn-outline-secondary font-monospace rounded-3" onclick="loadIncidents()">
+                                        <i class="bi bi-arrow-clockwise me-1"></i> Atualizar Incidentes
+                                    </button>
+                                </div>
+
+                                <!-- Métricas do Incidente -->
+                                <div class="row g-3 mb-4">
+                                    <div class="col-6 col-md-3">
+                                        <div class="p-3 rounded-3 border bg-light text-center">
+                                            <span class="text-muted small fw-bold d-block mb-1">Total de Incidentes</span>
+                                            <h4 class="mb-0 fw-bold text-dark font-monospace" id="inc-stat-total">0</h4>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <div class="p-3 rounded-3 border bg-light text-center">
+                                            <span class="text-muted small fw-bold d-block mb-1">🔴 Críticos / Ataques</span>
+                                            <h4 class="mb-0 fw-bold text-dark font-monospace" id="inc-stat-critical">0</h4>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <div class="p-3 rounded-3 border bg-light text-center">
+                                            <span class="text-muted small fw-bold d-block mb-1">🟠 Incidente Potencial</span>
+                                            <h4 class="mb-0 fw-bold text-dark font-monospace" id="inc-stat-potential">0</h4>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <div class="p-3 rounded-3 border bg-light text-center">
+                                            <span class="text-muted small fw-bold d-block mb-1">🟢 Resolvidos / Mitigados</span>
+                                            <h4 class="mb-0 fw-bold text-dark font-monospace" id="inc-stat-resolved">0</h4>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Filtros de Incidentes -->
+                                <div class="row g-2 mb-3">
+                                    <div class="col-md-3">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Status do Incidente:</label>
+                                        <select id="inc-status-filter" class="form-select font-monospace" onchange="loadIncidents()">
+                                            <option value="all" selected>Todos os Status</option>
+                                            <option value="Pendente">Pendente</option>
+                                            <option value="Em Análise">Em Análise</option>
+                                            <option value="Mitigado">Mitigado</option>
+                                            <option value="Resolvido">Resolvido</option>
+                                            <option value="Ignorado">Ignorado</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Severidade / Nível:</label>
+                                        <select id="inc-severity-filter" class="form-select font-monospace" onchange="loadIncidents()">
+                                            <option value="all" selected>Todos os Níveis</option>
+                                            <option value="critical">🔴 Crítico / Ataque</option>
+                                            <option value="potential">🟠 Incidente Potencial</option>
+                                            <option value="suspicious">🟡 Evento Suspeito</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Busca de Texto:</label>
+                                        <div class="input-group">
+                                            <input type="text" id="inc-search-input" class="form-control font-monospace" placeholder="Buscar por título, resumo, IP ou remetente..." onkeyup="if(event.key==='Enter') loadIncidents()">
+                                            <button class="btn btn-outline-primary" onclick="loadIncidents()"><i class="bi bi-search"></i> Buscar</button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Tabela de Incidentes -->
+                                <div class="table-responsive rounded-3 border">
+                                    <table class="table table-hover align-middle mb-0">
+                                        <thead class="bg-light border-bottom">
+                                            <tr class="small text-muted font-monospace">
+                                                <th>ID / Data</th>
+                                                <th>Severidade</th>
+                                                <th>Título & Alvo Afetado</th>
+                                                <th>Resumo & Ações Registradas</th>
+                                                <th>Status</th>
+                                                <th class="text-end">Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="incidents-table-body">
+                                            <tr>
+                                                <td colspan="6" class="text-center text-muted py-4">Carregando incidentes...</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ABA: LOG DE AUDITORIA DE ATIVIDADES DO SISTEMA -->
+                        <div class="tab-pane fade" id="tab-auditoria" role="tabpanel" aria-labelledby="auditoria-tab">
+                            <div class="card p-4">
+                                <div class="d-flex align-items-center justify-content-between mb-3 border-bottom pb-3">
+                                    <div>
+                                        <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                            <i class="bi bi-journal-text text-primary"></i> Log de Auditoria & Trilha de Eventos do Sistema
+                                        </h3>
+                                        <small class="text-muted">Registro completo e auditável de todas as ações administrativas, alterações de configuração, regras de e-mail e eventos operacionais da plataforma.</small>
+                                    </div>
+                                    <button class="btn btn-sm btn-outline-secondary font-monospace rounded-3" onclick="loadAuditLogs()">
+                                        <i class="bi bi-arrow-clockwise me-1"></i> Atualizar Auditoria
+                                    </button>
+                                </div>
+
+                                <!-- Contadores por Severidade dos Logs de Auditoria -->
+                                <div class="row g-2 mb-3">
+                                    <div class="col-6 col-md-3">
+                                        <div class="p-2.5 rounded-3 border bg-light text-center">
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle mb-1">🟢 Normal</span>
+                                            <h5 class="mb-0 fw-bold text-dark font-monospace" id="audit-count-normal">0</h5>
+                                            <span class="text-muted" style="font-size: 10px;">Ações de rotina</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <div class="p-2.5 rounded-3 border bg-light text-center">
+                                            <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle mb-1">🟡 Evento Suspeito</span>
+                                            <h5 class="mb-0 fw-bold text-dark font-monospace" id="audit-count-suspicious">0</h5>
+                                            <span class="text-muted" style="font-size: 10px;">Edições / Regras</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <div class="p-2.5 rounded-3 border bg-light text-center">
+                                            <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle mb-1">🟠 Incidente Potencial</span>
+                                            <h5 class="mb-0 fw-bold text-dark font-monospace" id="audit-count-potential">0</h5>
+                                            <span class="text-muted" style="font-size: 10px;">Bloqueios / Config</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <div class="p-2.5 rounded-3 border bg-light text-center">
+                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle mb-1">🔴 Crítico</span>
+                                            <h5 class="mb-0 fw-bold text-dark font-monospace" id="audit-count-critical">0</h5>
+                                            <span class="text-muted" style="font-size: 10px;">Falhas / Ataques / Exclusão</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Filtros da Auditoria -->
+                                <div class="row g-2 mb-3">
+                                    <div class="col-md-3">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Filtrar por Severidade:</label>
+                                        <select id="audit-severity-filter" class="form-select font-monospace" onchange="loadAuditLogs()">
+                                            <option value="all" selected>Todos os Níveis</option>
+                                            <option value="normal">🟢 Normal</option>
+                                            <option value="suspicious">🟡 Evento Suspeito</option>
+                                            <option value="potential">🟠 Incidente Potencial</option>
+                                            <option value="critical">🔴 Crítico</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Intervalo de Data:</label>
+                                        <select id="audit-date-filter" class="form-select font-monospace" onchange="loadAuditLogs()">
+                                            <option value="all" selected>Todo o Histórico</option>
+                                            <option value="today">Hoje</option>
+                                            <option value="7days">Últimos 7 dias</option>
+                                            <option value="30days">Últimos 30 dias</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small text-muted fw-semibold mb-1">Busca de Texto:</label>
+                                        <div class="input-group">
+                                            <input type="text" id="audit-search-input" class="form-control font-monospace" placeholder="Buscar por usuário, ação, alvo, IP ou parâmetro..." onkeyup="if(event.key==='Enter') loadAuditLogs()">
+                                            <button class="btn btn-outline-primary" onclick="loadAuditLogs()"><i class="bi bi-search"></i> Buscar</button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Tabela de Auditoria -->
+                                <div class="table-responsive rounded-3 border">
+                                    <table class="table table-hover align-middle mb-0">
+                                        <thead class="bg-light border-bottom">
+                                            <tr class="small text-muted font-monospace">
+                                                <th>Data & Hora</th>
+                                                <th>Nível</th>
+                                                <th>Usuário / IP</th>
+                                                <th>Ação Executada</th>
+                                                <th>Alvo / Recurso</th>
+                                                <th>Detalhes (JSON)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="audit-table-body">
+                                            <tr>
+                                                <td colspan="6" class="text-center text-muted py-4">Carregando logs de auditoria...</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
                         </div>
@@ -1601,6 +1808,60 @@
                                 </button>
                             </div>
                         </form>
+                    </div>
+
+                    <!-- Card 2: Configuração e Níveis de Alertas de Segurança -->
+                    <div class="card p-4 mt-4 shadow-sm border-0">
+                        <div class="d-flex align-items-center justify-content-between mb-4 pb-3 border-bottom">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="p-2.5 rounded-3 bg-warning bg-opacity-15 text-warning">
+                                    <i class="bi bi-shield-check fs-3"></i>
+                                </div>
+                                <div>
+                                    <h2 class="h5 mb-1 fw-bold text-dark">Limiares de Segurança & Classificação de Eventos</h2>
+                                    <p class="text-muted small mb-0">Níveis operacionais do motor SOC para evitar alarmes falsos e direcionar análise para o Monitoramento ao Vivo.</p>
+                                </div>
+                            </div>
+                            <span class="badge bg-warning-subtle text-warning border border-warning-subtle font-monospace">SOC Classifier</span>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <div class="p-3 rounded-3 border border-success bg-success bg-opacity-10 text-center h-100">
+                                    <span class="badge bg-success mb-2">🟢 Normal</span>
+                                    <h6 class="fw-bold mb-1 fs-7 text-dark">Operação Padrão</h6>
+                                    <p class="text-muted mb-0" style="font-size: 11px;">0 falhas ou eventos anômalos nos logs recentes.</p>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="p-3 rounded-3 border border-warning bg-warning bg-opacity-10 text-center h-100">
+                                    <span class="badge bg-warning text-dark mb-2">🟡 Evento Suspeito</span>
+                                    <h6 class="fw-bold mb-1 fs-7 text-dark">1 a 2 Ocorrências</h6>
+                                    <p class="text-muted mb-0" style="font-size: 11px;">Scanners pontuais ou conexões SMTP esporádicas.</p>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="p-3 rounded-3 border border-warning bg-warning bg-opacity-25 text-center h-100">
+                                    <span class="badge bg-warning text-dark mb-2">🟠 Incidente Potencial</span>
+                                    <h6 class="fw-bold mb-1 fs-7 text-dark">3 a 9 Ocorrências</h6>
+                                    <p class="text-muted mb-0" style="font-size: 11px;">Bloqueios de taxa (Anvil/Amavis) ou acessos com erros.</p>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="p-3 rounded-3 border border-danger bg-danger bg-opacity-10 text-center h-100">
+                                    <span class="badge bg-danger text-white mb-2">🔴 Possível Ataque</span>
+                                    <h6 class="fw-bold mb-1 fs-7 text-dark">>= 10 Ocorrências</h6>
+                                    <p class="text-muted mb-0" style="font-size: 11px;">Tentativas brutas de autenticação SASL ou ataques intensos.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="alert alert-light border mt-3 mb-0 d-flex align-items-center gap-2 small rounded-3">
+                            <i class="bi bi-info-circle text-primary fs-5 flex-shrink-0"></i>
+                            <div class="text-secondary">
+                                Ao clicar em qualquer notificação de segurança do painel, o sistema redireciona diretamente para a aba <strong>Monitoramento ao Vivo</strong> pré-filtrando os eventos suspeitos em tempo real.
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -1978,6 +2239,95 @@
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL: LOGS CONSOLIDADOS DO INCIDENTE -->
+<div class="modal fade" id="incidentLogsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-dark text-white border-0 py-3">
+                <h5 class="modal-title h6 font-monospace d-flex align-items-center gap-2 mb-0">
+                    <i class="bi bi-terminal-fill text-warning"></i> Logs Consolidados do Evento <span id="modal-inc-id-badge" class="badge bg-secondary">#0</span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-3 bg-dark">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <span class="text-muted small font-monospace" id="modal-inc-timestamp">-</span>
+                    <button class="btn btn-xs btn-outline-light font-monospace rounded-2" onclick="copyIncidentLogs()"><i class="bi bi-clipboard me-1"></i> Copiar Logs</button>
+                </div>
+                <pre id="modal-inc-raw-logs" class="p-3 rounded bg-black text-light font-monospace mb-0" style="max-height: 400px; overflow-y: auto; font-size: 0.82rem; white-space: pre-wrap; word-break: break-all;"></pre>
+            </div>
+            <div class="modal-footer bg-light py-2">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Fechar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL: MITIGAÇÃO DIRETA SOAR -->
+<div class="modal fade" id="incidentMitigateModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-danger text-white border-0 py-3">
+                <h5 class="modal-title h6 fw-bold mb-0"><i class="bi bi-shield-lock me-2"></i>Aplicar Mitigação SOAR ao Incidente</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <input type="hidden" id="mitigate-inc-id">
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold text-dark">Alvo para Bloqueio / Mitigação:</label>
+                    <input type="text" id="mitigate-target-input" class="form-control font-monospace" placeholder="ex: IP ou email@domain.com">
+                    <small class="text-muted">Informe o IP, e-mail do atacante ou domínio a ser submetido à regra SOAR.</small>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold text-dark">Tipo de Ação SOAR:</label>
+                    <select id="mitigate-action-type" class="form-select font-monospace">
+                        <option value="block" selected>🚫 Bloqueio Total (Reject / Postfix Rule)</option>
+                        <option value="spam">⚠️ Marcar como SPAM (SpamAssassin Rule)</option>
+                        <option value="whitelist">✅ Whitelist (Permitir Remetente Legítimo)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer bg-light py-2">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-danger fw-semibold px-3" onclick="submitIncidentMitigation()"><i class="bi bi-shield-check me-1"></i> Executar Mitigação</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL: REGISTRAR AÇÃO / NOTA MANUAL -->
+<div class="modal fade" id="incidentNoteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-primary text-white border-0 py-3">
+                <h5 class="modal-title h6 fw-bold mb-0"><i class="bi bi-journal-plus me-2"></i>Registrar Ação / Observação no Incidente</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <input type="hidden" id="note-inc-id">
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold text-dark">Ação ou Providência Realizada:</label>
+                    <textarea id="note-action-text" class="form-control font-monospace" rows="4" placeholder="Descreva as ações de análise, bloqueio manual ou verificação do evento..."></textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold text-dark">Atualizar Status do Incidente:</label>
+                    <select id="note-status-select" class="form-select font-monospace">
+                        <option value="Pendente">Pendente</option>
+                        <option value="Em Análise" selected>Em Análise</option>
+                        <option value="Mitigado">Mitigado</option>
+                        <option value="Resolvido">Resolvido</option>
+                        <option value="Ignorado">Ignorado / Falso Positivo</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer bg-light py-2">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-primary fw-semibold px-3" onclick="submitIncidentNote()"><i class="bi bi-check-lg me-1"></i> Salvar Ação</button>
+            </div>
         </div>
     </div>
 </div>
@@ -2671,9 +3021,10 @@
             console.warn("Status de serviços indisponível no momento:", e.message);
         }
 
-        // 2. Checar se existem alertas de ataque nos logs
+        // 2. Checar se existem alertas de ataque nos logs e seu nível de severidade
+        let secData = null;
         try {
-            const secData = await fetchJson('/api/troubleshooting/security-alerts');
+            secData = await fetchJson('/api/troubleshooting/security-alerts');
             if (secData && secData.alerts && secData.alerts.length > 0) {
                 attackList = secData.alerts;
             }
@@ -2697,7 +3048,7 @@
         const dashboardNotifBtn = document.getElementById('dashboard-notif-btn');
 
         const hasStopped = stoppedList.length > 0;
-        const hasAttacks = attackList.length > 0;
+        const secLevel = secData ? (secData.level || 0) : (attackList.length > 0 ? 1 : 0);
 
         if (hasStopped) {
             // -------------------------------------------------------------
@@ -2755,65 +3106,81 @@
                 };
             }
 
-        } else if (hasAttacks) {
+        } else if (secLevel > 0) {
             // -------------------------------------------------------------
-            // CASO 2: LOG DE ATAQUE / INTRUSÃO DETECTADO -> SINO LARANJA
+            // CASO 2: NOTIFICAÇÃO DE SEGURANÇA CLASSIFICADA (NÍVEIS 1, 2 E 3)
             // -------------------------------------------------------------
-            if (bellIcon) bellIcon.className = 'bi bi-bell-fill text-warning fs-6';
-            if (dropdownBellIcon) dropdownBellIcon.className = 'bi bi-bell-fill text-warning';
+            const isCritical = secLevel >= 3;
+            const isPotential = secLevel === 2;
+            
+            const colorTheme = isCritical ? 'danger' : 'warning';
+            const bellColor = isCritical ? 'text-danger' : 'text-warning';
+            const badgeBg = isCritical ? 'bg-danger text-white' : 'bg-warning text-dark';
+            const cardBorder = isCritical ? 'border-danger' : 'border-warning';
+
+            const severityTitle = secData ? secData.title : 'Monitoramento de Segurança';
+            const severityLabel = secData ? secData.severity_label : (isCritical ? '🔴 Possível Ataque' : (isPotential ? '🟠 Incidente Potencial' : '🟡 Evento Suspeito'));
+            const severityMsg = secData ? secData.message : `${attackList.length} evento(s) suspeito(s) identificado(s) nos logs.`;
+            const recommendedLens = secData ? (secData.recommended_lens || 'smtpd|anvil') : 'smtpd|anvil';
+            const recommendedTerm = secData ? (secData.recommended_term || '') : '';
+
+            if (bellIcon) bellIcon.className = `bi bi-bell-fill ${bellColor} fs-6`;
+            if (dropdownBellIcon) dropdownBellIcon.className = `bi bi-bell-fill ${bellColor}`;
 
             if (notifBadge) {
                 notifBadge.classList.remove('d-none');
                 notifBadge.textContent = `${attackList.length}`;
-                notifBadge.className = 'position-absolute top-0 start-100 translate-middle badge bg-warning text-dark font-monospace rounded-circle';
+                notifBadge.className = `position-absolute top-0 start-100 translate-middle badge ${badgeBg} font-monospace rounded-circle`;
             }
 
             if (notifTag) {
-                notifTag.textContent = 'Aviso de Segurança';
-                notifTag.className = 'badge bg-warning-subtle text-warning border border-warning-subtle';
+                notifTag.textContent = severityLabel;
+                notifTag.className = `badge bg-${colorTheme}-subtle text-${colorTheme} border border-${colorTheme}-subtle`;
             }
 
             if (notifListContainer) {
                 notifListContainer.innerHTML = `
-                    <div class="p-2.5 rounded bg-warning bg-opacity-10 border border-warning border-opacity-25">
-                        <div class="d-flex align-items-center gap-2 mb-1">
-                            <span class="status-dot bg-warning"></span>
-                            <strong class="small text-dark">Log de Ataque / Intrusão</strong>
+                    <div class="p-2.5 rounded bg-${colorTheme} bg-opacity-10 border border-${colorTheme} border-opacity-25" style="cursor: pointer;" onclick="openLiveMonitoring('${recommendedLens}', '${recommendedTerm}')">
+                        <div class="d-flex align-items-center justify-content-between mb-1">
+                            <strong class="small text-dark">${severityLabel}</strong>
+                            <span class="badge ${badgeBg} font-monospace">${attackList.length} log(s)</span>
                         </div>
                         <p class="text-muted mb-0" style="font-size: 11px;">
-                            ${attackList.length} tentativa(s) suspeita(s) recente(s) registrada(s) nos logs de e-mail.
+                            ${severityMsg}
                         </p>
+                        <div class="mt-1 text-end">
+                            <span class="text-primary fw-bold" style="font-size: 10px;"><i class="bi bi-activity me-1"></i> Abrir Monitoramento ao Vivo &rarr;</span>
+                        </div>
                     </div>
                 `;
             }
 
-            // Exibir Painel do Dashboard com Alerta Laranja e Botão Ver Logs
+            // Exibir Painel no topo do Dashboard com nivel proporcional
             if (dashboardCard) {
                 dashboardCard.classList.remove('d-none');
-                dashboardCard.className = 'card p-3.5 mb-4 border-start border-4 border-warning bg-white shadow-sm';
+                dashboardCard.className = `card p-3.5 mb-4 border-start border-4 ${cardBorder} bg-white shadow-sm`;
             }
-            if (dashboardNotifIconBox) dashboardNotifIconBox.className = 'p-2.5 rounded-circle bg-warning bg-opacity-15 text-warning position-relative flex-shrink-0';
-            if (dashboardNotifIcon) dashboardNotifIcon.className = 'bi bi-shield-exclamation fs-5';
-            if (dashboardNotifTitle) dashboardNotifTitle.textContent = 'Alerta de Segurança & Intrusão';
+            if (dashboardNotifIconBox) dashboardNotifIconBox.className = `p-2.5 rounded-circle bg-${colorTheme} bg-opacity-15 text-${colorTheme} position-relative flex-shrink-0`;
+            if (dashboardNotifIcon) dashboardNotifIcon.className = isCritical ? 'bi bi-shield-slash-fill fs-5' : (isPotential ? 'bi bi-shield-exclamation fs-5' : 'bi bi-eye-fill fs-5');
+            if (dashboardNotifTitle) dashboardNotifTitle.textContent = severityTitle;
             if (dashboardNotifBadge) {
-                dashboardNotifBadge.textContent = 'Ataque Detectado';
-                dashboardNotifBadge.className = 'badge bg-warning text-dark font-monospace';
+                dashboardNotifBadge.textContent = severityLabel;
+                dashboardNotifBadge.className = `badge ${badgeBg} font-monospace`;
             }
             if (dashboardNotifText) {
-                dashboardNotifText.innerHTML = `<span class="text-warning-emphasis fw-bold"><i class="bi bi-shield-exclamation me-1"></i> Atenção:</span> Detectada(s) <strong>${attackList.length} tentativa(s) de acesso não autorizado</strong> ou conexões suspeitas nos logs de e-mail.`;
+                dashboardNotifText.innerHTML = `<span class="fw-bold text-${colorTheme}"><i class="bi bi-shield-check me-1"></i> Radar de Segurança:</span> ${severityMsg}`;
             }
             if (dashboardNotifBtn) {
-                dashboardNotifBtn.className = 'btn btn-sm btn-outline-warning text-dark fw-semibold px-3 rounded-3 flex-shrink-0';
-                dashboardNotifBtn.innerHTML = '<i class="bi bi-file-text me-1"></i> Ver Logs do Sistema';
+                dashboardNotifBtn.className = `btn btn-sm ${isCritical ? 'btn-danger text-white' : 'btn-outline-warning text-dark'} fw-semibold px-3 rounded-3 flex-shrink-0`;
+                dashboardNotifBtn.innerHTML = '<i class="bi bi-activity me-1"></i> Ir para Monitoramento ao Vivo';
                 dashboardNotifBtn.onclick = () => {
-                    const navItem = document.querySelector('[data-tab="ferramentas"]');
-                    if (navItem) navItem.click();
+                    openLiveMonitoring(recommendedLens, recommendedTerm);
                 };
             }
 
         } else {
             // -------------------------------------------------------------
-            // CASO 3: TUDO 100% OK -> SINO CINZA E PAINEL ESCONDIDO
+            // CASO 3: TUDO 100% OPERACIONAL -> SINO CINZA E PAINEL ESCONDIDO
             // -------------------------------------------------------------
             if (bellIcon) bellIcon.className = 'bi bi-bell-fill text-secondary fs-6';
             if (dropdownBellIcon) dropdownBellIcon.className = 'bi bi-bell-fill text-secondary';
@@ -2824,14 +3191,14 @@
             }
 
             if (notifTag) {
-                notifTag.textContent = 'Operacional';
+                notifTag.textContent = '🟢 Operacional';
                 notifTag.className = 'badge bg-success-subtle text-success border border-success-subtle';
             }
 
             if (notifListContainer) {
                 notifListContainer.innerHTML = `
                     <div class="p-2.5 rounded bg-light text-muted small text-center">
-                        <i class="bi bi-check-circle-fill text-success me-1"></i> Todos os serviços operando normalmente. Sem alertas.
+                        <i class="bi bi-check-circle-fill text-success me-1"></i> Todos os serviços e conexões de e-mail operando normalmente.
                     </div>
                 `;
             }
@@ -3948,6 +4315,37 @@
         }
     }
 
+    // Função de navegação direta para o Monitoramento ao Vivo com filtro de busca
+    function openLiveMonitoring(eventLens = 'smtpd|anvil', searchTerm = '') {
+        const navItem = document.querySelector('[data-tab="ferramentas"]');
+        if (navItem) navItem.click();
+
+        const liveTabBtn = document.getElementById('monitoramento-tab');
+        if (liveTabBtn) {
+            const tabInstance = bootstrap.Tab.getOrCreateInstance(liveTabBtn);
+            if (tabInstance) {
+                tabInstance.show();
+            } else {
+                liveTabBtn.click();
+            }
+        }
+
+        const lensEl = document.getElementById('live-event-lens-select');
+        const termEl = document.getElementById('live-search-term-input');
+
+        if (lensEl) lensEl.value = eventLens || 'smtpd|anvil';
+        if (termEl) termEl.value = searchTerm || '';
+
+        loadLogs();
+
+        setTimeout(() => {
+            const targetEl = document.getElementById('tab-monitoramento') || document.getElementById('logs-container');
+            if (targetEl) {
+                targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }, 150);
+    }
+
     // 7. MFA SETUP
     async function openMfaModal() {
         const modal = new bootstrap.Modal(document.getElementById('mfaModal'));
@@ -4544,46 +4942,275 @@
         }
     }
 
-    // 11. TRILHA DE AUDITORIA DE AÇÕES (AUDIT TRAIL)
-    async function loadAuditLogs() {
-        const tbody = document.getElementById('audit-logs-table-body');
-        const countSpan = document.getElementById('audit-logs-count');
-        if (!tbody) return;
+    // 11. TRILHA DE AUDITORIA DE AÇÕES E GERENCIAMENTO DE INCIDENTES
+    let currentIncidents = [];
+
+    async function loadIncidents() {
+        const tableBody = document.getElementById('incidents-table-body');
+        if (!tableBody) return;
+
+        tableBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm me-2 text-primary"></div>Carregando incidentes de segurança...</td></tr>';
+
+        const statusFilter = document.getElementById('inc-status-filter')?.value || 'all';
+        const severityFilter = document.getElementById('inc-severity-filter')?.value || 'all';
+        const searchVal = document.getElementById('inc-search-input')?.value || '';
 
         try {
-            const data = await fetchJson('/api/auth/audit-logs');
-            const logs = data.audit_logs || [];
-            if (countSpan) countSpan.textContent = logs.length;
+            const data = await fetchJson(`/api/troubleshooting/incidents?status=${encodeURIComponent(statusFilter)}&severity=${encodeURIComponent(severityFilter)}&search=${encodeURIComponent(searchVal)}`);
 
-            if (logs.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Nenhum registro de auditoria encontrado.</td></tr>';
+            if (data.stats) {
+                document.getElementById('inc-stat-total').textContent = data.stats.total || 0;
+                document.getElementById('inc-stat-critical').textContent = (data.incidents || []).filter(i => i.level === 3 || i.severity_code === 'critical').length;
+                document.getElementById('inc-stat-potential').textContent = (data.incidents || []).filter(i => i.level === 2 || i.severity_code === 'potential').length;
+                document.getElementById('inc-stat-resolved').textContent = (data.stats.mitigado || 0) + (data.stats.resolvido || 0);
+            }
+
+            currentIncidents = data.incidents || [];
+
+            if (currentIncidents.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4"><i class="bi bi-shield-check text-success fs-4 d-block mb-1"></i>Nenhum incidente de segurança encontrado com os filtros atuais.</td></tr>';
                 return;
             }
 
-            tbody.innerHTML = logs.map(l => {
-                let badgeClass = 'bg-primary-subtle text-primary border-primary-subtle';
-                if (l.action.includes('MFA')) badgeClass = 'bg-info-subtle text-info border-info-subtle';
-                if (l.action.includes('DELETE') || l.action.includes('FLUSH')) badgeClass = 'bg-danger-subtle text-danger border-danger-subtle';
-                if (l.action.includes('RULE') || l.action.includes('CRON')) badgeClass = 'bg-purple-subtle text-purple border-purple-subtle';
+            tableBody.innerHTML = currentIncidents.map(inc => {
+                let sevBadge = '<span class="badge bg-secondary font-monospace">🟡 Suspeito</span>';
+                if (inc.level === 3 || inc.severity_code === 'critical') {
+                    sevBadge = '<span class="badge bg-danger text-white font-monospace">🔴 Possível Ataque</span>';
+                } else if (inc.level === 2 || inc.severity_code === 'potential') {
+                    sevBadge = '<span class="badge bg-warning text-dark font-monospace">🟠 Incidente Potencial</span>';
+                } else if (inc.level === 1 || inc.severity_code === 'suspicious') {
+                    sevBadge = '<span class="badge bg-warning text-dark font-monospace">🟡 Evento Suspeito</span>';
+                }
 
-                const detailsText = l.details ? JSON.stringify(l.details) : '-';
+                let statusBadgeClass = 'bg-secondary text-white';
+                if (inc.status === 'Pendente') statusBadgeClass = 'bg-danger text-white';
+                else if (inc.status === 'Em Análise') statusBadgeClass = 'bg-warning text-dark';
+                else if (inc.status === 'Mitigado') statusBadgeClass = 'bg-info text-dark';
+                else if (inc.status === 'Resolvido') statusBadgeClass = 'bg-success text-white';
+
+                const actionsFormatted = (inc.action_taken || 'Nenhuma ação registrada')
+                    .split('\n')
+                    .map(line => `<div class="font-monospace text-secondary" style="font-size:11px;">${escapeHtml(line)}</div>`)
+                    .join('');
 
                 return `
                     <tr>
-                        <td class="font-monospace text-muted small">${l.created_at || '-'}</td>
-                        <td class="fw-bold text-dark font-monospace"><i class="bi bi-person-fill text-secondary me-1"></i> ${l.username}</td>
-                        <td><span class="badge ${badgeClass} border font-monospace px-2.5 py-1">${l.action}</span></td>
-                        <td class="font-monospace text-dark small">${l.target || '-'}</td>
-                        <td class="font-monospace text-muted small">${l.ip_address || '-'}</td>
-                        <td class="font-monospace text-muted small text-truncate" style="max-width: 220px;" title="${detailsText}">${detailsText}</td>
+                        <td class="font-monospace small">
+                            <strong>#${inc.id}</strong><br>
+                            <span class="text-muted" style="font-size:11px;">${inc.timestamp || '-'}</span>
+                        </td>
+                        <td>${sevBadge}</td>
+                        <td>
+                            <div class="fw-bold text-dark small">${escapeHtml(inc.title)}</div>
+                            <div class="font-monospace text-muted" style="font-size:11px;"><i class="bi bi-crosshair me-1"></i>Alvo: ${escapeHtml(inc.affected_target)}</div>
+                        </td>
+                        <td style="max-width:320px;">
+                            <div class="small text-muted mb-1">${escapeHtml(inc.summary)}</div>
+                            <div class="p-1.5 bg-light rounded border">${actionsFormatted}</div>
+                        </td>
+                        <td>
+                            <select class="form-select form-select-sm font-monospace border-0 ${statusBadgeClass}" onchange="changeIncidentStatus(${inc.id}, this.value)" style="width: auto;">
+                                <option value="Pendente" ${inc.status === 'Pendente' ? 'selected' : ''}>🔴 Pendente</option>
+                                <option value="Em Análise" ${inc.status === 'Em Análise' ? 'selected' : ''}>🟡 Em Análise</option>
+                                <option value="Mitigado" ${inc.status === 'Mitigado' ? 'selected' : ''}>🔵 Mitigado</option>
+                                <option value="Resolvido" ${inc.status === 'Resolvido' ? 'selected' : ''}>🟢 Resolvido</option>
+                                <option value="Ignorado" ${inc.status === 'Ignorado' ? 'selected' : ''}>⚪ Ignorado</option>
+                            </select>
+                        </td>
+                        <td class="text-end">
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-dark" title="Ver Logs Consolidados do Evento" onclick="openIncidentLogsModal(${inc.id})">
+                                    <i class="bi bi-terminal"></i>
+                                </button>
+                                <button class="btn btn-outline-danger" title="Aplicar Mitigação SOAR" onclick="openIncidentMitigateModal(${inc.id})">
+                                    <i class="bi bi-shield-lock"></i> Mitigar
+                                </button>
+                                <button class="btn btn-outline-primary" title="Registrar Ação / Observação Manual" onclick="openIncidentNoteModal(${inc.id})">
+                                    <i class="bi bi-pencil-square"></i>
+                                </button>
+                            </div>
+                        </td>
                     </tr>
                 `;
             }).join('');
 
-            filterTableRows('search-audit-input', 'audit-logs-table-body');
         } catch (e) {
-            console.error("Erro ao carregar logs de auditoria:", e);
-            tbody.innerHTML = `<tr><td colspan="6" class="text-danger font-monospace text-center py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar auditoria: ${e.message}</td></tr>`;
+            console.error("Erro ao carregar incidentes:", e);
+            tableBody.innerHTML = `<tr><td colspan="6" class="text-center text-danger py-4">Erro ao carregar incidentes: ${e.message}</td></tr>`;
+        }
+    }
+
+    function openIncidentLogsModal(incId) {
+        const inc = currentIncidents.find(i => i.id === incId);
+        if (!inc) return;
+        document.getElementById('modal-inc-id-badge').textContent = `#${inc.id}`;
+        document.getElementById('modal-inc-timestamp').textContent = `Registrado em: ${inc.timestamp}`;
+        document.getElementById('modal-inc-raw-logs').textContent = inc.raw_logs || 'Nenhum log bruto disponível.';
+        const modal = new bootstrap.Modal(document.getElementById('incidentLogsModal'));
+        modal.show();
+    }
+
+    function copyIncidentLogs() {
+        const logsText = document.getElementById('modal-inc-raw-logs').textContent;
+        navigator.clipboard.writeText(logsText);
+        showAlert('Logs copiados para a área de transferência!', 'success');
+    }
+
+    function openIncidentMitigateModal(incId) {
+        const inc = currentIncidents.find(i => i.id === incId);
+        if (!inc) return;
+        document.getElementById('mitigate-inc-id').value = inc.id;
+        document.getElementById('mitigate-target-input').value = inc.affected_target && inc.affected_target !== '-' ? inc.affected_target : '';
+        const modal = new bootstrap.Modal(document.getElementById('incidentMitigateModal'));
+        modal.show();
+    }
+
+    async function submitIncidentMitigation() {
+        const incId = document.getElementById('mitigate-inc-id').value;
+        const target = document.getElementById('mitigate-target-input').value;
+        const actionType = document.getElementById('mitigate-action-type').value;
+
+        try {
+            const data = await fetchJson(`/api/troubleshooting/incidents/${incId}/mitigate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target, action_type: actionType })
+            });
+            showAlert(data.message, 'success');
+            bootstrap.Modal.getInstance(document.getElementById('incidentMitigateModal')).hide();
+            loadIncidents();
+        } catch (e) {
+            showAlert(`Erro ao aplicar mitigação: ${e.message}`, 'danger');
+        }
+    }
+
+    function openIncidentNoteModal(incId) {
+        const inc = currentIncidents.find(i => i.id === incId);
+        if (!inc) return;
+        document.getElementById('note-inc-id').value = inc.id;
+        document.getElementById('note-action-text').value = '';
+        document.getElementById('note-status-select').value = inc.status || 'Em Análise';
+        const modal = new bootstrap.Modal(document.getElementById('incidentNoteModal'));
+        modal.show();
+    }
+
+    async function submitIncidentNote() {
+        const incId = document.getElementById('note-inc-id').value;
+        const actionNote = document.getElementById('note-action-text').value;
+        const status = document.getElementById('note-status-select').value;
+
+        try {
+            const data = await fetchJson(`/api/troubleshooting/incidents/${incId}/status`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status, action_note: actionNote })
+            });
+            showAlert(data.message, 'success');
+            bootstrap.Modal.getInstance(document.getElementById('incidentNoteModal')).hide();
+            loadIncidents();
+        } catch (e) {
+            showAlert(`Erro ao registrar ação: ${e.message}`, 'danger');
+        }
+    }
+
+    async function changeIncidentStatus(incId, newStatus) {
+        try {
+            const data = await fetchJson(`/api/troubleshooting/incidents/${incId}/status`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: newStatus })
+            });
+            showAlert(data.message, 'success');
+            loadIncidents();
+        } catch (e) {
+            showAlert(`Erro ao atualizar status: ${e.message}`, 'danger');
+        }
+    }
+
+    async function loadAuditLogs() {
+        const tableBody = document.getElementById('audit-table-body');
+        const oldBody = document.getElementById('audit-logs-table-body');
+
+        const severityFilter = document.getElementById('audit-severity-filter')?.value || 'all';
+        const dateFilter = document.getElementById('audit-date-filter')?.value || 'all';
+        const searchVal = document.getElementById('audit-search-input')?.value || '';
+
+        if (tableBody) {
+            tableBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm me-2 text-primary"></div>Carregando logs de auditoria...</td></tr>';
+        }
+
+        try {
+            const data = await fetchJson(`/api/troubleshooting/audit-logs?severity=${encodeURIComponent(severityFilter)}&date_preset=${encodeURIComponent(dateFilter)}&search=${encodeURIComponent(searchVal)}`);
+
+            if (data.counts) {
+                if (document.getElementById('audit-count-normal')) document.getElementById('audit-count-normal').textContent = data.counts.normal || 0;
+                if (document.getElementById('audit-count-suspicious')) document.getElementById('audit-count-suspicious').textContent = data.counts.suspicious || 0;
+                if (document.getElementById('audit-count-potential')) document.getElementById('audit-count-potential').textContent = data.counts.potential || 0;
+                if (document.getElementById('audit-count-critical')) document.getElementById('audit-count-critical').textContent = data.counts.critical || 0;
+            }
+
+            const logs = data.logs || [];
+
+            if (tableBody) {
+                if (logs.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4"><i class="bi bi-journal-check text-success fs-4 d-block mb-1"></i>Nenhum registro de auditoria encontrado com os filtros informados.</td></tr>';
+                } else {
+                    tableBody.innerHTML = logs.map(log => {
+                        let sevBadge = '<span class="badge bg-success mb-1">🟢 Normal</span>';
+                        if (log.severity_level === 'critical') {
+                            sevBadge = '<span class="badge bg-danger text-white mb-1">🔴 Crítico</span>';
+                        } else if (log.severity_level === 'potential') {
+                            sevBadge = '<span class="badge bg-warning text-dark mb-1">🟠 Potencial</span>';
+                        } else if (log.severity_level === 'suspicious') {
+                            sevBadge = '<span class="badge bg-warning text-dark mb-1">🟡 Suspeito</span>';
+                        }
+
+                        let detailsPretty = log.details_json || '{}';
+                        try {
+                            const parsed = JSON.parse(log.details_json);
+                            detailsPretty = JSON.stringify(parsed, null, 2);
+                        } catch(e){}
+
+                        return `
+                            <tr>
+                                <td class="font-monospace small text-muted">${escapeHtml(log.timestamp) || '-'}</td>
+                                <td>${sevBadge}</td>
+                                <td>
+                                    <strong class="text-dark small">${escapeHtml(log.admin_user)}</strong><br>
+                                    <span class="font-monospace text-muted" style="font-size:11px;">${escapeHtml(log.ip_address)}</span>
+                                </td>
+                                <td><span class="badge bg-dark font-monospace">${escapeHtml(log.action)}</span></td>
+                                <td class="font-monospace small text-dark">${escapeHtml(log.target)}</td>
+                                <td style="max-width:280px;">
+                                    <pre class="mb-0 p-1.5 bg-light border rounded font-monospace text-secondary" style="font-size:11px; max-height:80px; overflow:auto;">${escapeHtml(detailsPretty)}</pre>
+                                </td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+            }
+
+            if (oldBody) {
+                const countSpan = document.getElementById('audit-logs-count');
+                if (countSpan) countSpan.textContent = logs.length;
+                oldBody.innerHTML = logs.map(l => {
+                    const detailsText = l.details_json ? l.details_json : '-';
+                    return `
+                        <tr>
+                            <td class="font-monospace text-muted small">${l.timestamp || '-'}</td>
+                            <td class="fw-bold text-dark font-monospace"><i class="bi bi-person-fill text-secondary me-1"></i> ${escapeHtml(l.admin_user)}</td>
+                            <td><span class="badge bg-dark border font-monospace px-2.5 py-1">${escapeHtml(l.action)}</span></td>
+                            <td class="font-monospace text-dark small">${escapeHtml(l.target || '-')}</td>
+                            <td class="font-monospace text-muted small">${escapeHtml(l.ip_address || '-')}</td>
+                            <td class="font-monospace text-muted small text-truncate" style="max-width: 220px;" title="${escapeHtml(detailsText)}">${escapeHtml(detailsText)}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+
+        } catch (e) {
+            console.error("Erro ao carregar auditoria:", e);
+            if (tableBody) tableBody.innerHTML = `<tr><td colspan="6" class="text-danger font-monospace text-center py-4"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar auditoria: ${e.message}</td></tr>`;
         }
     }
 </script>
