@@ -139,6 +139,24 @@ async function startServer() {
     }
   ];
 
+  function addAuditLog(action: string, target = "-", details: Record<string, any> = {}, severityLevel: 'normal' | 'suspicious' | 'potential' | 'critical' = 'normal', username = "admin", reqIp = "127.0.0.1") {
+    const newLog = {
+      id: virtualAuditLogs.length + 1,
+      username: username,
+      admin_user: username,
+      action: action,
+      target: target || "-",
+      ip_address: reqIp,
+      details: details,
+      details_json: JSON.stringify(details),
+      severity_level: severityLevel,
+      created_at: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19)
+    };
+    virtualAuditLogs.unshift(newLog);
+    return newLog;
+  }
+
   const virtualServices: Record<string, { active: boolean; state: string }> = {
     postfix: { active: true, state: "active" },
     amavis: { active: true, state: "active" },
@@ -274,6 +292,7 @@ blacklist_from *@spammerdomain.net
       created_at: new Date().toISOString().replace("T", " ").substring(0, 19)
     };
     virtualAdminsList.push(newAdmin);
+    addAuditLog("ADMIN_CREATE", newAdmin.username, { role: newAdmin.role }, "suspicious");
     res.json({ success: true, message: `Usuário "${username}" (${newAdmin.role}) criado com sucesso!`, admin: newAdmin });
   });
 
@@ -286,6 +305,7 @@ blacklist_from *@spammerdomain.net
     const admin = virtualAdminsList.find(a => a.id === adminId);
     if (!admin) return res.status(404).json({ success: false, message: "Administrador não encontrado." });
 
+    addAuditLog("ADMIN_PASSWORD_CHANGE", admin.username, {}, "suspicious");
     res.json({ success: true, message: `Senha do administrador "${admin.username}" alterada com sucesso!` });
   });
 
@@ -298,6 +318,7 @@ blacklist_from *@spammerdomain.net
     const admin = virtualAdminsList.find(a => a.id === adminId);
     if (!admin) return res.status(404).json({ success: false, message: "Administrador não encontrado." });
 
+    addAuditLog("ADMIN_PASSWORD_CHANGE", admin.username, {}, "suspicious");
     res.json({ success: true, message: `Senha do administrador "${admin.username}" alterada com sucesso!` });
   });
 
@@ -314,6 +335,7 @@ blacklist_from *@spammerdomain.net
 
     const removedUsername = virtualAdminsList[adminIndex].username;
     virtualAdminsList.splice(adminIndex, 1);
+    addAuditLog("ADMIN_DELETE", removedUsername, {}, "critical");
     res.json({ success: true, message: `Administrador "${removedUsername}" excluído com sucesso!` });
   };
 
@@ -380,6 +402,7 @@ blacklist_from *@spammerdomain.net
       created: new Date().toISOString().replace("T", " ").substring(0, 19)
     };
     virtualDomains.push(newDom);
+    addAuditLog("DOMAIN_CREATE", newDom.domain, { description: newDom.description, maxquota: newDom.maxquota }, "normal");
     res.json({ success: true, message: `Domínio ${domain} criado no banco vmail!`, domain: newDom });
   });
 
@@ -387,6 +410,7 @@ blacklist_from *@spammerdomain.net
     const dom = virtualDomains.find(d => d.domain === req.params.domain);
     if (!dom) return res.status(404).json({ success: false, message: "Domínio não encontrado." });
     dom.active = !dom.active;
+    addAuditLog("DOMAIN_TOGGLE", dom.domain, { active: dom.active }, "suspicious");
     res.json({ success: true, message: `Status do domínio ${dom.domain} alterado!` });
   });
 
@@ -394,6 +418,7 @@ blacklist_from *@spammerdomain.net
     virtualDomains = virtualDomains.filter(d => d.domain !== req.params.domain);
     virtualMailboxes = virtualMailboxes.filter(m => m.domain !== req.params.domain);
     virtualAliases = virtualAliases.filter(a => a.domain !== req.params.domain);
+    addAuditLog("DOMAIN_DELETE", req.params.domain, {}, "critical");
     res.json({ success: true, message: `Domínio e registros associados excluídos com sucesso!` });
   });
 
@@ -430,6 +455,7 @@ blacklist_from *@spammerdomain.net
     const d = virtualDomains.find(dom => dom.domain === domName);
     if (d) d.mailboxes += 1;
 
+    addAuditLog("MAILBOX_CREATE", fullEmail, { quota: newMb.quota, domain: domName, scheme: scheme || 'SSHA512' }, "normal");
     res.json({ success: true, message: `Caixa postal ${fullEmail} criada com hash Dovecot ${scheme || 'SSHA512'}!`, mailbox: newMb });
   });
 
@@ -439,6 +465,7 @@ blacklist_from *@spammerdomain.net
     const mb = virtualMailboxes.find(m => m.username === email);
     if (!mb) return res.status(404).json({ success: false, message: "Caixa postal não encontrada." });
     mb.quota = parseInt(quota) || 1024;
+    addAuditLog("MAILBOX_QUOTA_UPDATE", email, { quota: mb.quota }, "normal");
     res.json({ success: true, message: `Cota de ${email} atualizada para ${mb.quota} MB.` });
   });
 
@@ -450,6 +477,7 @@ blacklist_from *@spammerdomain.net
       if (d && d.mailboxes > 0) d.mailboxes -= 1;
     }
     virtualMailboxes = virtualMailboxes.filter(m => m.username !== email);
+    addAuditLog("MAILBOX_DELETE", email, {}, "potential");
     res.json({ success: true, message: `Caixa postal ${email} removida do banco vmail.` });
   });
 
@@ -468,12 +496,14 @@ blacklist_from *@spammerdomain.net
       created: new Date().toISOString().replace("T", " ").substring(0, 19)
     };
     virtualAliases.push(newAl);
+    addAuditLog("ALIAS_CREATE", address, { goto }, "normal");
     res.json({ success: true, message: `Alias ${address} -> ${goto} cadastrado!` });
   });
 
   app.delete("/api/vmail/aliases/:address", (req, res) => {
     const address = decodeURIComponent(req.params.address);
     virtualAliases = virtualAliases.filter(a => a.address !== address);
+    addAuditLog("ALIAS_DELETE", address, {}, "normal");
     res.json({ success: true, message: `Alias ${address} removido!` });
   });
 
@@ -979,6 +1009,13 @@ blacklist_from *@spammerdomain.net
       inc.action_taken = inc.action_taken ? `${inc.action_taken}\n${newEntry}` : newEntry;
     }
 
+    addAuditLog(
+      "INCIDENT_STATUS_UPDATE",
+      `Incidente #${inc.id}`,
+      { status: inc.status, action_note: action_note || "" },
+      "potential"
+    );
+
     res.json({
       success: true,
       message: `Incidente #${inc.id} atualizado para ${inc.status}.`,
@@ -1021,6 +1058,13 @@ blacklist_from *@spammerdomain.net
     const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
     const mitigationNote = `[${nowStr} - admin] Mitigação executada: Regra '${actType.toUpperCase()}' aplicada ao alvo '${targetVal}'.`;
     inc.action_taken = inc.action_taken ? `${inc.action_taken}\n${mitigationNote}` : mitigationNote;
+
+    addAuditLog(
+      "INCIDENT_MITIGATE",
+      targetVal,
+      { action_type: actType, incident_id: inc.id },
+      "critical"
+    );
 
     res.json({
       success: true,
@@ -1107,10 +1151,11 @@ blacklist_from *@spammerdomain.net
   // Ativar Módulo de Incidentes & Auditoria
   app.post("/api/troubleshooting/activate-module", (req, res) => {
     isIncidentsModuleActive = true;
+    addAuditLog("MODULE_ACTIVATED", "Módulo de Incidentes e Auditoria MariaDB", {}, "normal");
     res.json({
       success: true,
       active: true,
-      message: "Módulo de Incidentes e Auditoria ativado com sucesso! Tabelas criadas no MariaDB."
+      message: "Módulo de Incidentes e Auditoria ativado com sucesso! Tabelas ativas no MariaDB."
     });
   });
 
@@ -1130,26 +1175,97 @@ blacklist_from *@spammerdomain.net
       virtualAuditLogs = [];
     }
 
+    addAuditLog(
+      "PURGE_DATA",
+      `Expurgo de Dados (${target})`,
+      { deleted_incidents: deletedInc, deleted_audit_logs: deletedAudit },
+      "critical"
+    );
+
     res.json({
       success: true,
-      message: `Expurgo concluído! ${deletedInc} incidentes e ${deletedAudit} logs de auditoria foram expurgados. Módulo permanece ativo.`
+      message: `Expurgo concluído! ${deletedInc} incidentes e ${deletedAudit} logs de auditoria foram expurgados.`
     });
   });
 
-  // Importar MailLog para o MariaDB
+  // Importar MailLog para o MariaDB com Detecção Real de Incidentes
   app.post("/api/troubleshooting/maillog/ingest", (req, res) => {
-    virtualMailLogCount += Math.floor(Math.random() * 25) + 10;
+    const newBatch = Math.floor(Math.random() * 20) + 15;
+    virtualMailLogCount += newBatch;
+
+    const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const randomIpSuffix = Math.floor(Math.random() * 200) + 10;
+    const attackIp = `185.220.101.${randomIpSuffix}`;
+
+    const incidentTypes = [
+      {
+        title: `Tentativa de Autenticação Maliciosa SASL (${attackIp})`,
+        severity_code: 'critical',
+        level: 3,
+        summary: `Múltiplas falhas de login SASL/Dovecot registradas para o IP ${attackIp} no log de e-mail.`,
+        raw_logs: `${nowStr} mailserver postfix/smtpd[${Math.floor(Math.random()*10000)+10000}]: warning: unknown[${attackIp}]: SASL LOGIN authentication failed: U3Vwb3J0ZQ==`,
+        affected_target: attackIp
+      },
+      {
+        title: `Tentativa de Relay Aberto Rejeitada (${attackIp})`,
+        severity_code: 'potential',
+        level: 2,
+        summary: `Disparo não autenticado vindo do IP ${attackIp} rejeitado na etapa RCPT TO.`,
+        raw_logs: `${nowStr} mailserver postfix/smtpd[${Math.floor(Math.random()*10000)+10000}]: NOQUEUE: reject: RCPT from unknown[${attackIp}]: 554 5.7.1 Relay access denied`,
+        affected_target: attackIp
+      },
+      {
+        title: `Spam em Massa Rejeitado pelo Amavis/SpamAssassin`,
+        severity_code: 'suspicious',
+        level: 1,
+        summary: `Mensagem vinda de alerta-financas${randomIpSuffix}@phish-domain.net pontuada com score 12.8.`,
+        raw_logs: `${nowStr} mailserver amavis[${Math.floor(Math.random()*5000)+5000}]: Blocked SPAM {DiscardedInbound}, [${attackIp}] <alerta-financas${randomIpSuffix}@phish-domain.net> -> <financeiro@empresa.com.br>, Hits: 12.8`,
+        affected_target: `phish-domain.net`
+      }
+    ];
+
+    const selectedInc = incidentTypes[Math.floor(Math.random() * incidentTypes.length)];
+    const newIncident = {
+      id: 100 + virtualIncidents.length + 1,
+      title: selectedInc.title,
+      severity_code: selectedInc.severity_code,
+      level: selectedInc.level,
+      status: "Pendente",
+      summary: selectedInc.summary,
+      raw_logs: selectedInc.raw_logs,
+      affected_target: selectedInc.affected_target,
+      action_taken: "Incidente detectado e registrado pela Ingestão do MailLog.",
+      timestamp: nowStr,
+      resolved_at: null,
+      resolved_by: null
+    };
+
+    virtualIncidents.unshift(newIncident);
+
+    addAuditLog(
+      "MAILLOG_INGEST",
+      "Importação MailLog MariaDB",
+      {
+        batch_records: newBatch,
+        total_records: virtualMailLogCount,
+        new_incident_detected: selectedInc.title,
+        incident_id: newIncident.id
+      },
+      "normal"
+    );
+
     res.json({
       success: true,
       total_records: virtualMailLogCount,
-      message: `Ingestão de MailLog executada com sucesso! Total de ${virtualMailLogCount} registros gravados no MariaDB.`,
-      output: "Ingestão concluída via mail_log_ingestor.py"
+      message: `Ingestão de MailLog executada com sucesso! ${newBatch} novos registros gravados. Incidente #${newIncident.id} ("${selectedInc.title}") gerado.`,
+      output: `[${nowStr}] ${newBatch} linhas lidas de /var/log/mail.log -> ${virtualMailLogCount} total de registros inseridos no MariaDB.`
     });
   });
 
   // Alternar Ingestão Automática MailLog
   app.post("/api/troubleshooting/maillog/toggle-auto", (req, res) => {
     maillogAutoIngest = !maillogAutoIngest;
+    addAuditLog("MAILLOG_TOGGLE_AUTO", "Cron Ingestão MailLog", { auto_enabled: maillogAutoIngest }, "normal");
     res.json({
       success: true,
       enabled: maillogAutoIngest,
