@@ -37,7 +37,7 @@ sudo cp /opt/mailadmin/sudoers_mailadmin /etc/sudoers.d/mailadmin
 sudo chmod 0440 /etc/sudoers.d/mailadmin
 ```
 
-### 4. Configurar Conexão do MariaDB / MySQL (`vmail`)
+### 4. Configurar Conexão do MariaDB / MySQL (`vmail`) e Permissões
 Defina as variáveis de ambiente em `/opt/mailadmin/.env` ou no arquivo `config.py`:
 
 ```env
@@ -48,6 +48,12 @@ DB_PORT=3306
 DB_NAME=vmail
 SECRET_KEY=ChaveSecretaSuperSegura2026
 ```
+
+> **⚠️ Atenção sobre permissões no MariaDB/MySQL:**
+> O usuário `vmail` padrão do Postfix é somente leitura (`SELECT`). Para que o painel MailAdmin crie e remova caixas/aliases, utilize o usuário `vmailadmin` no `.env` ou aplique as permissões no MariaDB:
+> ```bash
+> sudo mysql < /opt/mailadmin/scripts/grant_vmail_permissions.sql
+> ```
 
 ### 5. Instalar e Ativar o Serviço Systemd (`mailadmin.service`)
 

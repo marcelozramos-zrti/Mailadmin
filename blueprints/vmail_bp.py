@@ -1,10 +1,28 @@
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy import func, text
+import datetime
 from models import db, Domain, Mailbox, Alias, UsedQuota
 from blueprints.audit_helper import log_audit_action
 
 vmail_bp = Blueprint('vmail', __name__, url_prefix='/api/vmail')
+
+def format_vmail_db_error(e, default_action="executar ação"):
+    err_str = str(e)
+    if "1142" in err_str or "command denied" in err_str.lower() or "denied to user" in err_str.lower():
+        try:
+            from config import Config
+            db_user = getattr(Config, 'DB_USER', 'vmail')
+        except Exception:
+            db_user = 'vmail'
+        return (
+            f"Erro de permissão no MariaDB/MySQL (1142): O usuário '{db_user}' não possui privilégios de escrita (INSERT/UPDATE/DELETE) na base 'vmail'. "
+            f"Para resolver:\n"
+            f"1) No arquivo .env, altere DB_USER=vmailadmin (usuário administrativo do iRedMail/Postfix);\n"
+            f"2) Ou conceda acesso de escrita executando no MariaDB:\n"
+            f"   GRANT SELECT, INSERT, UPDATE, DELETE ON vmail.* TO '{db_user}'@'localhost'; FLUSH PRIVILEGES;"
+        )
+    return f"Erro ao {default_action}: {err_str}"
 
 # ==========================================
 # 1. MÓDULO DE DOMÍNIOS
@@ -44,7 +62,7 @@ def handle_domains():
             return jsonify({'success': True, 'message': f'Domínio {domain_name} criado com sucesso!', 'domain': new_domain.to_dict()})
         except Exception as e:
             db.session.rollback()
-            return jsonify({'success': False, 'message': f'Exceção ao criar domínio: {str(e)}'}), 500
+            return jsonify({'success': False, 'message': format_vmail_db_error(e, 'criar domínio')}), 500
     else:
         try:
             # Subquery / agrupamento com COUNT() na tabela mailbox por dominio
@@ -81,7 +99,7 @@ def toggle_domain(domain_name):
         return jsonify({'success': True, 'message': f'Domínio {domain_name} {status_str} com sucesso!'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'success': False, 'message': f'Erro ao alterar status: {str(e)}'}), 500
+        return jsonify({'success': False, 'message': format_vmail_db_error(e, 'alterar status do domínio')}), 500
 
 @vmail_bp.route('/domains/<domain_name>', methods=['GET', 'POST', 'DELETE'])
 @login_required
@@ -109,7 +127,7 @@ def delete_domain(domain_name):
         return jsonify({'success': True, 'message': f'Domínio {domain_name} e seus usuários foram removidos!'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'success': False, 'message': f'Erro ao remover domínio: {str(e)}'}), 500
+        return jsonify({'success': False, 'message': format_vmail_db_error(e, 'remover domínio')}), 500
 
 
 # ==========================================
@@ -142,7 +160,16 @@ def handle_mailboxes():
         try:
             domain_obj = Domain.query.filter_by(domain=domain_name).first()
             if not domain_obj:
-                return jsonify({'success': False, 'message': f'Domínio {domain_name} não existe no banco.'}), 400
+                # Auto-cria o domínio caso não exista
+                domain_obj = Domain(
+                    domain=domain_name,
+                    description='Domínio Criado Automaticamente',
+                    maxquota=10240,
+                    transport='virtual',
+                    active=True
+                )
+                db.session.add(domain_obj)
+                db.session.flush()
 
             existing = Mailbox.query.filter_by(username=full_email).first()
             if existing:
@@ -176,7 +203,7 @@ def handle_mailboxes():
             })
         except Exception as e:
             db.session.rollback()
-            return jsonify({'success': False, 'message': f'Erro ao criar caixa postal: {str(e)}'}), 500
+            return jsonify({'success': False, 'message': format_vmail_db_error(e, 'criar caixa postal')}), 500
     else:
         domain_filter = request.args.get('domain')
         try:
@@ -222,7 +249,7 @@ def update_mailbox_quota(email):
         return jsonify({'success': True, 'quota': mb.quota})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'success': False, 'message': f'Erro ao alterar cota: {str(e)}'}), 500
+        return jsonify({'success': False, 'message': format_vmail_db_error(e, 'alterar cota')}), 500
 
 @vmail_bp.route('/mailboxes/<path:email>', methods=['GET', 'POST', 'DELETE'])
 @login_required
@@ -246,7 +273,7 @@ def delete_mailbox(email):
         return jsonify({'success': True, 'message': f'Caixa postal {email} removida do banco vmail!'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'success': False, 'message': f'Erro ao deletar caixa: {str(e)}'}), 500
+        return jsonify({'success': False, 'message': format_vmail_db_error(e, 'deletar caixa postal')}), 500
 
 
 # ==========================================
@@ -267,14 +294,29 @@ def handle_aliases():
         domain_name = address.split('@')[-1]
 
         try:
-            check_res = db.session.execute(text("SELECT address FROM alias WHERE address = :addr"), {'addr': address}).fetchone()
+            domain_obj = Domain.query.filter_by(domain=domain_name).first()
+            if not domain_obj:
+                domain_obj = Domain(
+                    domain=domain_name,
+                    description='Domínio Criado Automaticamente',
+                    maxquota=10240,
+                    transport='virtual',
+                    active=True
+                )
+                db.session.add(domain_obj)
+                db.session.flush()
+
+            check_res = Alias.query.filter_by(address=address).first()
             if check_res:
                 return jsonify({'success': False, 'message': 'Este alias já está registrado.'}), 400
 
-            db.session.execute(
-                text("INSERT INTO alias (address, `goto`, domain, active, created) VALUES (:address, :goto, :domain, 1, NOW())"),
-                {'address': address, 'goto': goto, 'domain': domain_name}
+            new_alias = Alias(
+                address=address,
+                goto=goto,
+                domain=domain_name,
+                active=True
             )
+            db.session.add(new_alias)
             db.session.commit()
 
             try:
@@ -282,27 +324,17 @@ def handle_aliases():
             except Exception:
                 pass
 
-            return jsonify({'success': True, 'message': f'Alias {address} -> {goto} criado com sucesso!'})
+            return jsonify({'success': True, 'message': f'Alias {address} -> {goto} criado com sucesso!', 'alias': new_alias.to_dict()})
         except Exception as e:
             db.session.rollback()
-            print(e)
-            return jsonify({'success': False, 'message': f'Erro ao criar alias: {str(e)}'}), 500
+            return jsonify({'success': False, 'message': format_vmail_db_error(e, 'criar alias')}), 500
     else:
         try:
-            result = db.session.execute(text("SELECT address, `goto`, domain FROM alias"))
-            rows = result.fetchall()
-            aliases = []
-            for r in rows:
-                aliases.append({
-                    'address': r[0],
-                    'goto': r[1],
-                    'domain': r[2],
-                    'active': True
-                })
-            return jsonify({'success': True, 'aliases': aliases, 'data': aliases})
+            aliases_db = Alias.query.all()
+            alias_list = [a.to_dict() for a in aliases_db]
+            return jsonify({'success': True, 'aliases': alias_list, 'data': alias_list})
         except Exception as e:
-            print(e)
-            return jsonify({"status": "error", "message": "Erro ao ler aliases", "data": []}), 200
+            return jsonify({"status": "error", "message": f"Erro ao ler aliases: {str(e)}", "data": []}), 200
 
 @vmail_bp.route('/aliases/<path:address>', methods=['GET', 'POST', 'DELETE'])
 @login_required
@@ -311,8 +343,13 @@ def delete_alias(address):
         return jsonify({'success': False, 'message': 'Acesso negado: Perfil de Usuário não possui permissão de exclusão de aliases.'}), 403
 
     try:
-        db.session.execute(text("DELETE FROM alias WHERE address = :addr"), {'addr': address})
-        db.session.commit()
+        alias_obj = Alias.query.filter_by(address=address).first()
+        if alias_obj:
+            db.session.delete(alias_obj)
+            db.session.commit()
+        else:
+            db.session.execute(text("DELETE FROM alias WHERE address = :addr"), {'addr': address})
+            db.session.commit()
 
         try:
             log_audit_action("ALIAS_DELETE", address, {}, "normal")
@@ -322,5 +359,5 @@ def delete_alias(address):
         return jsonify({'success': True, 'message': f'Alias {address} removido!'})
     except Exception as e:
         db.session.rollback()
-        print(e)
-        return jsonify({'success': False, 'message': f'Erro ao excluir alias: {str(e)}'}), 500
+        return jsonify({'success': False, 'message': format_vmail_db_error(e, 'excluir alias')}), 500
+
