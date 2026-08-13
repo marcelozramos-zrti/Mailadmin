@@ -2512,18 +2512,22 @@
     });
 
     let currentUserRole = 'admin';
-    let currentUsername = 'admin';
+    let currentUsername = localStorage.getItem('mailadmin_user') || 'admin';
     let tempMfaUserId = null;
 
     // CONTROLE DE AUTENTICAÇÃO E SESSÃO DA SPA
     async function checkAuthSession() {
         try {
-            const res = await fetch('/api/auth/me');
+            const savedUser = localStorage.getItem('mailadmin_user') || currentUsername;
+            const headers = {};
+            if (savedUser) headers['X-Admin-User'] = savedUser;
+            const res = await fetch('/api/auth/me', { headers });
             if (res.ok) {
                 const data = await res.json();
-                if (data && data.authenticated) {
+                if (data && (data.authenticated || data.success)) {
                     currentUserRole = data.role || 'admin';
-                    currentUsername = data.username || 'admin';
+                    currentUsername = data.username || savedUser || 'admin';
+                    localStorage.setItem('mailadmin_user', currentUsername);
                     showPanelScreen();
                     applyRbacPermissions();
                     
@@ -2745,6 +2749,10 @@
 
     // HELPER PADRÃO PARA FETCH TRATANDO ERROS DE FORMA VISÍVEL
     async function fetchJson(url, options = {}) {
+        options.headers = options.headers || {};
+        if (currentUsername) {
+            options.headers['X-Admin-User'] = currentUsername;
+        }
         let res;
         let lastErr;
         for (let attempt = 0; attempt < 5; attempt++) {
