@@ -114,7 +114,7 @@ def delete_domain(domain_name):
 
         # Remove mailboxes e aliases associados
         Mailbox.query.filter_by(domain=domain_name).delete()
-        Alias.query.filter_by(domain=domain_name).delete()
+        db_delete_aliases_by_domain(domain_name)
 
         db.session.delete(domain)
         db.session.commit()
@@ -190,19 +190,8 @@ def handle_mailboxes():
 
             db.session.add(new_mailbox)
 
-            # Garante entrada correspondente em 'alias' para o Postfix (padrão iRedMail)
-            try:
-                alias_self = Alias.query.filter_by(address=full_email).first()
-                if not alias_self:
-                    alias_self = Alias(
-                        address=full_email,
-                        goto=full_email,
-                        domain=domain_name,
-                        active=True
-                    )
-                    db.session.add(alias_self)
-            except Exception:
-                pass
+            # Garante entrada correspondente em 'alias' ou 'forwardings' para o Postfix/iRedMail
+            db_create_self_alias(full_email, domain_name)
 
             db.session.commit()
 
@@ -292,8 +281,258 @@ def delete_mailbox(email):
 
 
 # ==========================================
-# 3. MÓDULO DE ALIASES (REDIRECIONAMENTOS)
+# 3. MÓDULO DE ALIASES / REDIRECIONAMENTOS
 # ==========================================
+
+def inspect_vmail_alias_storage():
+    """
+    Inspeciona o banco de dados para determinar o esquema de armazenamento de aliases/redirecionamentos.
+    Detecta automaticamente:
+    1. Tabela 'alias' com coluna 'goto' (PostfixAdmin / Postfix simples)
+    2. Tabela 'alias' com coluna 'forwarding'
+    3. Tabela 'forwardings' (padrao iRedMail 0.9.7+)
+    """
+    try:
+        res = db.session.execute(text("SHOW COLUMNS FROM alias")).fetchall()
+        cols = [r[0].lower() for r in res]
+        if 'goto' in cols:
+            return {'mode': 'alias_goto', 'cols': cols}
+        if 'forwarding' in cols:
+            return {'mode': 'alias_forwarding', 'cols': cols}
+    except Exception:
+        pass
+
+    try:
+        res = db.session.execute(text("SHOW COLUMNS FROM forwardings")).fetchall()
+        cols = [r[0].lower() for r in res]
+        if 'forwarding' in cols:
+            return {'mode': 'forwardings', 'cols': cols}
+    except Exception:
+        pass
+
+    return {'mode': 'alias_goto', 'cols': ['address', 'goto', 'domain', 'created', 'active']}
+
+
+def db_list_aliases():
+    schema = inspect_vmail_alias_storage()
+    mode = schema['mode']
+
+    if mode == 'alias_goto':
+        sql = "SELECT address, `goto`, domain, active, created FROM alias"
+        rows = db.session.execute(text(sql)).fetchall()
+        res = []
+        for r in rows:
+            created_str = str(r[4]) if len(r) > 4 and r[4] else None
+            res.append({
+                'address': r[0],
+                'goto': r[1],
+                'domain': r[2],
+                'active': bool(r[3]),
+                'created': created_str
+            })
+        return res
+
+    elif mode == 'alias_forwarding':
+        sql = "SELECT address, forwarding AS `goto`, domain, active FROM alias"
+        rows = db.session.execute(text(sql)).fetchall()
+        res = []
+        for r in rows:
+            res.append({
+                'address': r[0],
+                'goto': r[1],
+                'domain': r[2],
+                'active': bool(r[3]),
+                'created': None
+            })
+        return res
+
+    elif mode == 'forwardings':
+        cols = schema['cols']
+        where_clause = ""
+        if 'is_alias' in cols:
+            where_clause = "WHERE is_alias = 1 OR address != forwarding"
+        else:
+            where_clause = "WHERE address != forwarding"
+
+        sql = f"""
+            SELECT address, GROUP_CONCAT(forwarding SEPARATOR ', ') AS `goto`, domain, MIN(active) AS active
+            FROM forwardings
+            {where_clause}
+            GROUP BY address, domain
+        """
+        rows = db.session.execute(text(sql)).fetchall()
+        res = []
+        for r in rows:
+            res.append({
+                'address': r[0],
+                'goto': r[1] or '',
+                'domain': r[2] or (r[0].split('@')[-1] if '@' in r[0] else ''),
+                'active': bool(r[3]),
+                'created': None
+            })
+        return res
+
+    return []
+
+
+def db_save_alias(address, goto):
+    address = address.strip().lower()
+    goto = goto.strip().lower()
+    domain_name = address.split('@')[-1]
+
+    try:
+        domain_obj = Domain.query.filter_by(domain=domain_name).first()
+        if not domain_obj:
+            domain_obj = Domain(
+                domain=domain_name,
+                description='Domínio Criado Automaticamente',
+                maxquota=10240,
+                transport='virtual',
+                active=True
+            )
+            db.session.add(domain_obj)
+            db.session.flush()
+    except Exception:
+        pass
+
+    schema = inspect_vmail_alias_storage()
+    mode = schema['mode']
+    cols = schema['cols']
+
+    if mode == 'alias_goto':
+        check_sql = "SELECT address FROM alias WHERE LOWER(address) = :addr"
+        existing = db.session.execute(text(check_sql), {'addr': address}).fetchone()
+        if existing:
+            upd = "UPDATE alias SET `goto` = :goto, active = 1 WHERE LOWER(address) = :addr"
+            db.session.execute(text(upd), {'goto': goto, 'addr': address})
+            msg = f"Alias {address} atualizado para redirecionar para {goto}!"
+        else:
+            ins = "INSERT INTO alias (address, `goto`, domain, active) VALUES (:addr, :goto, :dom, 1)"
+            db.session.execute(text(ins), {'addr': address, 'goto': goto, 'dom': domain_name})
+            msg = f"Alias {address} -> {goto} cadastrado com sucesso!"
+        db.session.commit()
+        return msg, {'address': address, 'goto': goto, 'domain': domain_name, 'active': True}
+
+    elif mode == 'alias_forwarding':
+        check_sql = "SELECT address FROM alias WHERE LOWER(address) = :addr"
+        existing = db.session.execute(text(check_sql), {'addr': address}).fetchone()
+        if existing:
+            upd = "UPDATE alias SET forwarding = :goto, active = 1 WHERE LOWER(address) = :addr"
+            db.session.execute(text(upd), {'goto': goto, 'addr': address})
+            msg = f"Alias {address} atualizado para redirecionar para {goto}!"
+        else:
+            ins = "INSERT INTO alias (address, forwarding, domain, active) VALUES (:addr, :goto, :dom, 1)"
+            db.session.execute(text(ins), {'addr': address, 'goto': goto, 'dom': domain_name})
+            msg = f"Alias {address} -> {goto} cadastrado com sucesso!"
+        db.session.commit()
+        return msg, {'address': address, 'goto': goto, 'domain': domain_name, 'active': True}
+
+    elif mode == 'forwardings':
+        del_sql = "DELETE FROM forwardings WHERE LOWER(address) = :addr"
+        if 'is_alias' in cols:
+            del_sql += " AND (is_alias = 1 OR address != forwarding)"
+        db.session.execute(text(del_sql), {'addr': address})
+
+        destinations = [d.strip() for d in goto.split(',') if d.strip()]
+        for dest in destinations:
+            dest_domain = dest.split('@')[-1] if '@' in dest else domain_name
+
+            ins_cols = ['address', 'forwarding', 'domain']
+            ins_vals = [':addr', ':dest', ':dom']
+            params = {'addr': address, 'dest': dest, 'dom': domain_name}
+
+            if 'dest_domain' in cols:
+                ins_cols.append('dest_domain')
+                ins_vals.append(':dest_dom')
+                params['dest_dom'] = dest_domain
+            if 'is_alias' in cols:
+                ins_cols.append('is_alias')
+                ins_vals.append('1')
+            if 'is_forwarding' in cols:
+                ins_cols.append('is_forwarding')
+                ins_vals.append('0')
+            if 'active' in cols:
+                ins_cols.append('active')
+                ins_vals.append('1')
+
+            sql = f"INSERT INTO forwardings ({', '.join(ins_cols)}) VALUES ({', '.join(ins_vals)})"
+            db.session.execute(text(sql), params)
+
+        db.session.commit()
+        return f"Alias {address} -> {goto} cadastrado com sucesso!", {'address': address, 'goto': goto, 'domain': domain_name, 'active': True}
+
+    db.session.commit()
+    return f"Alias {address} salvo com sucesso!", {'address': address, 'goto': goto, 'domain': domain_name, 'active': True}
+
+
+def db_delete_alias(address):
+    clean_addr = address.strip().lower()
+
+    try:
+        db.session.execute(text("DELETE FROM alias WHERE LOWER(address) = :addr"), {'addr': clean_addr})
+    except Exception:
+        pass
+
+    try:
+        db.session.execute(text("DELETE FROM forwardings WHERE LOWER(address) = :addr AND (is_alias = 1 OR address != forwarding)"), {'addr': clean_addr})
+    except Exception:
+        pass
+
+    db.session.commit()
+
+
+def db_delete_aliases_by_domain(domain_name):
+    dom = domain_name.strip().lower()
+    try:
+        db.session.execute(text("DELETE FROM alias WHERE LOWER(domain) = :dom"), {'dom': dom})
+    except Exception:
+        pass
+    try:
+        db.session.execute(text("DELETE FROM forwardings WHERE LOWER(domain) = :dom"), {'dom': dom})
+    except Exception:
+        pass
+    db.session.commit()
+
+
+def db_create_self_alias(full_email, domain_name):
+    schema = inspect_vmail_alias_storage()
+    mode = schema['mode']
+    cols = schema['cols']
+
+    try:
+        if mode == 'forwardings':
+            chk = db.session.execute(text("SELECT address FROM forwardings WHERE LOWER(address) = :addr AND LOWER(forwarding) = :addr"), {'addr': full_email}).fetchone()
+            if not chk:
+                params = {'addr': full_email, 'dom': domain_name}
+                ins_cols = ['address', 'forwarding', 'domain']
+                ins_vals = [':addr', ':addr', ':dom']
+
+                if 'dest_domain' in cols:
+                    ins_cols.append('dest_domain')
+                    ins_vals.append(':dom')
+                if 'is_forwarding' in cols:
+                    ins_cols.append('is_forwarding')
+                    ins_vals.append('1')
+                if 'is_alias' in cols:
+                    ins_cols.append('is_alias')
+                    ins_vals.append('0')
+                if 'active' in cols:
+                    ins_cols.append('active')
+                    ins_vals.append('1')
+
+                sql = f"INSERT INTO forwardings ({', '.join(ins_cols)}) VALUES ({', '.join(ins_vals)})"
+                db.session.execute(text(sql), params)
+                db.session.commit()
+        elif mode in ('alias_goto', 'alias_forwarding'):
+            target_col = 'goto' if mode == 'alias_goto' else 'forwarding'
+            chk = db.session.execute(text("SELECT address FROM alias WHERE LOWER(address) = :addr"), {'addr': full_email}).fetchone()
+            if not chk:
+                sql = f"INSERT INTO alias (address, `{target_col}`, domain, active) VALUES (:addr, :addr, :dom, 1)"
+                db.session.execute(text(sql), {'addr': full_email, 'dom': domain_name})
+                db.session.commit()
+    except Exception:
+        pass
+
 
 @vmail_bp.route('/aliases', methods=['GET', 'POST'])
 @login_required
@@ -309,50 +548,20 @@ def handle_aliases():
         domain_name = address.split('@')[-1]
 
         try:
-            domain_obj = Domain.query.filter_by(domain=domain_name).first()
-            if not domain_obj:
-                domain_obj = Domain(
-                    domain=domain_name,
-                    description='Domínio Criado Automaticamente',
-                    maxquota=10240,
-                    transport='virtual',
-                    active=True
-                )
-                db.session.add(domain_obj)
-                db.session.flush()
-
-            alias_obj = Alias.query.filter_by(address=address).first()
-            if alias_obj:
-                # Se o alias já existe, atualiza os destinos (goto) e reativa
-                alias_obj.goto = goto
-                alias_obj.domain = domain_name
-                alias_obj.active = True
-                db.session.commit()
-                msg = f'Alias {address} atualizado para redirecionar para {goto}!'
-            else:
-                alias_obj = Alias(
-                    address=address,
-                    goto=goto,
-                    domain=domain_name,
-                    active=True
-                )
-                db.session.add(alias_obj)
-                db.session.commit()
-                msg = f'Alias {address} -> {goto} criado com sucesso!'
+            msg, alias_dict = db_save_alias(address, goto)
 
             try:
                 log_audit_action("ALIAS_CREATE", address, {"goto": goto, "domain": domain_name}, "normal")
             except Exception:
                 pass
 
-            return jsonify({'success': True, 'message': msg, 'alias': alias_obj.to_dict()})
+            return jsonify({'success': True, 'message': msg, 'alias': alias_dict})
         except Exception as e:
             db.session.rollback()
             return jsonify({'success': False, 'message': format_vmail_db_error(e, 'criar/atualizar alias')}), 500
     else:
         try:
-            aliases_db = Alias.query.all()
-            alias_list = [a.to_dict() for a in aliases_db]
+            alias_list = db_list_aliases()
             return jsonify({'success': True, 'aliases': alias_list, 'data': alias_list})
         except Exception as e:
             return jsonify({"status": "error", "message": f"Erro ao ler aliases: {str(e)}", "data": []}), 200
@@ -366,16 +575,7 @@ def delete_alias(address):
     clean_addr = address.strip().lower()
 
     try:
-        alias_obj = Alias.query.filter_by(address=clean_addr).first()
-        if not alias_obj:
-            alias_obj = Alias.query.filter(func.lower(Alias.address) == clean_addr).first()
-
-        if alias_obj:
-            db.session.delete(alias_obj)
-            db.session.commit()
-        else:
-            db.session.execute(text("DELETE FROM alias WHERE LOWER(address) = :addr"), {'addr': clean_addr})
-            db.session.commit()
+        db_delete_alias(clean_addr)
 
         try:
             log_audit_action("ALIAS_DELETE", clean_addr, {}, "normal")

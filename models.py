@@ -109,7 +109,6 @@ class Alias(db.Model):
     __tablename__ = 'alias'
 
     address = db.Column(db.String(255), primary_key=True) # e-mail virtual ex: vendas@domain.com
-    goto = db.Column('goto', db.Text, nullable=False, quote=True) # destino ex: joao@domain.com, maria@domain.com
     domain = db.Column(db.String(255), db.ForeignKey('domain.domain'), nullable=False)
     created = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     active = db.Column(db.Boolean, default=True)
@@ -117,7 +116,7 @@ class Alias(db.Model):
     def to_dict(self):
         return {
             'address': self.address,
-            'goto': self.goto,
+            'goto': getattr(self, 'goto', self.address),
             'domain': self.domain,
             'active': self.active,
             'created': self.created.strftime('%Y-%m-%d %H:%M:%S') if self.created else None
