@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import crypto from "node:crypto";
 import { exec } from "child_process";
 import { createServer as createViteServer } from "vite";
 import { DatabaseSync } from "node:sqlite";
@@ -1193,37 +1194,295 @@ blacklist_from *@spammerdomain.net
     });
   });
 
-  // Validador DNS (dnspython)
-  app.all("/api/troubleshooting/dns-check", (req, res) => {
-    const domain = (req.body?.domain || req.query?.domain as string || "empresa.com.br").toLowerCase();
-    const selector = (req.body?.selector || req.query?.selector as string || "dkim").toLowerCase();
+  // Gerenciador de Chaves DKIM (RSA 2048-bit)
+  interface VirtualDkimKey {
+    domain: string;
+    selector: string;
+    key_size: number;
+    public_key_b64: string;
+    private_key_pem: string;
+    dns_record_name: string;
+    dns_record_type: string;
+    dns_record_value: string;
+    opendkim_table_line: string;
+    rspamd_dkim_conf: string;
+    created_at: string;
+  }
+
+  const virtualDkimKeys = new Map<string, VirtualDkimKey>();
+
+  function getOrGenerateDkimKey(domain: string, selector = "default", forceNew = false): VirtualDkimKey {
+    const domClean = domain.toLowerCase().trim();
+    const selClean = (selector || "default").toLowerCase().trim();
+    const keyMapId = `${domClean}:${selClean}`;
+
+    if (!forceNew && virtualDkimKeys.has(keyMapId)) {
+      return virtualDkimKeys.get(keyMapId)!;
+    }
+
+    // Geração de par de chaves RSA 2048-bit
+    const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      publicKeyEncoding: {
+        type: "spki",
+        format: "pem"
+      },
+      privateKeyEncoding: {
+        type: "pkcs8",
+        format: "pem"
+      }
+    });
+
+    const cleanB64 = publicKey
+      .replace(/-----BEGIN PUBLIC KEY-----/g, "")
+      .replace(/-----END PUBLIC KEY-----/g, "")
+      .replace(/\r?\n|\r|\s/g, "");
+
+    const dnsName = `${selClean}._domainkey.${domClean}`;
+    const dnsValue = `v=DKIM1; k=rsa; p=${cleanB64}`;
+    const opendkimTable = `${selClean}._domainkey.${domClean} ${domClean}:${selClean}:/etc/opendkim/keys/${domClean}/${selClean}.private`;
+    const rspamdConf = `domain {\n  "${domClean}" {\n    path = "/var/lib/rspamd/dkim/${domClean}.${selClean}.key";\n    selector = "${selClean}";\n  }\n}`;
+
+    const dkimEntry: VirtualDkimKey = {
+      domain: domClean,
+      selector: selClean,
+      key_size: 2048,
+      public_key_b64: cleanB64,
+      private_key_pem: privateKey,
+      dns_record_name: dnsName,
+      dns_record_type: "TXT",
+      dns_record_value: dnsValue,
+      opendkim_table_line: opendkimTable,
+      rspamd_dkim_conf: rspamdConf,
+      created_at: new Date().toISOString().replace("T", " ").substring(0, 19)
+    };
+
+    virtualDkimKeys.set(keyMapId, dkimEntry);
+    return dkimEntry;
+  }
+
+  // Pre-seed DKIM keys for existing local domains
+  ["zrti.com.br", "zrti.tech", "empresa.com.br", "emporiomisticosaboaria.com.br"].forEach(d => {
+    getOrGenerateDkimKey(d, "default");
+    getOrGenerateDkimKey(d, "mail");
+    getOrGenerateDkimKey(d, "dkim");
+  });
+
+  // Geração / Renovação de Chaves DKIM sob demanda
+  app.post("/api/troubleshooting/dkim/generate", (req, res) => {
+    const { domain, selector } = req.body || {};
+    if (!domain) {
+      return res.status(400).json({ success: false, message: "O domínio é obrigatório para gerar a chave DKIM." });
+    }
+    const domClean = String(domain).toLowerCase().trim();
+    const selClean = String(selector || "default").toLowerCase().trim();
+
+    const isLocal = virtualDomains.some(d => d.domain.toLowerCase() === domClean) ||
+                    virtualDomainAliases.some(a => a.alias_domain.toLowerCase() === domClean);
+
+    const dkimKey = getOrGenerateDkimKey(domClean, selClean, true);
+
+    addAuditLog(
+      "DKIM_KEY_GENERATE",
+      `${selClean}._domainkey.${domClean}`,
+      { domain: domClean, selector: selClean, key_size: 2048, is_local_domain: isLocal },
+      "normal",
+      req
+    );
 
     res.json({
       success: true,
-      dns_report: {
-        domain: domain,
-        mx: {
-          status: "OK",
-          records: [`10 mail.${domain}`, `20 backup-mail.${domain}`],
-          details: "2 servidores MX configurados e operacionais."
+      message: `Chave criptográfica DKIM (RSA 2048-bit) para o seletor '${selClean}' do domínio '${domClean}' gerada com sucesso!`,
+      dkim_key: dkimKey,
+      is_local: isLocal,
+      dns_guide: {
+        host: dkimKey.dns_record_name,
+        type: "TXT",
+        value: dkimKey.dns_record_value,
+        ttl: 3600,
+        opendkim_path: `/etc/opendkim/keys/${domClean}/${selClean}.private`,
+        rspamd_path: `/var/lib/rspamd/dkim/${domClean}.${selClean}.key`
+      }
+    });
+  });
+
+  // Obter Chave DKIM de Domínio
+  app.get("/api/troubleshooting/dkim", (req, res) => {
+    const domain = String(req.query.domain || "").toLowerCase().trim();
+    const selector = String(req.query.selector || "default").toLowerCase().trim();
+    if (!domain) {
+      return res.status(400).json({ success: false, message: "Domínio não informado." });
+    }
+    const isLocal = virtualDomains.some(d => d.domain.toLowerCase() === domain) ||
+                    virtualDomainAliases.some(a => a.alias_domain.toLowerCase() === domain);
+
+    const dkimKey = getOrGenerateDkimKey(domain, selector, false);
+    res.json({
+      success: true,
+      dkim_key: dkimKey,
+      is_local: isLocal
+    });
+  });
+
+  // Validador DNS com Diagnóstico Didático e Guia de Solução Completo
+  app.all("/api/troubleshooting/dns-check", (req, res) => {
+    const domain = (req.body?.domain || req.query?.domain as string || "empresa.com.br").toLowerCase().trim();
+    const selector = (req.body?.selector || req.query?.selector as string || "default").toLowerCase().trim();
+
+    const isLocal = virtualDomains.some(d => d.domain.toLowerCase() === domain) ||
+                    virtualDomainAliases.some(a => a.alias_domain.toLowerCase() === domain);
+
+    // Domínios de exemplo simulados ou externos
+    const isExampleFailure = domain.includes("sem-dns") || domain.includes("invalido") || domain.includes("falha");
+    const isExternalValid = domain.includes("gmail.com") || domain.includes("google.com") || domain.includes("microsoft.com");
+
+    const dkimKey = getOrGenerateDkimKey(domain, selector, false);
+
+    let mxStatus: "OK" | "FALHA" | "ALERTA" = "OK";
+    let spfStatus: "OK" | "FALHA" | "ALERTA" = "OK";
+    let dkimStatus: "OK" | "FALHA" | "ALERTA" = "OK";
+    let dmarcStatus: "OK" | "FALHA" | "ALERTA" = "OK";
+
+    let mxRecords = [`10 mail.${domain}`, `20 backup-mail.${domain}`];
+    let spfRecord = `v=spf1 mx ip4:203.0.113.10 ~all`;
+    let dkimRecord = dkimKey.dns_record_value;
+    let dmarcRecord = `v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@${domain}; pct=100`;
+
+    if (isExampleFailure) {
+      mxStatus = "FALHA";
+      spfStatus = "FALHA";
+      dkimStatus = "FALHA";
+      dmarcStatus = "FALHA";
+      mxRecords = [];
+      spfRecord = "";
+      dkimRecord = "";
+      dmarcRecord = "";
+    } else if (domain === "emporiomisticosaboaria.com.br") {
+      // Exemplo com SPF ausente e DKIM pendente de apontamento para demonstrar o guia
+      mxStatus = "OK";
+      spfStatus = "FALHA";
+      dkimStatus = "FALHA";
+      dmarcStatus = "ALERTA";
+      spfRecord = "";
+      dkimRecord = "";
+      dmarcRecord = `v=DMARC1; p=none; sp=none;`;
+    }
+
+    const report = {
+      domain: domain,
+      is_local_domain: isLocal,
+      health_score: 0,
+      total_checks: 4,
+      passed_checks: 0,
+      overall_status: "EXCELLENT" as "EXCELLENT" | "ATTENTION" | "CRITICAL",
+      mx: {
+        status: mxStatus,
+        records: mxRecords,
+        details: mxStatus === "OK" ? `${mxRecords.length} servidores MX configurados no DNS.` : "Nenhum registro MX encontrado na zona de DNS deste domínio.",
+        importance: "Crítica" as const,
+        diagnosis: mxStatus === "OK" 
+          ? "Roteamento de e-mails de entrada operacional. Servidores remotos sabem onde entregar as mensagens para este domínio."
+          : "Sem o registro MX, nenhum servidor de e-mail na internet conseguirá entregar mensagens para as caixas postais deste domínio.",
+        solution: mxStatus === "OK"
+          ? "Nenhuma ação necessária. Apontamento MX ativo e respondendo."
+          : `Acesse a zona de DNS do domínio e crie uma entrada do Tipo MX apontando para o hostname do seu servidor (ex: mail.${domain}) com Prioridade 10. Certifique-se de que mail.${domain} possui uma entrada A apontando para o IP público do servidor de e-mail.`,
+        suggested_record: {
+          type: "MX",
+          host: "@",
+          value: `mail.${domain}`,
+          priority: 10,
+          ttl: 3600,
+          description: `Servidor MX primário para receber mensagens de ${domain}`
+        }
+      },
+      spf: {
+        status: spfStatus,
+        record: spfRecord,
+        details: spfStatus === "OK" ? "Registro SPF v=spf1 válido e ativo." : "Nenhum registro TXT contendo 'v=spf1' localizado no domínio.",
+        importance: "Alta" as const,
+        diagnosis: spfStatus === "OK"
+          ? "O SPF informa quais IPs têm autorização para enviar e-mails em nome deste domínio, protegendo contra falsificação de remetente."
+          : "Sem registro SPF, servidores receptores como Gmail, Outlook e Yahoo podem classificar todos os seus e-mails como SPAM ou rejeitá-los.",
+        solution: spfStatus === "OK"
+          ? "Registro SPF validado com sucesso."
+          : `Crie uma entrada TXT no DNS raiz (@ ou ${domain}) contendo a política SPF autorizando o IP do seu servidor Postfix: 'v=spf1 mx ip4:203.0.113.10 ~all'. Use '~all' (SoftFail) inicialmente para testes e '-all' (HardFail) após validar todos os gateways de envio.`,
+        suggested_record: {
+          type: "TXT",
+          host: "@",
+          value: `v=spf1 mx ip4:203.0.113.10 ~all`,
+          ttl: 3600,
+          description: `Autoriza os servidores MX e o IP 203.0.113.10 a enviar e-mails pelo domínio ${domain}`
+        }
+      },
+      dkim: {
+        status: dkimStatus,
+        selector: selector,
+        record: dkimRecord,
+        details: dkimStatus === "OK" ? `Chave Pública DKIM validada com sucesso no seletor '${selector}'` : `Registro TXT não localizado no host '${selector}._domainkey.${domain}'.`,
+        importance: "Alta" as const,
+        diagnosis: dkimStatus === "OK"
+          ? `Assinatura criptográfica DKIM ativa. O seletor '${selector}' permite aos destinatários comprovarem matematicamente que o e-mail não foi alterado em trânsito.`
+          : isLocal
+            ? `O domínio '${domain}' está cadastrado no servidor vmail local, mas o apontamento DNS da Chave Pública DKIM ainda não foi criado ou não propagou.`
+            : `O registro DKIM não foi encontrado no DNS. Caso este domínio seja hospedado neste servidor, cadastre-o primeiro em 'Domínios' para gerar as chaves criptográficas.`,
+        solution: dkimStatus === "OK"
+          ? "Autenticação DKIM operando com sucesso."
+          : isLocal
+            ? `Copie o apontamento TXT gerado abaixo e publique no painel DNS (Cloudflare, Registro.br, cPanel, Route53, etc.) no host '${selector}._domainkey.${domain}'. Assim que propagar, execute o teste novamente.`
+            : `Gere a chave DKIM no servidor de e-mail de origem e crie uma entrada TXT em '${selector}._domainkey.${domain}' com a chave pública RSA gerada.`,
+        suggested_record: {
+          type: "TXT",
+          host: `${selector}._domainkey.${domain}`,
+          value: dkimKey.dns_record_value,
+          ttl: 3600,
+          description: `Chave pública RSA 2048-bit para autenticação DKIM do seletor '${selector}'`
         },
-        spf: {
-          status: "OK",
-          record: `v=spf1 mx ip4:203.0.113.10 include:_spf.google.com ~all`,
-          details: "Registro SPF v=spf1 válido encontrado no TXT."
-        },
-        dkim: {
-          status: "OK",
-          record: `v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQ...`,
-          details: `Chave Pública DKIM validada com sucesso no seletor '${selector}'`,
-          selector: selector
-        },
-        dmarc: {
-          status: "OK",
-          record: `v=DMARC1; p=quarantine; rua=mailto:dmarc@${domain}; pct=100`,
-          details: "Política DMARC com quarentena e relatórios configurada."
+        dkim_key: dkimKey,
+        is_local: isLocal
+      },
+      dmarc: {
+        status: dmarcStatus,
+        record: dmarcRecord,
+        details: dmarcStatus === "OK" ? "Política DMARC configurada e protegendo o domínio." : (dmarcStatus === "ALERTA" ? "DMARC configurado com política 'p=none' (somente monitoramento)." : "Nenhum registro DMARC encontrado em '_dmarc." + domain + "'."),
+        importance: "Alta" as const,
+        diagnosis: dmarcStatus === "OK"
+          ? "Política DMARC alinha SPF e DKIM, informando aos servidores o que fazer com e-mails forjados e coletando relatórios de entregabilidade (RUA/RUF)."
+          : dmarcStatus === "ALERTA"
+            ? "Política em modo monitoramento ('p=none'). Útil para início de homologação, mas não bloqueia ataques de phishing ativos."
+            : "Sem DMARC, provedores modernos (Google, Yahoo, Microsoft) reduzem a reputação de entrega e não fornecem relatórios de abuso.",
+        solution: dmarcStatus === "OK"
+          ? "Política DMARC alinhada."
+          : `Crie uma entrada TXT no host '_dmarc.${domain}' com a política recomendada: 'v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@${domain}; pct=100'. Isso coloca mensagens fraudulentas na quarentena e envia relatórios agregados de conformidade.`,
+        suggested_record: {
+          type: "TXT",
+          host: `_dmarc.${domain}`,
+          value: `v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@${domain}; pct=100`,
+          ttl: 3600,
+          description: `Política DMARC com quarentena para mensagens que falharem no SPF ou DKIM`
         }
       }
+    };
+
+    let passed = 0;
+    if (report.mx.status === "OK") passed++;
+    if (report.spf.status === "OK") passed++;
+    if (report.dkim.status === "OK") passed++;
+    if (report.dmarc.status === "OK") passed++;
+
+    report.passed_checks = passed;
+    report.health_score = Math.round((passed / 4) * 100);
+
+    if (report.health_score === 100) {
+      report.overall_status = "EXCELLENT";
+    } else if (report.health_score >= 50) {
+      report.overall_status = "ATTENTION";
+    } else {
+      report.overall_status = "CRITICAL";
+    }
+
+    res.json({
+      success: true,
+      dns_report: report
     });
   });
 

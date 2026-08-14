@@ -51,16 +51,50 @@ export interface QueueItem {
   reason?: string;
 }
 
+export interface DkimKeyInfo {
+  domain: string;
+  selector: string;
+  key_size: number;
+  public_key_b64: string;
+  private_key_pem?: string;
+  dns_record_name: string;
+  dns_record_type: string;
+  dns_record_value: string;
+  opendkim_table_line?: string;
+  rspamd_dkim_conf?: string;
+  created_at: string;
+}
+
+export interface SuggestedDnsRecord {
+  type: string;
+  host: string;
+  value: string;
+  priority?: number;
+  ttl?: number;
+  description: string;
+}
+
 export interface DnsRecordResult {
   status: 'OK' | 'FALHA' | 'ALERTA';
   records?: string[];
   record?: string;
   details: string;
   selector?: string;
+  diagnosis?: string;
+  solution?: string;
+  importance?: 'Alta' | 'Média' | 'Crítica';
+  suggested_record?: SuggestedDnsRecord;
+  dkim_key?: DkimKeyInfo;
+  is_local?: boolean;
 }
 
 export interface DnsReport {
   domain: string;
+  is_local_domain: boolean;
+  health_score: number;
+  total_checks: number;
+  passed_checks: number;
+  overall_status: 'EXCELLENT' | 'ATTENTION' | 'CRITICAL';
   mx: DnsRecordResult;
   spf: DnsRecordResult;
   dkim: DnsRecordResult;

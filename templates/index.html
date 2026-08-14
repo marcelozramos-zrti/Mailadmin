@@ -4602,6 +4602,30 @@
         }
     }
 
+    async function generateDKIMForDomain(domain, selector = 'default') {
+        try {
+            const data = await fetchJson('/api/troubleshooting/dkim/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ domain, selector })
+            });
+            if (data.success) {
+                alert(`Chave DKIM gerada com sucesso para ${domain}!`);
+                checkDNS();
+            } else {
+                alert(`Erro ao gerar DKIM: ${data.message || 'Falha desconhecida'}`);
+            }
+        } catch (e) {
+            console.error(e);
+            alert(`Erro na geração de chave DKIM: ${e.message}`);
+        }
+    }
+
+    function copyDnsText(text) {
+        navigator.clipboard.writeText(text);
+        alert('Registro copiado para a área de transferência!');
+    }
+
     async function checkDNS() {
         const domain = document.getElementById('dns-domain-input').value;
         const container = document.getElementById('dns-report-container');
@@ -4609,36 +4633,115 @@
             container.innerHTML = '<div class="alert alert-warning mb-0 small">Insira um domínio antes de checar.</div>';
             return;
         }
+        container.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-success me-2"></div>Consultando DNS e diagnosticando autenticação...</div>';
         try {
             const data = await fetchJson(`/api/troubleshooting/dns-check?domain=${encodeURIComponent(domain)}`);
             if (data.dns_report) {
                 const rep = data.dns_report;
                 window.latestDnsReport = rep;
+                
+                let dkimBoxHtml = '';
+                if (rep.dkim && rep.dkim.dkim_key) {
+                    const dk = rep.dkim.dkim_key;
+                    dkimBoxHtml = `
+                        <div class="card bg-primary bg-opacity-10 border-primary-subtle p-3 mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="fw-bold text-primary mb-0"><i class="bi bi-key-fill me-1"></i> Chave DKIM Criptográfica (RSA 2048-bit) Gerada</h6>
+                                <button class="btn btn-sm btn-primary" onclick="generateDKIMForDomain('${domain}', 'default')"><i class="bi bi-arrow-repeat me-1"></i> Regenerar Chave</button>
+                            </div>
+                            <div class="small mb-2">Publique o seguinte registro TXT no servidor de DNS do domínio <strong>${domain}</strong>:</div>
+                            <div class="row g-2 small font-monospace mb-2">
+                                <div class="col-md-3"><strong>Tipo:</strong> TXT</div>
+                                <div class="col-md-5"><strong>Host / Nome:</strong> ${dk.dns_record_name}</div>
+                                <div class="col-md-4"><strong>TTL:</strong> 3600</div>
+                            </div>
+                            <div class="input-group input-group-sm">
+                                <input type="text" class="form-control font-monospace bg-white" value="${dk.dns_record_value}" readonly id="dkim-val-input">
+                                <button class="btn btn-outline-primary" onclick="copyDnsText(document.getElementById('dkim-val-input').value)"><i class="bi bi-clipboard me-1"></i> Copiar Valor TXT</button>
+                            </div>
+                        </div>
+                    `;
+                }
+
                 container.innerHTML = `
-                    <div class="list-group list-group-flush rounded-3 border">
-                        <div class="list-group-item d-flex justify-content-between align-items-center">
-                            <div><strong>MX:</strong> ${(rep.mx.records || []).join(', ') || 'Nenhum'}</div>
-                            <span class="badge bg-${rep.mx.status === 'OK' ? 'success' : 'danger'}">${rep.mx.status === 'OK' ? 'OK' : 'Falha'}</span>
-                        </div>
-                        <div class="list-group-item d-flex justify-content-between align-items-center">
-                            <div><strong>SPF:</strong></div>
-                            <div class="d-flex align-items-center gap-2">
-                                <span class="badge bg-${rep.spf.status === 'OK' ? 'success' : 'danger'}">${rep.spf.status === 'OK' ? 'OK' : 'Falha'}</span>
-                                <button class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size: 0.75rem;" onclick="showDnsDetails('SPF')">Detalhes</button>
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <span class="badge ${rep.is_local_domain ? 'bg-success' : 'bg-warning text-dark'}">${rep.is_local_domain ? '✓ Domínio Local no Vmail' : '⚠ Domínio Externo'}</span>
+                        <span class="badge ${rep.health_score === 100 ? 'bg-success' : rep.health_score >= 50 ? 'bg-warning text-dark' : 'bg-danger'}">Saúde DNS: ${rep.health_score}% (${rep.passed_checks}/${rep.total_checks} OK)</span>
+                    </div>
+
+                    ${dkimBoxHtml}
+
+                    <div class="row g-3">
+                        <!-- MX -->
+                        <div class="col-md-6">
+                            <div class="card h-100 p-3 border">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <strong class="text-dark"><i class="bi bi-hdd-network me-1"></i> MX (Mail Exchanger)</strong>
+                                    <span class="badge bg-${rep.mx.status === 'OK' ? 'success' : 'danger'}">${rep.mx.status}</span>
+                                </div>
+                                <div class="small text-muted mb-1 font-monospace">${(rep.mx.records || []).join(' | ') || 'Nenhum'}</div>
+                                <div class="small text-secondary mb-2">${rep.mx.diagnosis || ''}</div>
+                                <div class="p-2 bg-light rounded border small">
+                                    <div class="fw-bold text-dark mb-1"><i class="bi bi-lightbulb me-1"></i> Solução:</div>
+                                    <div>${rep.mx.solution || ''}</div>
+                                </div>
                             </div>
                         </div>
-                        <div class="list-group-item d-flex justify-content-between align-items-center">
-                            <div><strong>DKIM:</strong></div>
-                            <div class="d-flex align-items-center gap-2">
-                                <span class="badge bg-${rep.dkim.status === 'OK' ? 'success' : 'danger'}">${rep.dkim.status === 'OK' ? 'OK' : 'Falha'}</span>
-                                <button class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size: 0.75rem;" onclick="showDnsDetails('DKIM')">Detalhes</button>
+
+                        <!-- SPF -->
+                        <div class="col-md-6">
+                            <div class="card h-100 p-3 border">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <strong class="text-dark"><i class="bi bi-shield-check me-1"></i> SPF (Sender Policy)</strong>
+                                    <span class="badge bg-${rep.spf.status === 'OK' ? 'success' : 'danger'}">${rep.spf.status}</span>
+                                </div>
+                                <div class="small text-muted mb-1 font-monospace text-truncate">${rep.spf.record || 'Ausente'}</div>
+                                <div class="small text-secondary mb-2">${rep.spf.diagnosis || ''}</div>
+                                <div class="p-2 bg-light rounded border small">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <div class="fw-bold text-dark"><i class="bi bi-lightbulb me-1"></i> Solução:</div>
+                                        ${rep.spf.suggested_record ? `<button class="btn btn-sm btn-link p-0 text-decoration-none" onclick="copyDnsText('${rep.spf.suggested_record.value}')">Copiar TXT</button>` : ''}
+                                    </div>
+                                    <div>${rep.spf.solution || ''}</div>
+                                </div>
                             </div>
                         </div>
-                        <div class="list-group-item d-flex justify-content-between align-items-center">
-                            <div><strong>DMARC:</strong></div>
-                            <div class="d-flex align-items-center gap-2">
-                                <span class="badge bg-${rep.dmarc.status === 'OK' ? 'success' : 'danger'}">${rep.dmarc.status === 'OK' ? 'OK' : 'Falha'}</span>
-                                <button class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size: 0.75rem;" onclick="showDnsDetails('DMARC')">Detalhes</button>
+
+                        <!-- DKIM -->
+                        <div class="col-md-6">
+                            <div class="card h-100 p-3 border">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <strong class="text-dark"><i class="bi bi-key me-1"></i> DKIM (default._domainkey)</strong>
+                                    <span class="badge bg-${rep.dkim.status === 'OK' ? 'success' : 'warning text-dark'}">${rep.dkim.status}</span>
+                                </div>
+                                <div class="small text-muted mb-1 font-monospace text-truncate">${rep.dkim.record || 'Não localizado no DNS'}</div>
+                                <div class="small text-secondary mb-2">${rep.dkim.diagnosis || ''}</div>
+                                <div class="p-2 bg-light rounded border small">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <div class="fw-bold text-dark"><i class="bi bi-lightbulb me-1"></i> Solução:</div>
+                                        <button class="btn btn-sm btn-link p-0 text-decoration-none" onclick="generateDKIMForDomain('${domain}', 'default')">Gerar Chave</button>
+                                    </div>
+                                    <div>${rep.dkim.solution || ''}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- DMARC -->
+                        <div class="col-md-6">
+                            <div class="card h-100 p-3 border">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <strong class="text-dark"><i class="bi bi-shield-lock me-1"></i> DMARC (_dmarc)</strong>
+                                    <span class="badge bg-${rep.dmarc.status === 'OK' ? 'success' : 'danger'}">${rep.dmarc.status}</span>
+                                </div>
+                                <div class="small text-muted mb-1 font-monospace text-truncate">${rep.dmarc.record || 'Ausente'}</div>
+                                <div class="small text-secondary mb-2">${rep.dmarc.diagnosis || ''}</div>
+                                <div class="p-2 bg-light rounded border small">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <div class="fw-bold text-dark"><i class="bi bi-lightbulb me-1"></i> Solução:</div>
+                                        ${rep.dmarc.suggested_record ? `<button class="btn btn-sm btn-link p-0 text-decoration-none" onclick="copyDnsText('${rep.dmarc.suggested_record.value}')">Copiar TXT</button>` : ''}
+                                    </div>
+                                    <div>${rep.dmarc.solution || ''}</div>
+                                </div>
                             </div>
                         </div>
                     </div>

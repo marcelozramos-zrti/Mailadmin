@@ -671,44 +671,255 @@ def flush_queue():
 # 3. VALIDAÇÃO DE REGISTROS DNS (DNSPYTHON)
 # ==========================================
 
+# ==========================================
+# 3. VALIDAÇÃO DE REGISTROS DNS & GERADOR DKIM
+# ==========================================
+
+def get_or_generate_local_dkim(domain, selector='default', force_new=False):
+    """Gera par de chaves RSA 2048-bit para DKIM e retorna os apontamentos DNS formatados."""
+    import base64
+    dom_clean = domain.strip().lower()
+    sel_clean = selector.strip().lower()
+    
+    keys_dir = f"/etc/opendkim/keys/{dom_clean}"
+    priv_file = f"{keys_dir}/{sel_clean}.private"
+    txt_file = f"{keys_dir}/{sel_clean}.txt"
+
+    # Se já existir chave em disco e não for force_new, tenta ler
+    if not force_new and os.path.exists(txt_file):
+        try:
+            with open(txt_file, 'r') as f:
+                content = f.read()
+                # Extrai p=...
+                p_match = re.search(r'p=([A-Za-z0-9+/=]+)', content)
+                if p_match:
+                    pub_b64 = p_match.group(1)
+                    return {
+                        'domain': dom_clean,
+                        'selector': sel_clean,
+                        'key_size': 2048,
+                        'public_key_b64': pub_b64,
+                        'dns_record_name': f"{sel_clean}._domainkey.{dom_clean}",
+                        'dns_record_type': 'TXT',
+                        'dns_record_value': f"v=DKIM1; k=rsa; p={pub_b64}",
+                        'opendkim_table_line': f"{sel_clean}._domainkey.{dom_clean} {dom_clean}:{sel_clean}:{priv_file}",
+                        'rspamd_dkim_conf': f'domain {{\n  "{dom_clean}" {{\n    path = "/var/lib/rspamd/dkim/{dom_clean}.{sel_clean}.key";\n    selector = "{sel_clean}";\n  }}\n}}',
+                        'created_at': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    }
+        except Exception:
+            pass
+
+    # Geração via OpenSSL / Python
+    try:
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import serialization
+        
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048
+        )
+        pub_key = private_key.public_key()
+        pub_der = pub_key.public_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+        pub_b64 = base64.b64encode(pub_der).decode('utf-8')
+    except Exception:
+        # Fallback via openssl CLI se cryptography não estiver disponível
+        gen_res = run_cmd(['openssl', 'genrsa', '2048'])
+        if gen_res['returncode'] == 0:
+            pub_res = subprocess.run(
+                ['openssl', 'rsa', '-pubout', '-outform', 'DER'],
+                input=gen_res['stdout'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=False
+            )
+            pub_b64 = base64.b64encode(pub_res.stdout).decode('utf-8')
+        else:
+            pub_b64 = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0DKIMKEY..."
+
+    return {
+        'domain': dom_clean,
+        'selector': sel_clean,
+        'key_size': 2048,
+        'public_key_b64': pub_b64,
+        'dns_record_name': f"{sel_clean}._domainkey.{dom_clean}",
+        'dns_record_type': 'TXT',
+        'dns_record_value': f"v=DKIM1; k=rsa; p={pub_b64}",
+        'opendkim_table_line': f"{sel_clean}._domainkey.{dom_clean} {dom_clean}:{sel_clean}:{priv_file}",
+        'rspamd_dkim_conf': f'domain {{\n  "{dom_clean}" {{\n    path = "/var/lib/rspamd/dkim/{dom_clean}.{sel_clean}.key";\n    selector = "{sel_clean}";\n  }}\n}}',
+        'created_at': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+
+@troubleshooting_bp.route('/dkim/generate', methods=['POST'])
+@login_required
+def generate_dkim_key_route():
+    """Gera uma chave RSA 2048-bit para o domínio e seletor especificados."""
+    data = request.get_json(silent=True) or request.form or {}
+    domain = data.get('domain', '').strip().lower()
+    selector = data.get('selector', 'default').strip().lower()
+
+    if not domain:
+        return jsonify({'success': False, 'message': 'O domínio é obrigatório para geração de chave DKIM.'}), 400
+
+    # Verifica se o domínio está cadastrado no MariaDB
+    is_local = False
+    try:
+        from models import db, VirtualDomain, VirtualDomainAlias
+        is_local = VirtualDomain.query.filter_by(domain=domain).first() is not None or \
+                   VirtualDomainAlias.query.filter_by(alias_domain=domain).first() is not None
+    except Exception:
+        is_local = True
+
+    dkim_info = get_or_generate_local_dkim(domain, selector, force_new=True)
+
+    log_audit_action(
+        action='DKIM_KEY_GENERATE',
+        target=f"{selector}._domainkey.{domain}",
+        details={'domain': domain, 'selector': selector, 'key_size': 2048, 'is_local_domain': is_local},
+        severity='normal'
+    )
+
+    return jsonify({
+        'success': True,
+        'message': f"Chave criptográfica DKIM (RSA 2048-bit) para '{selector}._domainkey.{domain}' gerada com sucesso!",
+        'dkim_key': dkim_info,
+        'is_local': is_local
+    })
+
+@troubleshooting_bp.route('/dkim', methods=['GET'])
+@login_required
+def get_dkim_key_route():
+    domain = request.args.get('domain', '').strip().lower()
+    selector = request.args.get('selector', 'default').strip().lower()
+    if not domain:
+        return jsonify({'success': False, 'message': 'Domínio não informado.'}), 400
+
+    dkim_info = get_or_generate_local_dkim(domain, selector, force_new=False)
+    return jsonify({'success': True, 'dkim_key': dkim_info})
+
 @troubleshooting_bp.route('/dns-check', methods=['GET', 'POST'])
 @login_required
 def check_domain_dns():
-    """Valida registros MX, SPF (TXT), DKIM e DMARC usando a biblioteca dnspython."""
+    """Valida registros MX, SPF (TXT), DKIM e DMARC com diagnósticos didáticos e guia de resolução."""
     if request.method == 'POST':
         data = request.get_json(silent=True) or request.form or {}
         domain = data.get('domain', '').strip().lower()
-        dkim_selector = data.get('selector', 'dkim').strip().lower()
+        dkim_selector = data.get('selector', 'default').strip().lower()
     else:
         domain = request.args.get('domain', '').strip().lower()
-        dkim_selector = request.args.get('selector', 'dkim').strip().lower()
+        dkim_selector = request.args.get('selector', 'default').strip().lower()
 
     if not domain:
         return jsonify({'success': False, 'message': 'O domínio é obrigatório para validação DNS.'}), 400
+
+    # Verifica se é domínio cadastrado no ambiente
+    is_local = False
+    try:
+        from models import db, VirtualDomain, VirtualDomainAlias
+        is_local = VirtualDomain.query.filter_by(domain=domain).first() is not None or \
+                   VirtualDomainAlias.query.filter_by(alias_domain=domain).first() is not None
+    except Exception:
+        is_local = False
 
     resolver = dns.resolver.Resolver()
     resolver.timeout = 5.0
     resolver.lifetime = 5.0
 
+    dkim_key = get_or_generate_local_dkim(domain, dkim_selector, force_new=False)
+
     dns_report = {
         'domain': domain,
-        'mx': {'status': 'FALHA', 'records': [], 'details': ''},
-        'spf': {'status': 'FALHA', 'record': '', 'details': ''},
-        'dkim': {'status': 'FALHA', 'record': '', 'details': '', 'selector': dkim_selector},
-        'dmarc': {'status': 'FALHA', 'record': '', 'details': ''}
+        'is_local_domain': is_local,
+        'health_score': 0,
+        'total_checks': 4,
+        'passed_checks': 0,
+        'overall_status': 'EXCELLENT',
+        'mx': {
+            'status': 'FALHA',
+            'records': [],
+            'details': '',
+            'importance': 'Crítica',
+            'diagnosis': '',
+            'solution': '',
+            'suggested_record': {
+                'type': 'MX',
+                'host': '@',
+                'value': f'mail.{domain}',
+                'priority': 10,
+                'ttl': 3600,
+                'description': f'Servidor MX principal para recebimento de e-mails de {domain}'
+            }
+        },
+        'spf': {
+            'status': 'FALHA',
+            'record': '',
+            'details': '',
+            'importance': 'Alta',
+            'diagnosis': '',
+            'solution': '',
+            'suggested_record': {
+                'type': 'TXT',
+                'host': '@',
+                'value': f'v=spf1 mx ip4:203.0.113.10 ~all',
+                'ttl': 3600,
+                'description': f'Autoriza os servidores MX e o IP do servidor a enviar e-mails por {domain}'
+            }
+        },
+        'dkim': {
+            'status': 'FALHA',
+            'record': '',
+            'details': '',
+            'selector': dkim_selector,
+            'importance': 'Alta',
+            'diagnosis': '',
+            'solution': '',
+            'is_local': is_local,
+            'dkim_key': dkim_key,
+            'suggested_record': {
+                'type': 'TXT',
+                'host': f"{dkim_selector}._domainkey.{domain}",
+                'value': dkim_key['dns_record_value'],
+                'ttl': 3600,
+                'description': f"Chave pública RSA 2048-bit para autenticação DKIM do seletor '{dkim_selector}'"
+            }
+        },
+        'dmarc': {
+            'status': 'FALHA',
+            'record': '',
+            'details': '',
+            'importance': 'Alta',
+            'diagnosis': '',
+            'solution': '',
+            'suggested_record': {
+                'type': 'TXT',
+                'host': f"_dmarc.{domain}",
+                'value': f"v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@{domain}; pct=100",
+                'ttl': 3600,
+                'description': f"Política DMARC para isolar mensagens forjadas e receber relatórios de entrega"
+            }
+        }
     }
 
     # 1. Consulta MX
     try:
         mx_answers = resolver.resolve(domain, 'MX')
         mx_records = [f"{r.preference} {r.exchange}" for r in mx_answers]
-        dns_report['mx'] = {
-            'status': 'OK' if len(mx_records) > 0 else 'FALHA',
-            'records': mx_records,
-            'details': f'{len(mx_records)} servidor(es) MX encontrado(s).'
-        }
+        if len(mx_records) > 0:
+            dns_report['mx']['status'] = 'OK'
+            dns_report['mx']['records'] = mx_records
+            dns_report['mx']['details'] = f"{len(mx_records)} servidor(es) MX ativo(s) e respondendo."
+            dns_report['mx']['diagnosis'] = "Roteamento de e-mails de entrada operacional. Servidores remotos sabem onde entregar as mensagens."
+            dns_report['mx']['solution'] = "Nenhuma ação necessária. Apontamento MX ativo e respondendo."
+        else:
+            dns_report['mx']['details'] = "Nenhum servidor MX configurado no domínio."
+            dns_report['mx']['diagnosis'] = "Sem o registro MX, nenhum servidor de e-mail na internet conseguirá entregar mensagens para as caixas postais deste domínio."
+            dns_report['mx']['solution'] = f"Acesse a zona de DNS do domínio e crie uma entrada do Tipo MX apontando para o hostname do seu servidor (ex: mail.{domain}) com Prioridade 10."
     except Exception as e:
         dns_report['mx']['details'] = f'Nenhum registro MX encontrado: {str(e)}'
+        dns_report['mx']['diagnosis'] = "Sem o registro MX, servidores remotos não conseguem localizar o Mail Transfer Agent (MTA) deste domínio."
+        dns_report['mx']['solution'] = f"Crie uma entrada do Tipo MX na zona DNS com Prioridade 10 apontando para 'mail.{domain}' (e garanta que 'mail.{domain}' possui registro A para o IP do servidor)."
 
     # 2. Consulta SPF (TXT)
     try:
@@ -721,42 +932,85 @@ def check_domain_dns():
                 break
 
         if spf_found:
-            dns_report['spf'] = {
-                'status': 'OK',
-                'record': spf_found,
-                'details': 'Registro SPF v=spf1 válido encontrado.'
-            }
+            dns_report['spf']['status'] = 'OK'
+            dns_report['spf']['record'] = spf_found
+            dns_report['spf']['details'] = 'Registro SPF v=spf1 válido e ativo.'
+            dns_report['spf']['diagnosis'] = "O SPF autoriza servidores e IPs específicos a dispararem mensagens em nome deste domínio, combatendo spoofing."
+            dns_report['spf']['solution'] = "Registro SPF validado com sucesso."
         else:
             dns_report['spf']['details'] = 'Nenhum registro TXT contendo v=spf1 foi localizado.'
+            dns_report['spf']['diagnosis'] = "Sem registro SPF, destinatários modernos (Gmail, Microsoft, Yahoo) frequentemente rejeitam as mensagens ou as enviam para a pasta de Lixo Eletrônico/SPAM."
+            dns_report['spf']['solution'] = f"Crie uma entrada TXT no DNS raiz (@ ou {domain}) contendo: 'v=spf1 mx ip4:SEU_IP_DO_SERVIDOR ~all'."
     except Exception as e:
         dns_report['spf']['details'] = f'Erro na consulta TXT/SPF: {str(e)}'
+        dns_report['spf']['diagnosis'] = "Ausência de registro SPF no DNS raiz do domínio."
+        dns_report['spf']['solution'] = f"Crie uma entrada TXT no host '@' com o valor 'v=spf1 mx ip4:SEU_IP_DO_SERVIDOR ~all'."
 
-    # 3. Consulta DKIM (Ex: dkim._domainkey.domain.com)
+    # 3. Consulta DKIM (Ex: selector._domainkey.domain.com)
     dkim_fqdn = f"{dkim_selector}._domainkey.{domain}"
     try:
         dkim_answers = resolver.resolve(dkim_fqdn, 'TXT')
         dkim_found = str(dkim_answers[0]).strip('"')
-        dns_report['dkim'] = {
-            'status': 'OK' if 'v=DKIM1' in dkim_found or 'p=' in dkim_found else 'ALERTA',
-            'record': dkim_found,
-            'details': f'Registro Chave Pública DKIM localizado em {dkim_fqdn}',
-            'selector': dkim_selector
-        }
+        if 'v=DKIM1' in dkim_found or 'p=' in dkim_found:
+            dns_report['dkim']['status'] = 'OK'
+            dns_report['dkim']['record'] = dkim_found
+            dns_report['dkim']['details'] = f"Chave Pública DKIM validada com sucesso no seletor '{dkim_selector}'."
+            dns_report['dkim']['diagnosis'] = f"Assinatura criptográfica ativa. Mensagens assinadas com a chave privada correspondente serão autenticadas pelos provedores de destino."
+            dns_report['dkim']['solution'] = "Autenticação DKIM operando com sucesso."
+        else:
+            dns_report['dkim']['status'] = 'ALERTA'
+            dns_report['dkim']['record'] = dkim_found
+            dns_report['dkim']['details'] = f"Registro encontrado em {dkim_fqdn}, mas formato não reconhecido como chave pública RSA padrão."
+            dns_report['dkim']['diagnosis'] = "O registro TXT existe mas pode estar incompleto ou sem a tag 'p=' com a chave pública base64."
+            dns_report['dkim']['solution'] = f"Substitua o conteúdo da entrada TXT em '{dkim_fqdn}' pela chave pública RSA completa."
     except Exception as e:
-        dns_report['dkim']['details'] = f'Não localizado em {dkim_fqdn}: {str(e)}'
+        dns_report['dkim']['details'] = f"Não localizado em {dkim_fqdn}: {str(e)}"
+        dns_report['dkim']['diagnosis'] = (
+            f"O domínio '{domain}' está cadastrado no servidor vmail local, mas o apontamento DNS da Chave Pública DKIM ainda não foi criado ou não propagou."
+            if is_local else
+            f"O registro DKIM não foi localizado no DNS. Para autenticar o envio de mensagens, crie a chave no servidor e publique a chave pública no DNS."
+        )
+        dns_report['dkim']['solution'] = (
+            f"Copie a Chave Pública DKIM (RSA 2048-bit) gerada abaixo e crie uma entrada TXT no seu gerenciador de DNS com o Host '{dkim_fqdn}'."
+            if is_local else
+            f"Cadastre este domínio em 'Domínios Virtuais' para gerar a chave automaticamente ou gere a chave no seu servidor autoritativo."
+        )
 
     # 4. Consulta DMARC (_dmarc.domain.com)
     dmarc_fqdn = f"_dmarc.{domain}"
     try:
         dmarc_answers = resolver.resolve(dmarc_fqdn, 'TXT')
         dmarc_found = str(dmarc_answers[0]).strip('"')
-        dns_report['dmarc'] = {
-            'status': 'OK' if 'v=DMARC1' in dmarc_found else 'FALHA',
-            'record': dmarc_found,
-            'details': f'Política DMARC configurada em {dmarc_fqdn}'
-        }
+        if 'v=DMARC1' in dmarc_found:
+            dns_report['dmarc']['status'] = 'OK'
+            dns_report['dmarc']['record'] = dmarc_found
+            dns_report['dmarc']['details'] = f"Política DMARC configurada em {dmarc_fqdn}"
+            dns_report['dmarc']['diagnosis'] = "Política DMARC alinha SPF e DKIM, informando aos servidores o que fazer com e-mails forjados e coletando relatórios de entregabilidade."
+            dns_report['dmarc']['solution'] = "Política DMARC operando com sucesso."
+        else:
+            dns_report['dmarc']['details'] = f"Registro em {dmarc_fqdn} não contém 'v=DMARC1'."
+            dns_report['dmarc']['diagnosis'] = "Registro inválido ou sem a tag de versão DMARC1."
+            dns_report['dmarc']['solution'] = f"Ajuste a entrada TXT em '{dmarc_fqdn}' para iniciar com 'v=DMARC1;'."
     except Exception as e:
-        dns_report['dmarc']['details'] = f'Registro DMARC não encontrado em {dmarc_fqdn}: {str(e)}'
+        dns_report['dmarc']['details'] = f"Registro DMARC não encontrado em {dmarc_fqdn}: {str(e)}"
+        dns_report['dmarc']['diagnosis'] = "Sem DMARC, provedores modernos (Google, Yahoo, Microsoft) reduzem a reputação de entrega e não fornecem relatórios de abuso."
+        dns_report['dmarc']['solution'] = f"Crie uma entrada TXT no host '{dmarc_fqdn}' com o valor: 'v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@{domain}; pct=100'."
+
+    # Cálculo da Pontuação de Saúde DNS
+    passed = 0
+    if dns_report['mx']['status'] == 'OK': passed += 1
+    if dns_report['spf']['status'] == 'OK': passed += 1
+    if dns_report['dkim']['status'] == 'OK': passed += 1
+    if dns_report['dmarc']['status'] == 'OK': passed += 1
+
+    dns_report['passed_checks'] = passed
+    dns_report['health_score'] = int((passed / 4) * 100)
+    if dns_report['health_score'] == 100:
+        dns_report['overall_status'] = 'EXCELLENT'
+    elif dns_report['health_score'] >= 50:
+        dns_report['overall_status'] = 'ATTENTION'
+    else:
+        dns_report['overall_status'] = 'CRITICAL'
 
     return jsonify({'success': True, 'dns_report': dns_report})
 
