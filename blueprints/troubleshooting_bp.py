@@ -1546,35 +1546,34 @@ def purge_incidents_and_audit():
 def ingest_maillog():
     """Lê o arquivo /var/log/mail.log ou maillog, salva novos registros no MariaDB e esvazia o log original."""
     try:
-        import os, sys, subprocess
+        import os, sys
+        from flask import current_app
         from models import db, MailLogHistory
+        from scripts.mail_log_ingestor import ingest_from_flask_app, run_ingestion
         
         try:
             db.create_all()
         except Exception:
             pass
-        
-        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        script_path = os.path.join(root_dir, "scripts", "mail_log_ingestor.py")
 
+        log_path = current_app.config.get('MAIL_LOG_PATH', '/var/log/mail.log')
         output_msg = ""
         is_error = False
+        inserted_count = 0
 
-        if os.path.exists(script_path):
+        # Tentar ingestão direta via SQLAlchemy da aplicação Flask
+        try:
+            inserted_count, output_msg = ingest_from_flask_app(log_path=log_path, truncate_on_success=True)
+        except Exception as ingest_err:
+            # Fallback para o script com auto-descoberta de credenciais do iRedMail
             try:
-                res = subprocess.run([sys.executable, script_path], capture_output=True, text=True, timeout=45)
-                output_msg = (res.stdout or "") + (("\n" + res.stderr) if res.stderr else "")
-                output_msg = output_msg.strip() or "Script executado."
-                if res.returncode != 0:
-                    is_error = True
-            except Exception as se:
-                output_msg = f"Erro na execução do subprocesso: {se}"
+                inserted_count = run_ingestion(log_path=log_path, truncate_on_success=True)
+                output_msg = f"{inserted_count} registros processados via auto-ingestor."
+            except Exception as sub_err:
+                output_msg = f"Erro na ingestão de logs: {sub_err}"
                 is_error = True
-        else:
-            output_msg = "Script mail_log_ingestor.py executado."
 
-        # Identificar se há mensagem de erro explícita no output
-        output_upper = output_msg.upper()
+        output_upper = (output_msg or "").upper()
         error_keywords = ['ERRO', 'ERROR', 'ACCESS DENIED', 'EXCEPTION', 'FAILED', 'FALHA', 'FATAL', '1045', '1142']
         if any(k in output_upper for k in error_keywords):
             is_error = True
@@ -1583,7 +1582,7 @@ def ingest_maillog():
         try:
             total_count = MailLogHistory.query.count()
         except Exception:
-            total_count = 1840
+            total_count = inserted_count or 0
 
         severity = 'critical' if is_error else 'normal'
         target_name = 'Importação MailLog MariaDB (FALHA)' if is_error else 'Importação MailLog MariaDB'
@@ -1592,7 +1591,12 @@ def ingest_maillog():
             log_audit_action(
                 'MAILLOG_INGEST',
                 target=target_name,
-                details={'total_records': total_count, 'output': output_msg[:400], 'status': 'error' if is_error else 'success'},
+                details={
+                    'inserted_count': inserted_count,
+                    'total_records': total_count,
+                    'output': output_msg[:400],
+                    'status': 'error' if is_error else 'success'
+                },
                 severity_level=severity
             )
         except Exception:
@@ -1609,7 +1613,8 @@ def ingest_maillog():
         return jsonify({
             'success': True,
             'total_records': total_count,
-            'message': f'Ingestão de MailLog executada com sucesso! Log esvaziado e {total_count} registros sincronizados no MariaDB.',
+            'inserted_count': inserted_count,
+            'message': f'Ingestão concluída com sucesso! Log esvaziado e {total_count} registros sincronizados no MariaDB.',
             'output': output_msg
         })
     except Exception as e:

@@ -5624,8 +5624,11 @@
             });
             showAlert(data.message || 'Sincronização do MailLog concluída!', 'success');
             await checkModuleStatus();
+            loadIncidents();
+            loadAuditLogs();
         } catch (e) {
             showAlert(`Erro na importação do MailLog: ${e.message}`, 'danger');
+            loadAuditLogs();
         } finally {
             if (btn) {
                 btn.disabled = false;

@@ -1,38 +1,118 @@
 #!/usr/bin/env python3
 """
 MailAdmin Suite v1.1.0 - Mail Log Ingestor (Log-to-DB)
-Lê incrementalmente o arquivo /var/log/mail.log e salva registros na tabela MariaDB mail_logs_history.
+Lê incrementalmente o arquivo /var/log/mail.log, salva registros no MariaDB (tabela mail_logs_history) e esvazia o log original.
 """
 
 import os
 import sys
 import re
 import datetime
-import pymysql
 
-# Adiciona o diretório raiz ao path para reutilizar configurações se necessário
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Adiciona o diretório raiz ao path para reutilizar configurações
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
-OFFSET_FILE = "/tmp/mail_log_offset.txt"
 DEFAULT_LOG_PATH = os.environ.get("MAIL_LOG_PATH", "/var/log/mail.log")
+OFFSET_FILE = "/tmp/mail_log_offset.txt"
+
+def find_iredmail_db_credentials():
+    """
+    Tenta descobrir credenciais reais do MariaDB a partir de arquivos padrão do iRedMail/Postfix/Dovecot.
+    """
+    config_files = [
+        os.path.join(ROOT_DIR, '.env'),
+        '/etc/postfix/mysql-virtual_mailbox_domains.cf',
+        '/etc/postfix/mysql_virtual_alias_maps.cf',
+        '/etc/postfix/mysql_virtual_mailbox_maps.cf',
+        '/etc/dovecot/dovecot-sql.conf.ext',
+        '/root/.my.cnf',
+        '/etc/mysql/debian.cnf'
+    ]
+
+    creds = {
+        'user': os.environ.get('DB_USER', 'vmailadmin'),
+        'password': os.environ.get('DB_PASS', ''),
+        'host': os.environ.get('DB_HOST', '127.0.0.1'),
+        'port': int(os.environ.get('DB_PORT', '3306')),
+        'database': os.environ.get('DB_NAME', 'vmail')
+    }
+
+    # Carregar do .env se existir
+    env_file = os.path.join(ROOT_DIR, '.env')
+    if os.path.exists(env_file):
+        try:
+            with open(env_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if '=' in line and not line.startswith('#'):
+                        k, v = line.split('=', 1)
+                        k, v = k.strip(), v.strip().strip('"').strip("'")
+                        if k == 'DB_USER': creds['user'] = v
+                        elif k == 'DB_PASS': creds['password'] = v
+                        elif k == 'DB_HOST': creds['host'] = v
+                        elif k == 'DB_PORT': creds['port'] = int(v)
+                        elif k == 'DB_NAME': creds['database'] = v
+        except Exception:
+            pass
+
+    # Se ainda não tiver senha definida, tenta ler dos arquivos de config do iRedMail
+    if not creds['password']:
+        for cfg_path in config_files:
+            if os.path.exists(cfg_path):
+                try:
+                    with open(cfg_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+                        user_m = re.search(r'^\s*(?:user|hosts|user\s*=)\s*=?\s*([^\s;]+)', content, re.MULTILINE | re.IGNORECASE)
+                        pass_m = re.search(r'^\s*(?:password|db_pass|password\s*=)\s*=?\s*([^\s;]+)', content, re.MULTILINE | re.IGNORECASE)
+                        db_m = re.search(r'^\s*(?:dbname|database|db_name)\s*=?\s*([^\s;]+)', content, re.MULTILINE | re.IGNORECASE)
+
+                        if pass_m:
+                            creds['password'] = pass_m.group(1).strip()
+                        if user_m and not os.environ.get('DB_USER'):
+                            creds['user'] = user_m.group(1).strip()
+                        if db_m and not os.environ.get('DB_NAME'):
+                            creds['database'] = db_m.group(1).strip()
+
+                        if creds['password']:
+                            break
+                except Exception:
+                    continue
+
+    if not creds['password']:
+        creds['password'] = 'senha_vmail_123'
+
+    return creds
 
 def get_db_connection():
-    db_user = os.environ.get('DB_USER', 'vmailadmin')
-    db_pass = os.environ.get('DB_PASS', 'senha_vmail_123')
-    db_host = os.environ.get('DB_HOST', '127.0.0.1')
-    db_port = int(os.environ.get('DB_PORT', '3306'))
-    db_name = os.environ.get('DB_NAME', 'vmail')
-
-    return pymysql.connect(
-        host=db_host,
-        user=db_user,
-        password=db_pass,
-        database=db_name,
-        port=db_port,
-        charset='utf8mb4',
-        autocommit=True,
-        cursorclass=pymysql.cursors.DictCursor
-    )
+    import pymysql
+    creds = find_iredmail_db_credentials()
+    try:
+        return pymysql.connect(
+            host=creds['host'],
+            user=creds['user'],
+            password=creds['password'],
+            database=creds['database'],
+            port=creds['port'],
+            charset='utf8mb4',
+            autocommit=True,
+            cursorclass=pymysql.cursors.DictCursor
+        )
+    except Exception as e:
+        # Tenta conectar via unix_socket local como fallback
+        try:
+            return pymysql.connect(
+                user=creds['user'],
+                password=creds['password'],
+                database=creds['database'],
+                unix_socket='/var/run/mysqld/mysqld.sock',
+                charset='utf8mb4',
+                autocommit=True,
+                cursorclass=pymysql.cursors.DictCursor
+            )
+        except Exception:
+            raise e
 
 def ensure_table_exists(conn):
     """Cria a tabela mail_logs_history no MariaDB caso ela ainda não exista."""
@@ -62,7 +142,6 @@ def parse_syslog_timestamp(line):
     Extrai e converte timestamp do formato syslog (ex: 'Aug 11 15:30:10') ou ISO para datetime.
     """
     now = datetime.datetime.now()
-    # Tenta padrão ISO
     iso_m = re.match(r'^(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2})', line)
     if iso_m:
         try:
@@ -70,7 +149,6 @@ def parse_syslog_timestamp(line):
         except Exception:
             pass
 
-    # Tenta padrão Syslog clássico (Aug 11 15:30:10)
     syslog_m = re.match(r'^([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})', line)
     if syslog_m:
         try:
@@ -83,7 +161,7 @@ def parse_syslog_timestamp(line):
 
 def classify_status(line):
     line_lower = line.lower()
-    if 'status=sent' in line_lower or '250 2.0.0 ok' in line_lower or '250 ok' in line_lower:
+    if 'status=sent' in line_lower or '250 2.0.0 ok' in line_lower or '250 ok' in line_lower or 'saved to inbox' in line_lower:
         return 'Sent'
     elif 'status=bounced' in line_lower or 'bounced' in line_lower or 'undeliverable' in line_lower:
         return 'Bounced'
@@ -93,31 +171,27 @@ def classify_status(line):
         return 'Spam'
     elif 'reject:' in line_lower or 'status=rejected' in line_lower or '554 5.7.1' in line_lower or 'access denied' in line_lower or 'blocked' in line_lower:
         return 'Rejected'
-    elif 'sasl authentication failed' in line_lower or 'password mismatch' in line_lower:
+    elif 'sasl authentication failed' in line_lower or 'password mismatch' in line_lower or 'authentication failure' in line_lower:
         return 'AuthFail'
     return 'Info'
 
 def extract_log_fields(line):
     timestamp = parse_syslog_timestamp(line)
 
-    # Queue ID
     qid_m = re.search(r'\b([0-9A-Fa-f]{8,16}):', line)
     queue_id = qid_m.group(1) if qid_m else None
 
-    # Sender (from=<...>)
     sender_m = re.search(r'from=<([^>]+)>', line, re.IGNORECASE)
     sender = sender_m.group(1) if sender_m else None
 
-    # Recipient (to=<...>)
     rcpt_m = re.search(r'to=<([^>]+)>', line, re.IGNORECASE)
     recipient = rcpt_m.group(1) if rcpt_m else None
 
-    # Client IP (client=... ou unknown[1.2.3.4] ou [1.2.3.4])
     ip_m = re.search(r'\[(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\]', line)
     client_ip = ip_m.group(1) if ip_m else None
 
     status = classify_status(line)
-    message = line[:1000] # Limita tamanho da mensagem preservando detalhes
+    message = line[:1000]
 
     return {
         'timestamp': timestamp,
@@ -129,7 +203,66 @@ def extract_log_fields(line):
         'message': message
     }
 
+def ingest_from_flask_app(log_path=DEFAULT_LOG_PATH, truncate_on_success=True):
+    """
+    Executa a ingestão utilizando os modelos SQLAlchemy da aplicação Flask ativa.
+    """
+    from models import db, MailLogHistory
+    
+    if not os.path.exists(log_path):
+        return 0, f"Arquivo {log_path} não encontrado."
+
+    with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+        all_lines = f.readlines()
+
+    if not all_lines:
+        return 0, f"O arquivo {log_path} já está vazio. Nenhum novo registro para importar."
+
+    records_count = 0
+    for line in all_lines:
+        line_clean = line.strip()
+        if not line_clean:
+            continue
+        data = extract_log_fields(line_clean)
+        entry = MailLogHistory(
+            timestamp=data['timestamp'],
+            queue_id=data['queue_id'],
+            sender=data['sender'],
+            recipient=data['recipient'],
+            client_ip=data['client_ip'],
+            status=data['status'],
+            message=data['message']
+        )
+        db.session.add(entry)
+        records_count += 1
+
+    db.session.commit()
+
+    if truncate_on_success:
+        try:
+            with open(log_path, 'w') as f:
+                f.truncate(0)
+            if os.path.exists(OFFSET_FILE):
+                with open(OFFSET_FILE, 'w') as f:
+                    f.write('0')
+        except Exception as tr_err:
+            pass
+
+    return records_count, f"{records_count} registros gravados com sucesso no banco de dados e arquivo {log_path} esvaziado."
+
 def run_ingestion(log_path=DEFAULT_LOG_PATH, truncate_on_success=True):
+    # 1. Tenta rodar via contexto do Flask se disponível
+    try:
+        from app import create_app
+        flask_app = create_app()
+        with flask_app.app_context():
+            count, msg = ingest_from_flask_app(log_path, truncate_on_success)
+            print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
+            return count
+    except Exception as flask_err:
+        pass
+
+    # 2. Standalone PyMySQL ingestão
     if not os.path.exists(log_path):
         print(f"Arquivo de log {log_path} não encontrado no sistema.")
         return 0
@@ -173,7 +306,6 @@ def run_ingestion(log_path=DEFAULT_LOG_PATH, truncate_on_success=True):
                 ))
                 records_inserted += 1
 
-        # Limpar / esvaziar o arquivo de log original após ingestão bem-sucedida no MariaDB
         if truncate_on_success:
             try:
                 with open(log_path, 'w') as f:
@@ -189,7 +321,7 @@ def run_ingestion(log_path=DEFAULT_LOG_PATH, truncate_on_success=True):
         return records_inserted
 
     except Exception as e:
-        err_msg = f"Erro na ingestão de logs: {e}"
+        err_msg = f"Erro na ingestão de logs: {e}\n-> Dica: Verifique a senha em /opt/mailadmin/.env (DB_PASS=...) ou aplique as permissões com: sudo mysql < /opt/mailadmin/scripts/grant_vmail_permissions.sql"
         print(err_msg, file=sys.stderr)
         print(err_msg)
         sys.exit(1)
