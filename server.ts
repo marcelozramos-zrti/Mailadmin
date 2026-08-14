@@ -1594,18 +1594,29 @@ blacklist_from *@spammerdomain.net
   app.get("/api/services/spamassassin/visual-rules", (req, res) => {
     const lines = virtualLocalCf.split("\n");
     const rules: any[] = [];
-    const pattern = /^\s*(blacklist_from|whitelist_from)\s+(.+)$/i;
+    const pattern = /^\s*(?:#\s*)?(blacklist_from|whitelist_from|spam_from|score_spam|spam)\s*(?::|\s)\s*(.+)$/i;
 
     let id = 0;
     for (const line of lines) {
       const match = line.trim().match(pattern);
       if (match) {
-        const action_type = match[1].toLowerCase();
+        const rawType = match[1].toLowerCase();
         const val = match[2].trim();
+        let action_type = "whitelist_from";
+        let action_label = "Liberar (Whitelist)";
+
+        if (["spam_from", "score_spam", "spam"].includes(rawType)) {
+          action_type = "spam_from";
+          action_label = "Marcar como SPAM";
+        } else if (rawType === "blacklist_from") {
+          action_type = "blacklist_from";
+          action_label = "Bloquear (Blacklist)";
+        }
+
         rules.push({
           id: id++,
           type: action_type,
-          action_label: action_type === "blacklist_from" ? "Bloquear (Blacklist)" : "Liberar (Whitelist)",
+          action_label,
           value: val,
           raw: line.trim()
         });
@@ -1616,8 +1627,8 @@ blacklist_from *@spammerdomain.net
 
   app.post("/api/services/spamassassin/visual-rules", (req, res) => {
     const { action, value } = req.body || {};
-    if (!action || !["blacklist_from", "whitelist_from"].includes(action)) {
-      return res.status(400).json({ success: false, message: "Ação inválida." });
+    if (!action || !["blacklist_from", "whitelist_from", "spam_from"].includes(action)) {
+      return res.status(400).json({ success: false, message: "Ação inválida. Escolha Bloquear, SPAM ou Liberar." });
     }
     if (!value || !value.trim()) {
       return res.status(400).json({ success: false, message: "Valor inválido." });
@@ -1638,6 +1649,46 @@ blacklist_from *@spammerdomain.net
       message: `Regra '${newRuleLine}' adicionada com sucesso! Serviço SpamAssassin reiniciado.`
     });
   });
+
+  const editVisualRule = (req: express.Request, res: express.Response) => {
+    const { old_raw, new_action, action, new_value, value } = req.body || {};
+    const act = new_action || action;
+    const val = (new_value || value || "").trim();
+    const oldRaw = (old_raw || "").trim().toLowerCase();
+
+    if (!act || !["blacklist_from", "whitelist_from", "spam_from"].includes(act)) {
+      return res.status(400).json({ success: false, message: "Ação inválida. Escolha Bloquear, SPAM ou Liberar." });
+    }
+    if (!val) {
+      return res.status(400).json({ success: false, message: "Endereço ou domínio alvo não pode ficar vazio." });
+    }
+
+    const newRuleLine = `${act} ${val}`;
+    const lines = virtualLocalCf.split("\n");
+    let replaced = false;
+
+    const newLines = lines.map(line => {
+      if (!replaced && oldRaw && line.trim().toLowerCase() === oldRaw) {
+        replaced = true;
+        return newRuleLine;
+      }
+      return line;
+    });
+
+    if (!replaced) {
+      newLines.push(newRuleLine);
+    }
+
+    virtualLocalCf = newLines.join("\n");
+
+    res.json({
+      success: true,
+      message: `Regra atualizada com sucesso para '${newRuleLine}'! Serviço SpamAssassin reiniciado.`
+    });
+  };
+
+  app.put("/api/services/spamassassin/visual-rules", editVisualRule);
+  app.post("/api/services/spamassassin/visual-rules/edit", editVisualRule);
 
   const deleteVisualRule = (req: express.Request, res: express.Response) => {
     const { raw, action, value } = req.body || {};

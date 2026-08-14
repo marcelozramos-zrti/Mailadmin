@@ -74,6 +74,14 @@ export interface RuleResponse {
   message?: string;
 }
 
+export interface VisualSpamRule {
+  id?: number;
+  type: 'blacklist_from' | 'whitelist_from' | 'spam_from';
+  action_label: string;
+  value: string;
+  raw: string;
+}
+
 export interface LintResponse {
   success: boolean;
   message: string;

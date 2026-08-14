@@ -277,7 +277,7 @@ def handle_rules():
             return jsonify({'success': False, 'message': str(e)}), 500
 
 
-@services_bp.route('/spamassassin/visual-rules', methods=['GET', 'POST', 'DELETE'])
+@services_bp.route('/spamassassin/visual-rules', methods=['GET', 'POST', 'PUT', 'DELETE'])
 @login_required
 def handle_visual_rules():
     if request.method == 'GET':
@@ -290,18 +290,29 @@ def handle_visual_rules():
 
             rules = []
             rule_id = 0
-            pattern = re.compile(r'^\s*(blacklist_from|whitelist_from)\s+(.+)$', re.IGNORECASE)
+            # Suporta blacklist_from, whitelist_from, spam_from e diretivas comentadas # SPAM_FROM / # SPAM:
+            pattern = re.compile(r'^\s*(?:#\s*)?(blacklist_from|whitelist_from|spam_from|score_spam|spam)\s*(?::|\s)\s*(.+)$', re.IGNORECASE)
 
             for line in lines:
                 clean_line = line.strip()
                 match = pattern.match(clean_line)
                 if match:
-                    action_type = match.group(1).lower()
+                    raw_type = match.group(1).lower()
                     val = match.group(2).strip()
+                    if raw_type in ['spam_from', 'score_spam', 'spam']:
+                        action_type = 'spam_from'
+                        action_label = 'Marcar como SPAM'
+                    elif raw_type == 'blacklist_from':
+                        action_type = 'blacklist_from'
+                        action_label = 'Bloquear (Blacklist)'
+                    else:
+                        action_type = 'whitelist_from'
+                        action_label = 'Liberar (Whitelist)'
+
                     rules.append({
                         'id': rule_id,
                         'type': action_type,
-                        'action_label': 'Bloquear (Blacklist)' if action_type == 'blacklist_from' else 'Liberar (Whitelist)',
+                        'action_label': action_label,
                         'value': val,
                         'raw': clean_line
                     })
@@ -316,8 +327,8 @@ def handle_visual_rules():
         action = data.get('action')
         value = (data.get('value') or '').strip()
 
-        if not action or action not in ['blacklist_from', 'whitelist_from']:
-            return jsonify({'success': False, 'message': 'Ação inválida. Escolha Bloquear (blacklist_from) ou Liberar (whitelist_from).'}), 400
+        if not action or action not in ['blacklist_from', 'whitelist_from', 'spam_from']:
+            return jsonify({'success': False, 'message': 'Ação inválida. Escolha Bloquear (blacklist_from), Marcar como SPAM (spam_from) ou Liberar (whitelist_from).'}), 400
 
         if not value:
             return jsonify({'success': False, 'message': 'Forneça um endereço ou padrão válido (ex: *@dominio.com).'}), 400
@@ -357,8 +368,79 @@ def handle_visual_rules():
         except Exception as e:
             return jsonify({'success': False, 'message': str(e)}), 500
 
+    elif request.method == 'PUT':
+        return edit_visual_rule_logic()
+
     elif request.method == 'DELETE':
         return delete_visual_rule_logic()
+
+
+@services_bp.route('/spamassassin/visual-rules/edit', methods=['POST'])
+@login_required
+def edit_visual_rule_endpoint():
+    return edit_visual_rule_logic()
+
+
+def edit_visual_rule_logic():
+    if current_user.role == 'user':
+        return jsonify({'success': False, 'message': 'Acesso negado: Perfil de Usuário não possui permissão para editar regras de Spam.'}), 403
+
+    data = request.get_json(silent=True) or request.form or {}
+    old_raw = (data.get('old_raw') or '').strip()
+    new_action = (data.get('new_action') or data.get('action') or '').strip()
+    new_value = (data.get('new_value') or data.get('value') or '').strip()
+
+    if not new_action or new_action not in ['blacklist_from', 'whitelist_from', 'spam_from']:
+        return jsonify({'success': False, 'message': 'Tipo de ação inválido. Escolha Bloquear, SPAM ou Liberar.'}), 400
+
+    if not new_value:
+        return jsonify({'success': False, 'message': 'Endereço ou domínio alvo não pode ficar vazio.'}), 400
+
+    new_rule_line = f"{new_action} {new_value}"
+
+    try:
+        if not os.path.exists(LOCAL_CF_PATH):
+            return jsonify({'success': False, 'message': 'Arquivo local.cf não encontrado.'}), 404
+
+        with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        new_lines = []
+        replaced = False
+        target_clean = old_raw.strip().lower()
+
+        for line in lines:
+            if not replaced and target_clean and line.strip().lower() == target_clean:
+                new_lines.append(new_rule_line + '\n')
+                replaced = True
+            else:
+                new_lines.append(line)
+
+        if not replaced:
+            # Se não encontrou a linha antiga exatamente, anexa a nova regra
+            new_lines.append(new_rule_line + '\n')
+
+        content = "".join(new_lines)
+        tmp_file = '/tmp/local.cf.tmp'
+        with open(tmp_file, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        cp_res = run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
+        if os.path.exists(tmp_file):
+            os.remove(tmp_file)
+
+        if cp_res['returncode'] != 0:
+            return jsonify({'success': False, 'message': f'Erro ao atualizar local.cf: {cp_res["stderr"]}'}), 500
+
+        run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
+        run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
+
+        return jsonify({
+            'success': True,
+            'message': f'Regra atualizada com sucesso para "{new_rule_line}"! Serviço SpamAssassin reiniciado.'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 
 @services_bp.route('/spamassassin/visual-rules/delete', methods=['POST'])
