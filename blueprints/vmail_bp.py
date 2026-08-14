@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy import func, text
 import datetime
-from models import db, Domain, Mailbox, Alias, UsedQuota
+from models import db, Domain, Mailbox, Alias, AliasDomain, UsedQuota
 from blueprints.audit_helper import log_audit_action
 
 vmail_bp = Blueprint('vmail', __name__, url_prefix='/api/vmail')
@@ -142,6 +142,120 @@ def delete_domain(domain_name):
 
 
 # ==========================================
+# 1.1 MÓDULO DE ALIASES DE DOMÍNIO (DOMAIN ALIASES)
+# Ex: zrti.tech -> zrti.com.br (recebem e enviam)
+# ==========================================
+
+@vmail_bp.route('/alias-domains', methods=['GET', 'POST'])
+@vmail_bp.route('/domain-aliases', methods=['GET', 'POST'])
+@login_required
+def handle_domain_aliases():
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or request.form or {}
+        alias_domain = data.get('alias_domain', '').strip().lower()
+        target_domain = data.get('target_domain', '').strip().lower()
+
+        if not alias_domain or not target_domain:
+            return jsonify({'success': False, 'message': 'Domínio alias e domínio de destino são obrigatórios.'}), 400
+
+        if alias_domain == target_domain:
+            return jsonify({'success': False, 'message': 'O domínio de alias não pode ser idêntico ao de destino.'}), 400
+
+        try:
+            # Verifica se o target_domain existe em domain
+            target = Domain.query.filter_by(domain=target_domain).first()
+            if not target:
+                return jsonify({'success': False, 'message': f'O domínio de destino {target_domain} não existe nos domínios virtuais cadastrados.'}), 400
+
+            # Verifica se alias_domain já existe em domain ou alias_domain
+            exist_dom = Domain.query.filter_by(domain=alias_domain).first()
+            if exist_dom:
+                return jsonify({'success': False, 'message': f'O domínio {alias_domain} já está cadastrado como domínio virtual principal.'}), 400
+
+            exist_ad = AliasDomain.query.filter_by(alias_domain=alias_domain).first()
+            if exist_ad:
+                return jsonify({'success': False, 'message': f'O alias de domínio {alias_domain} já existe.'}), 400
+
+            new_ad = AliasDomain(
+                alias_domain=alias_domain,
+                target_domain=target_domain,
+                active=True
+            )
+            db.session.add(new_ad)
+            db.session.commit()
+
+            try:
+                log_audit_action("DOMAIN_ALIAS_CREATE", alias_domain, {"target_domain": target_domain}, "normal")
+            except Exception:
+                pass
+
+            return jsonify({
+                'success': True,
+                'message': f'Alias de domínio {alias_domain} -> {target_domain} criado com sucesso!',
+                'alias_domain': new_ad.to_dict()
+            })
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'success': False, 'message': format_vmail_db_error(e, 'criar alias de domínio')}), 500
+    else:
+        try:
+            aliases = AliasDomain.query.all()
+            return jsonify({'success': True, 'alias_domains': [a.to_dict() for a in aliases], 'data': [a.to_dict() for a in aliases]})
+        except Exception as e:
+            return jsonify({'success': False, 'message': f'Erro ao consultar aliases de domínio: {str(e)}', 'alias_domains': []}), 200
+
+
+@vmail_bp.route('/alias-domains/<alias_domain>/toggle', methods=['GET', 'POST'])
+@vmail_bp.route('/domain-aliases/<alias_domain>/toggle', methods=['GET', 'POST'])
+@login_required
+def toggle_domain_alias(alias_domain):
+    try:
+        ad = AliasDomain.query.filter_by(alias_domain=alias_domain.strip().lower()).first()
+        if not ad:
+            return jsonify({'success': False, 'message': 'Alias de domínio não encontrado.'}), 404
+
+        ad.active = not ad.active
+        db.session.commit()
+        status_str = "ativado" if ad.active else "desativado"
+
+        try:
+            log_audit_action("DOMAIN_ALIAS_TOGGLE", alias_domain, {"active": ad.active}, "normal")
+        except Exception:
+            pass
+
+        return jsonify({'success': True, 'message': f'Alias de domínio {alias_domain} {status_str}!'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': format_vmail_db_error(e, 'alterar status do alias de domínio')}), 500
+
+
+@vmail_bp.route('/alias-domains/<alias_domain>', methods=['GET', 'POST', 'DELETE'])
+@vmail_bp.route('/domain-aliases/<alias_domain>', methods=['GET', 'POST', 'DELETE'])
+@login_required
+def delete_domain_alias(alias_domain):
+    if current_user.role == 'user':
+        return jsonify({'success': False, 'message': 'Acesso negado: Perfil de Usuário não possui permissão de exclusão.'}), 403
+
+    try:
+        ad = AliasDomain.query.filter_by(alias_domain=alias_domain.strip().lower()).first()
+        if not ad:
+            return jsonify({'success': False, 'message': 'Alias de domínio não encontrado.'}), 404
+
+        db.session.delete(ad)
+        db.session.commit()
+
+        try:
+            log_audit_action("DOMAIN_ALIAS_DELETE", alias_domain, {}, "normal")
+        except Exception:
+            pass
+
+        return jsonify({'success': True, 'message': f'Alias de domínio {alias_domain} removido com sucesso!'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': format_vmail_db_error(e, 'excluir alias de domínio')}), 500
+
+
+# ==========================================
 # 2. MÓDULO DE MAILBOXES (CAIXAS DE SOMBRA)
 # ==========================================
 
@@ -271,6 +385,42 @@ def update_mailbox_quota(email):
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': format_vmail_db_error(e, 'alterar cota')}), 500
+
+@vmail_bp.route('/mailboxes/<path:email>/password', methods=['GET', 'POST', 'PUT'])
+@vmail_bp.route('/mailboxes/<path:email>/reset-password', methods=['GET', 'POST', 'PUT'])
+@login_required
+def reset_mailbox_password(email):
+    if request.method == 'GET':
+        return jsonify({'success': True, 'email': email})
+
+    data = request.get_json(silent=True) or request.form or {}
+    new_password = data.get('password', '').strip()
+    scheme = data.get('scheme', 'SSHA512')
+
+    if not new_password:
+        return jsonify({'success': False, 'message': 'A nova senha é obrigatória.'}), 400
+
+    try:
+        mb = Mailbox.query.filter_by(username=email).first()
+        if not mb:
+            return jsonify({'success': False, 'message': 'Caixa postal não encontrada.'}), 404
+
+        dovecot_hash = Mailbox.generate_dovecot_password(new_password, scheme=scheme)
+        mb.password = dovecot_hash
+        db.session.commit()
+
+        try:
+            log_audit_action("MAILBOX_PASSWORD_RESET", email, {"scheme": scheme}, "suspicious")
+        except Exception:
+            pass
+
+        return jsonify({
+            'success': True,
+            'message': f'Senha da caixa postal {email} redefinida com sucesso!'
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': format_vmail_db_error(e, 'redefinir senha da caixa')}), 500
 
 @vmail_bp.route('/mailboxes/<path:email>', methods=['GET', 'POST', 'DELETE'])
 @login_required

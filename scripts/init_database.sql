@@ -63,6 +63,15 @@ CREATE TABLE IF NOT EXISTS `alias` (
     INDEX `idx_al_domain` (`domain`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- 5.1 Tabela de Aliases de Domínio (alias_domain) Ex: zrti.tech -> zrti.com.br
+CREATE TABLE IF NOT EXISTS `alias_domain` (
+    `alias_domain` VARCHAR(255) PRIMARY KEY,
+    `target_domain` VARCHAR(255) NOT NULL,
+    `active` TINYINT(1) DEFAULT 1,
+    `created` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX `idx_ad_target` (`target_domain`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- 6. Tabela de Quota Utilizada (used_quota)
 CREATE TABLE IF NOT EXISTS `used_quota` (
     `username` VARCHAR(255) PRIMARY KEY,

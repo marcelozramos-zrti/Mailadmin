@@ -35,6 +35,13 @@ export interface AliasItem {
   created: string;
 }
 
+export interface DomainAliasItem {
+  alias_domain: string;
+  target_domain: string;
+  active: boolean;
+  created: string;
+}
+
 export interface QueueItem {
   queue_id: string;
   size: number;

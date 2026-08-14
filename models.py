@@ -123,6 +123,23 @@ class Alias(db.Model):
         }
 
 
+class AliasDomain(db.Model):
+    __tablename__ = 'alias_domain'
+
+    alias_domain = db.Column(db.String(255), primary_key=True) # ex: zrti.tech
+    target_domain = db.Column(db.String(255), db.ForeignKey('domain.domain'), nullable=False) # ex: zrti.com.br
+    created = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    active = db.Column(db.Boolean, default=True)
+
+    def to_dict(self):
+        return {
+            'alias_domain': self.alias_domain,
+            'target_domain': self.target_domain,
+            'active': self.active,
+            'created': self.created.strftime('%Y-%m-%d %H:%M:%S') if self.created else None
+        }
+
+
 class UsedQuota(db.Model):
     __tablename__ = 'used_quota'
 

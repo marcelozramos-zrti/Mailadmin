@@ -788,130 +788,220 @@
 
                 <!-- 3. DOMÍNIOS TAB -->
                 <div class="tab-section d-none" id="tab-dominios">
-                    <!-- DOMÍNIOS -->
-                    <div class="card p-4 mb-4">
-                        <div class="d-flex align-items-center justify-content-between mb-3">
-                            <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                    <!-- Nav Tabs de Domínios -->
+                    <ul class="nav nav-tabs mb-4 border-bottom-0" id="domainNavTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active fw-semibold d-flex align-items-center gap-2" id="dom-virtuais-tab" data-bs-toggle="tab" data-bs-target="#subtab-dom-virtuais" type="button" role="tab" aria-selected="true" onclick="loadDomains()">
                                 <i class="bi bi-globe text-primary"></i> Domínios Virtuais Registrados
-                            </h3>
-                            <button class="btn btn-primary btn-sm rounded-3" onclick="showCreateDomainModal()">
-                                <i class="bi bi-plus-circle me-1"></i> Novo Domínio
                             </button>
-                        </div>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link fw-semibold d-flex align-items-center gap-2" id="dom-aliases-tab" data-bs-toggle="tab" data-bs-target="#subtab-dom-aliases" type="button" role="tab" aria-selected="false" onclick="loadDomainAliases()">
+                                <i class="bi bi-diagram-3-fill text-success"></i> Aliases de Domínio
+                            </button>
+                        </li>
+                    </ul>
 
-                        <!-- Barra de Pesquisa de Domínios -->
-                        <div class="row g-2 mb-3 align-items-center">
-                            <div class="col-md-6 col-lg-4">
-                                <div class="input-group input-group-sm">
-                                    <span class="input-group-text bg-light border-light-subtle text-muted">
-                                        <i class="bi bi-search"></i>
-                                    </span>
-                                    <input type="text" id="search-domains-input" class="form-control" placeholder="Filtrar domínio (ex: zrti.com.br)..." onkeyup="filterTableRows('search-domains-input', 'domains-table-body')">
+                    <div class="tab-content" id="domainNavTabsContent">
+                        <!-- Sub-Aba 1: Domínios Virtuais -->
+                        <div class="tab-pane fade show active" id="subtab-dom-virtuais" role="tabpanel">
+                            <div class="card p-4 mb-4">
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                        <i class="bi bi-globe text-primary"></i> Domínios Virtuais Registrados
+                                    </h3>
+                                    <button class="btn btn-primary btn-sm rounded-3" onclick="showCreateDomainModal()">
+                                        <i class="bi bi-plus-circle me-1"></i> Novo Domínio
+                                    </button>
+                                </div>
+
+                                <!-- Barra de Pesquisa de Domínios -->
+                                <div class="row g-2 mb-3 align-items-center">
+                                    <div class="col-md-6 col-lg-4">
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light border-light-subtle text-muted">
+                                                <i class="bi bi-search"></i>
+                                            </span>
+                                            <input type="text" id="search-domains-input" class="form-control" placeholder="Filtrar domínio (ex: zrti.com.br)..." onkeyup="filterTableRows('search-domains-input', 'domains-table-body')">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="table-responsive">
+                                    <table class="table table-custom align-middle">
+                                        <thead>
+                                            <tr>
+                                                <th>Domínio</th>
+                                                <th>Descrição</th>
+                                                <th>Caixas Criadas</th>
+                                                <th>Quota Máx</th>
+                                                <th>Status</th>
+                                                <th>Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="domains-table-body">
+                                            <tr><td colspan="6" class="text-center text-muted py-3">Carregando domínios...</td></tr>
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="table-responsive">
-                            <table class="table table-custom align-middle">
-                                <thead>
-                                    <tr>
-                                        <th>Domínio</th>
-                                        <th>Descrição</th>
-                                        <th>Caixas Criadas</th>
-                                        <th>Quota Máx</th>
-                                        <th>Status</th>
-                                        <th>Ações</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="domains-table-body">
-                                    <tr><td colspan="6" class="text-center text-muted py-3">Carregando domínios...</td></tr>
-                                </tbody>
-                            </table>
+                        <!-- Sub-Aba 2: Aliases de Domínio -->
+                        <div class="tab-pane fade" id="subtab-dom-aliases" role="tabpanel">
+                            <div class="card p-4 mb-4">
+                                <!-- Card explicativo didático -->
+                                <div class="alert alert-info border-0 shadow-sm d-flex align-items-center gap-3 p-3 mb-4 rounded-3">
+                                    <i class="bi bi-info-circle-fill fs-4 text-info flex-shrink-0"></i>
+                                    <div class="small">
+                                        <strong>Espelhamento de Domínio (Domain Aliases):</strong>
+                                        Permite mapear um domínio secundário completo para um domínio principal. Por exemplo: se <code>zrti.tech</code> for alias de <code>zrti.com.br</code>, mensagens para <code>fulano@zrti.tech</code> serão entregues na caixa de <code>fulano@zrti.com.br</code> automaticamente, sem necessidade de duplicar caixas postais.
+                                    </div>
+                                </div>
+
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                        <i class="bi bi-diagram-3-fill text-success"></i> Aliases de Domínio Registrados
+                                    </h3>
+                                    <button class="btn btn-success btn-sm rounded-3 text-white fw-semibold" onclick="showCreateDomainAliasModal()">
+                                        <i class="bi bi-plus-circle me-1"></i> Novo Alias de Domínio
+                                    </button>
+                                </div>
+
+                                <!-- Barra de Pesquisa de Aliases de Domínio -->
+                                <div class="row g-2 mb-3 align-items-center">
+                                    <div class="col-md-6 col-lg-4">
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light border-light-subtle text-muted">
+                                                <i class="bi bi-search"></i>
+                                            </span>
+                                            <input type="text" id="search-domain-aliases-input" class="form-control" placeholder="Filtrar domínio alias ou destino..." onkeyup="filterTableRows('search-domain-aliases-input', 'domain-aliases-table-body')">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="table-responsive">
+                                    <table class="table table-custom align-middle">
+                                        <thead>
+                                            <tr>
+                                                <th>Domínio Alias (Espelho)</th>
+                                                <th>Domínio Destino (Principal)</th>
+                                                <th>Comportamento / Roteamento</th>
+                                                <th>Status</th>
+                                                <th class="text-end pe-3">Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="domain-aliases-table-body">
+                                            <tr><td colspan="5" class="text-center text-muted py-3">Carregando aliases de domínio...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- 4. MAILBOX TAB -->
                 <div class="tab-section d-none" id="tab-mailbox">
-                    <!-- MAILBOXES -->
-                    <div class="card p-4 mb-4">
-                        <div class="d-flex align-items-center justify-content-between mb-3">
-                            <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
-                                <i class="bi bi-mailbox text-info"></i> Caixas Postais (vmail Mailboxes)
-                            </h3>
-                            <button class="btn btn-info text-white btn-sm rounded-3" onclick="showCreateMailboxModal()">
-                                <i class="bi bi-person-plus me-1"></i> Nova Caixa Postal
+                    <!-- Nav Tabs de Mailbox -->
+                    <ul class="nav nav-tabs mb-4 border-bottom-0" id="mailboxNavTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active fw-semibold d-flex align-items-center gap-2" id="mb-contas-tab" data-bs-toggle="tab" data-bs-target="#subtab-mb-contas" type="button" role="tab" aria-selected="true" onclick="loadMailboxes()">
+                                <i class="bi bi-mailbox text-info"></i> Vmail Mailbox
                             </button>
-                        </div>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link fw-semibold d-flex align-items-center gap-2" id="mb-aliases-tab" data-bs-toggle="tab" data-bs-target="#subtab-mb-aliases" type="button" role="tab" aria-selected="false" onclick="loadAliases()">
+                                <i class="bi bi-signpost-split text-warning"></i> Aliases de e-mail
+                            </button>
+                        </li>
+                    </ul>
 
-                        <!-- Barra de Pesquisa de Caixas Postais -->
-                        <div class="row g-2 mb-3 align-items-center">
-                            <div class="col-md-6 col-lg-4">
-                                <div class="input-group input-group-sm">
-                                    <span class="input-group-text bg-light border-light-subtle text-muted">
-                                        <i class="bi bi-search"></i>
-                                    </span>
-                                    <input type="text" id="search-mailboxes-input" class="form-control" placeholder="Filtrar conta de e-mail ou nome..." onkeyup="filterTableRows('search-mailboxes-input', 'mailboxes-table-body')">
+                    <div class="tab-content" id="mailboxNavTabsContent">
+                        <!-- Sub-Aba 1: Vmail Mailbox (Caixas Postais) -->
+                        <div class="tab-pane fade show active" id="subtab-mb-contas" role="tabpanel">
+                            <div class="card p-4 mb-4">
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                        <i class="bi bi-mailbox text-info"></i> Caixas Postais Virtuais (Vmail Mailbox)
+                                    </h3>
+                                    <button class="btn btn-info text-white btn-sm rounded-3" onclick="showCreateMailboxModal()">
+                                        <i class="bi bi-person-plus me-1"></i> Nova Caixa Postal
+                                    </button>
+                                </div>
+
+                                <!-- Barra de Pesquisa de Caixas Postais -->
+                                <div class="row g-2 mb-3 align-items-center">
+                                    <div class="col-md-6 col-lg-4">
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light border-light-subtle text-muted">
+                                                <i class="bi bi-search"></i>
+                                            </span>
+                                            <input type="text" id="search-mailboxes-input" class="form-control" placeholder="Filtrar conta de e-mail ou nome..." onkeyup="filterTableRows('search-mailboxes-input', 'mailboxes-table-body')">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="table-responsive">
+                                    <table class="table table-custom align-middle">
+                                        <thead>
+                                            <tr>
+                                                <th>E-mail Completo</th>
+                                                <th>Nome</th>
+                                                <th>Maildir Path</th>
+                                                <th>Espaço Utilizado / Cota</th>
+                                                <th>Domínio</th>
+                                                <th class="text-end pe-3">Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="mailboxes-table-body">
+                                            <tr><td colspan="6" class="text-center text-muted py-3">Carregando caixas postais...</td></tr>
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="table-responsive">
-                            <table class="table table-custom align-middle">
-                                <thead>
-                                    <tr>
-                                        <th>E-mail Completo</th>
-                                        <th>Nome</th>
-                                        <th>Maildir Path</th>
-                                        <th>Espaço Utilizado / Cota</th>
-                                        <th>Domínio</th>
-                                        <th>Ações</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="mailboxes-table-body">
-                                    <tr><td colspan="6" class="text-center text-muted py-3">Carregando caixas postais...</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                        <!-- Sub-Aba 2: Aliases de E-mail -->
+                        <div class="tab-pane fade" id="subtab-mb-aliases" role="tabpanel">
+                            <div class="card p-4 mb-4">
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                        <i class="bi bi-signpost-split text-warning"></i> Redirecionamentos de E-mail (Aliases)
+                                    </h3>
+                                    <button class="btn btn-warning text-dark btn-sm rounded-3 fw-semibold" onclick="showCreateAliasModal()">
+                                        <i class="bi bi-plus-lg me-1"></i> Novo Alias
+                                    </button>
+                                </div>
 
-                    <!-- ALIASES -->
-                    <div class="card p-4">
-                        <div class="d-flex align-items-center justify-content-between mb-3">
-                            <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
-                                <i class="bi bi-signpost-split text-warning"></i> Redirecionamentos de E-mail (Aliases)
-                            </h3>
-                            <button class="btn btn-warning text-dark btn-sm rounded-3 fw-semibold" onclick="showCreateAliasModal()">
-                                <i class="bi bi-plus-lg me-1"></i> Novo Alias
-                            </button>
-                        </div>
+                                <!-- Barra de Pesquisa de Aliases -->
+                                <div class="row g-2 mb-3 align-items-center">
+                                    <div class="col-md-6 col-lg-4">
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light border-light-subtle text-muted">
+                                                <i class="bi bi-search"></i>
+                                            </span>
+                                            <input type="text" id="search-aliases-input" class="form-control" placeholder="Filtrar alias ou destino..." onkeyup="filterTableRows('search-aliases-input', 'aliases-table-body')">
+                                        </div>
+                                    </div>
+                                </div>
 
-                        <!-- Barra de Pesquisa de Aliases -->
-                        <div class="row g-2 mb-3 align-items-center">
-                            <div class="col-md-6 col-lg-4">
-                                <div class="input-group input-group-sm">
-                                    <span class="input-group-text bg-light border-light-subtle text-muted">
-                                        <i class="bi bi-search"></i>
-                                    </span>
-                                    <input type="text" id="search-aliases-input" class="form-control" placeholder="Filtrar alias ou destino..." onkeyup="filterTableRows('search-aliases-input', 'aliases-table-body')">
+                                <div class="table-responsive">
+                                    <table class="table table-custom align-middle">
+                                        <thead>
+                                            <tr>
+                                                <th>Endereço do Alias</th>
+                                                <th>Destinos (goto)</th>
+                                                <th>Domínio</th>
+                                                <th class="text-end pe-3">Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="aliases-table-body">
+                                            <tr><td colspan="4" class="text-center text-muted py-3">Carregando aliases...</td></tr>
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
-                        </div>
-
-                        <div class="table-responsive">
-                            <table class="table table-custom align-middle">
-                                <thead>
-                                    <tr>
-                                        <th>Endereço do Alias</th>
-                                        <th>Destinos (goto)</th>
-                                        <th>Domínio</th>
-                                        <th>Ações</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="aliases-table-body">
-                                    <tr><td colspan="4" class="text-center text-muted py-3">Carregando aliases...</td></tr>
-                                </tbody>
-                            </table>
                         </div>
                     </div>
                 </div>
@@ -2190,6 +2280,48 @@
     </div>
 </div>
 
+<!-- CREATE DOMAIN ALIAS MODAL -->
+<div class="modal fade" id="createDomainAliasModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content shadow border-0 rounded-4">
+            <div class="modal-header bg-success bg-opacity-15 border-bottom py-3 rounded-top-4">
+                <h5 class="modal-title h6 fw-bold text-dark d-flex align-items-center gap-2 mb-0">
+                    <i class="bi bi-diagram-3-fill text-success fs-5"></i> Novo Alias de Domínio (Domain Mirror)
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="alert alert-light border small text-muted mb-3">
+                    <i class="bi bi-lightbulb-fill text-warning me-1"></i>
+                    <strong>Exemplo Prático:</strong> Ao cadastrar <code>zrti.tech</code> como alias de <code>zrti.com.br</code>, todos os colaboradores de <code>zrti.tech</code> receberão e-mails diretamente nas caixas de <code>zrti.com.br</code> correspondentes.
+                </div>
+                <div class="mb-3">
+                    <label class="form-label text-muted small fw-semibold">Domínio Alias (Espelho / Secundário)</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light text-muted font-monospace">@</span>
+                        <input type="text" id="dom-alias-alias-input" class="form-control font-monospace" placeholder="ex: zrti.tech" required>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label text-muted small fw-semibold">Domínio Destino (Principal / Registrado no Vmail)</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light text-muted font-monospace"><i class="bi bi-globe"></i></span>
+                        <input type="text" id="dom-alias-target-input" class="form-control font-monospace" placeholder="ex: zrti.com.br" list="target-domain-suggestions" required>
+                        <datalist id="target-domain-suggestions"></datalist>
+                    </div>
+                    <div class="form-text small text-muted">O domínio destino precisa ser um domínio virtual ativo no Postfix/MariaDB.</div>
+                </div>
+            </div>
+            <div class="modal-footer bg-light py-2 rounded-bottom-4">
+                <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-success btn-sm fw-bold rounded-3 px-3 text-white" onclick="submitCreateDomainAlias()">
+                    <i class="bi bi-check-lg me-1"></i> Criar Alias de Domínio
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- CREATE MAILBOX MODAL -->
 <div class="modal fade" id="createMailboxModal" tabindex="-1">
     <div class="modal-dialog">
@@ -2219,6 +2351,55 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-info text-white btn-sm" onclick="submitCreateMailbox()">Criar Caixa</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- RESET MAILBOX PASSWORD MODAL -->
+<div class="modal fade" id="resetPasswordModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content shadow border-0 rounded-4">
+            <div class="modal-header bg-amber-500 bg-warning bg-opacity-25 border-bottom py-3 rounded-top-4">
+                <h5 class="modal-title h6 fw-bold text-dark d-flex align-items-center gap-2 mb-0">
+                    <i class="bi bi-key-fill text-warning fs-5"></i> Redefinir Senha da Caixa Postal
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="mb-3">
+                    <label class="form-label text-muted small fw-semibold">Caixa Postal (E-mail)</label>
+                    <input type="text" id="reset-mb-email-input" class="form-control bg-light font-monospace fw-semibold" readonly>
+                </div>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="form-label text-muted small fw-semibold mb-0">Nova Senha</label>
+                        <button type="button" class="btn btn-link btn-sm p-0 text-primary text-decoration-none fw-semibold small" onclick="generateMailboxRandomPassword()">
+                            <i class="bi bi-magic me-1"></i> Gerar Senha Forte
+                        </button>
+                    </div>
+                    <div class="input-group">
+                        <input type="password" id="reset-mb-pass-input" class="form-control font-monospace" placeholder="Digite ou gere uma nova senha" required>
+                        <button class="btn btn-outline-secondary" type="button" onclick="toggleResetPassVisibility()">
+                            <i class="bi bi-eye" id="reset-pass-toggle-icon"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label text-muted small fw-semibold">Esquema de Criptografia (Dovecot)</label>
+                    <select id="reset-mb-scheme-select" class="form-select font-monospace small">
+                        <option value="SSHA512" selected>SSHA512 (Padrão Dovecot - Recomendado)</option>
+                        <option value="SHA512-CRYPT">SHA512-CRYPT</option>
+                        <option value="BCRYPT">BCRYPT (Blowfish)</option>
+                    </select>
+                    <div class="form-text small text-muted">A senha será criptografada e atualizada na tabela <code>mailbox</code> do MariaDB vmail.</div>
+                </div>
+            </div>
+            <div class="modal-footer bg-light py-2 rounded-bottom-4">
+                <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-warning text-dark btn-sm fw-bold rounded-3 px-3" onclick="submitResetPassword()">
+                    <i class="bi bi-key-fill me-1"></i> Redefinir Senha
+                </button>
             </div>
         </div>
     </div>
@@ -2954,8 +3135,15 @@
     function setActiveTab(tabName) {
         if (tabName === 'dashboard') loadTelemetry();
         else if (tabName === 'servidores') { loadTelemetry(); loadServiceStatus(); }
-        else if (tabName === 'dominios') loadDomains();
+        else if (tabName === 'dominios') { loadDomains(); loadDomainAliases(); }
         else if (tabName === 'mailbox') { loadMailboxes(); loadAliases(); }
+        else if (tabName === 'aliases') { 
+            // Redireciona para Mailbox -> Aliases de e-mail
+            const mbLink = document.querySelector('[data-tab="mailbox"]');
+            if (mbLink) mbLink.click();
+            const aliasSubTab = document.getElementById('mb-aliases-tab');
+            if (aliasSubTab) aliasSubTab.click();
+        }
         else if (tabName === 'spam') loadSpamRules();
         else if (tabName === 'ferramentas') { loadQueue(); loadLogs(); renderSavedQueries(); }
         else if (tabName === 'studio') { loadCronJobs(); }
@@ -3385,12 +3573,18 @@
         }
     }
 
-    // 4. VMAIL CRUD (Domínios, Mailboxes, Aliases)
+    // 4. VMAIL CRUD (Domínios, Aliases de Domínio, Mailboxes, Aliases de E-mail)
     async function loadDomains() {
         const tbody = document.getElementById('domains-table-body');
         try {
             const data = await fetchJson('/api/vmail/domains');
             if (data.domains) {
+                // Preenche sugestões para o modal de Domain Aliases
+                const datalist = document.getElementById('target-domain-suggestions');
+                if (datalist) {
+                    datalist.innerHTML = data.domains.map(d => `<option value="${d.domain}">${d.domain} (${d.description || 'Domínio Principal'})</option>`).join('');
+                }
+
                 if (data.domains.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Nenhum domínio cadastrado.</td></tr>';
                     return;
@@ -3412,6 +3606,106 @@
         } catch (e) {
             console.error("Erro ao carregar domínios:", e);
             tbody.innerHTML = `<tr><td colspan="6" class="text-danger font-monospace text-center py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar domínios: ${e.message}</td></tr>`;
+        }
+    }
+
+    // --- ALIASES DE DOMÍNIO (DOMAIN ALIASES) ---
+    async function loadDomainAliases() {
+        const tbody = document.getElementById('domain-aliases-table-body');
+        if (!tbody) return;
+        try {
+            const data = await fetchJson('/api/vmail/alias-domains');
+            const aliases = data.alias_domains || [];
+            if (aliases.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Nenhum alias de domínio cadastrado.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = aliases.map(a => `
+                <tr>
+                    <td>
+                        <span class="fw-bold text-success font-monospace">@${escapeHtml(a.alias_domain)}</span>
+                        <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle ms-2 font-monospace" style="font-size: 10px;">Alias / Espelho</span>
+                    </td>
+                    <td>
+                        <span class="fw-bold text-primary font-monospace">@${escapeHtml(a.target_domain)}</span>
+                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle ms-2 font-monospace" style="font-size: 10px;">Destino Principal</span>
+                    </td>
+                    <td class="small text-muted font-monospace">
+                        *@${escapeHtml(a.alias_domain)} &rarr; *@${escapeHtml(a.target_domain)}
+                    </td>
+                    <td>
+                        <button class="btn btn-sm ${a.active ? 'btn-success-subtle text-success' : 'btn-secondary-subtle text-secondary'} border px-2 py-0.5 rounded-pill font-monospace" onclick="toggleDomainAlias('${encodeURIComponent(a.alias_domain)}')" title="Clique para alternar status">
+                            <i class="bi ${a.active ? 'bi-check-circle-fill text-success' : 'bi-dash-circle text-secondary'} me-1"></i> ${a.active ? 'Ativo' : 'Inativo'}
+                        </button>
+                    </td>
+                    <td class="text-end pe-3">
+                        <button class="btn btn-sm btn-outline-danger p-1 border-0" onclick="deleteDomainAlias('${encodeURIComponent(a.alias_domain)}')" title="Excluir Alias de Domínio"><i class="bi bi-trash"></i></button>
+                    </td>
+                </tr>
+            `).join('');
+            filterTableRows('search-domain-aliases-input', 'domain-aliases-table-body');
+        } catch (e) {
+            console.error("Erro ao carregar aliases de domínio:", e);
+            tbody.innerHTML = `<tr><td colspan="5" class="text-danger font-monospace text-center py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar aliases de domínio: ${e.message}</td></tr>`;
+        }
+    }
+
+    function showCreateDomainAliasModal() {
+        loadDomains(); // Recarrega domínios para sugestão
+        document.getElementById('dom-alias-alias-input').value = '';
+        document.getElementById('dom-alias-target-input').value = '';
+        const modalEl = document.getElementById('createDomainAliasModal');
+        if (modalEl) (bootstrap.Modal.getInstance(modalEl) || bootstrap.Modal.getOrCreateInstance(modalEl)).show();
+    }
+
+    async function submitCreateDomainAlias() {
+        const alias_domain = document.getElementById('dom-alias-alias-input').value.trim();
+        const target_domain = document.getElementById('dom-alias-target-input').value.trim();
+
+        if (!alias_domain || !target_domain) {
+            showAlert('Preencha o Domínio Alias e o Domínio Destino.', 'danger');
+            return;
+        }
+
+        try {
+            const data = await fetchJson('/api/vmail/alias-domains', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ alias_domain, target_domain })
+            });
+            showAlert(data.message, 'success');
+            closeModal('createDomainAliasModal');
+            document.getElementById('dom-alias-alias-input').value = '';
+            document.getElementById('dom-alias-target-input').value = '';
+            loadDomainAliases();
+            loadAuditLogs();
+        } catch (e) {
+            showAlert(`Erro ao criar alias de domínio: ${e.message}`, 'danger');
+        }
+    }
+
+    async function toggleDomainAlias(rawDomain) {
+        const domain = decodeURIComponent(rawDomain);
+        try {
+            const data = await fetchJson(`/api/vmail/alias-domains/${encodeURIComponent(domain)}/toggle`, { method: 'POST' });
+            showAlert(data.message, 'success');
+            loadDomainAliases();
+            loadAuditLogs();
+        } catch (e) {
+            showAlert(`Erro ao alterar status: ${e.message}`, 'danger');
+        }
+    }
+
+    async function deleteDomainAlias(rawDomain) {
+        const domain = decodeURIComponent(rawDomain);
+        if (!confirm(`Remover o alias de domínio ${domain}?`)) return;
+        try {
+            const data = await fetchJson(`/api/vmail/alias-domains/${encodeURIComponent(domain)}`, { method: 'DELETE' });
+            showAlert(data.message, 'success');
+            loadDomainAliases();
+            loadAuditLogs();
+        } catch (e) {
+            showAlert(`Erro ao excluir alias de domínio: ${e.message}`, 'danger');
         }
     }
 
@@ -3441,6 +3735,7 @@
             document.getElementById('dom-name-input').value = '';
             document.getElementById('dom-desc-input').value = '';
             loadDomains();
+            loadDomainAliases();
             loadAuditLogs();
         } catch (e) {
             showAlert(`Erro ao criar domínio: ${e.message}`, 'danger');
@@ -3453,6 +3748,7 @@
             const data = await fetchJson(`/api/vmail/domains/${dom}`, { method: 'DELETE' });
             showAlert(data.message, 'success');
             loadDomains();
+            loadDomainAliases();
             loadMailboxes();
             loadAliases();
             loadAuditLogs();
@@ -3505,17 +3801,82 @@
                             <td class="font-monospace text-primary small">${escapeHtml(m.maildir)}</td>
                             <td>${usageHtml}</td>
                             <td class="fw-semibold text-secondary small">${escapeHtml(m.domain)}</td>
-                            <td>
-                                <button class="btn btn-sm btn-outline-danger p-1 border-0" onclick="deleteMailbox('${encodeURIComponent(m.username)}')" title="Excluir"><i class="bi bi-trash"></i></button>
+                            <td class="text-end pe-3">
+                                <div class="d-inline-flex align-items-center gap-1">
+                                    <button class="btn btn-sm btn-outline-warning p-1 border-0" onclick="showResetPasswordModal('${encodeURIComponent(m.username)}')" title="Redefinir Senha"><i class="bi bi-key-fill"></i></button>
+                                    <button class="btn btn-sm btn-outline-danger p-1 border-0 btn-delete-rbac" onclick="deleteMailbox('${encodeURIComponent(m.username)}')" title="Excluir"><i class="bi bi-trash"></i></button>
+                                </div>
                             </td>
                         </tr>
                     `;
                 }).join('');
                 filterTableRows('search-mailboxes-input', 'mailboxes-table-body');
+                applyRbacPermissions();
             }
         } catch (e) {
             console.error("Erro ao carregar caixas postais:", e);
             tbody.innerHTML = `<tr><td colspan="6" class="text-danger font-monospace text-center py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar caixas postais: ${e.message}</td></tr>`;
+        }
+    }
+
+    function showResetPasswordModal(rawEmail) {
+        const email = decodeURIComponent(rawEmail);
+        document.getElementById('reset-mb-email-input').value = email;
+        document.getElementById('reset-mb-pass-input').value = '';
+        document.getElementById('reset-mb-pass-input').type = 'password';
+        const icon = document.getElementById('reset-pass-toggle-icon');
+        if (icon) icon.className = 'bi bi-eye';
+        const modalEl = document.getElementById('resetPasswordModal');
+        if (modalEl) (bootstrap.Modal.getInstance(modalEl) || bootstrap.Modal.getOrCreateInstance(modalEl)).show();
+    }
+
+    function generateMailboxRandomPassword() {
+        const chars = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*';
+        let pass = '';
+        for (let i = 0; i < 16; i++) {
+            pass += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        const input = document.getElementById('reset-mb-pass-input');
+        input.value = pass;
+        input.type = 'text';
+        const icon = document.getElementById('reset-pass-toggle-icon');
+        if (icon) icon.className = 'bi bi-eye-slash';
+    }
+
+    function toggleResetPassVisibility() {
+        const input = document.getElementById('reset-mb-pass-input');
+        const icon = document.getElementById('reset-pass-toggle-icon');
+        if (input.type === 'password') {
+            input.type = 'text';
+            if (icon) icon.className = 'bi bi-eye-slash';
+        } else {
+            input.type = 'password';
+            if (icon) icon.className = 'bi bi-eye';
+        }
+    }
+
+    async function submitResetPassword() {
+        const email = document.getElementById('reset-mb-email-input').value.trim();
+        const password = document.getElementById('reset-mb-pass-input').value;
+        const scheme = document.getElementById('reset-mb-scheme-select').value;
+
+        if (!password) {
+            showAlert('Informe a nova senha para a caixa postal.', 'danger');
+            return;
+        }
+
+        try {
+            const data = await fetchJson(`/api/vmail/mailboxes/${encodeURIComponent(email)}/password`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password, scheme })
+            });
+            showAlert(data.message || `Senha da caixa postal ${email} redefinida com sucesso!`, 'success');
+            closeModal('resetPasswordModal');
+            document.getElementById('reset-mb-pass-input').value = '';
+            loadAuditLogs();
+        } catch (e) {
+            showAlert(`Erro ao redefinir senha: ${e.message}`, 'danger');
         }
     }
 

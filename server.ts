@@ -103,6 +103,10 @@ async function startServer() {
     { address: "sac@loja-online.com", goto: "suporte@empresa.com.br", domain: "loja-online.com", active: true, created: "2026-03-11 11:00:00" }
   ];
 
+  let virtualDomainAliases = [
+    { alias_domain: "zrti.tech", target_domain: "zrti.com.br", active: true, created: "2026-02-01 14:30:00" }
+  ];
+
   let virtualQueue = [
     { queue_id: "4YtZ8b3K", size: 3412, date: "Tue Aug 9 10:20:00", sender: "marketing@spammerdomain.net", recipients: ["diretoria@empresa.com.br"], reason: "Connection timed out with mailserver.spammerdomain.net[198.51.100.42]" },
     { queue_id: "9A1X0c9P", size: 8192, date: "Tue Aug 9 10:35:12", sender: "boleto-falso@bancofake.com", recipients: ["financeiro@empresa.com.br"], reason: "451 4.3.0 <financeiro@empresa.com.br>: Temporary lookup failure" }
@@ -553,8 +557,58 @@ blacklist_from *@spammerdomain.net
     virtualDomains = virtualDomains.filter(d => d.domain !== req.params.domain);
     virtualMailboxes = virtualMailboxes.filter(m => m.domain !== req.params.domain);
     virtualAliases = virtualAliases.filter(a => a.domain !== req.params.domain);
+    virtualDomainAliases = virtualDomainAliases.filter(ad => ad.target_domain !== req.params.domain && ad.alias_domain !== req.params.domain);
     addAuditLog("DOMAIN_DELETE", req.params.domain, {}, "critical", req);
     res.json({ success: true, message: `Domínio e registros associados excluídos com sucesso!` });
+  });
+
+  // Domain Aliases Endpoints
+  app.get(["/api/vmail/alias-domains", "/api/vmail/domain-aliases"], (req, res) => {
+    res.json({ success: true, alias_domains: virtualDomainAliases, data: virtualDomainAliases });
+  });
+
+  app.post(["/api/vmail/alias-domains", "/api/vmail/domain-aliases"], (req, res) => {
+    const { alias_domain, target_domain } = req.body || {};
+    if (!alias_domain || !target_domain) {
+      return res.status(400).json({ success: false, message: "Domínio alias e domínio de destino são obrigatórios." });
+    }
+    const cleanAlias = alias_domain.toLowerCase().trim();
+    const cleanTarget = target_domain.toLowerCase().trim();
+    if (cleanAlias === cleanTarget) {
+      return res.status(400).json({ success: false, message: "O domínio alias não pode ser idêntico ao destino." });
+    }
+    const targetExists = virtualDomains.some(d => d.domain.toLowerCase() === cleanTarget);
+    if (!targetExists) {
+      return res.status(400).json({ success: false, message: `Domínio de destino ${cleanTarget} não está cadastrado.` });
+    }
+    if (virtualDomainAliases.some(ad => ad.alias_domain.toLowerCase() === cleanAlias)) {
+      return res.status(400).json({ success: false, message: `Alias de domínio ${cleanAlias} já existe.` });
+    }
+    const newAD = {
+      alias_domain: cleanAlias,
+      target_domain: cleanTarget,
+      active: true,
+      created: new Date().toISOString().replace("T", " ").substring(0, 19)
+    };
+    virtualDomainAliases.unshift(newAD);
+    addAuditLog("DOMAIN_ALIAS_CREATE", cleanAlias, { target_domain: cleanTarget }, "normal", req);
+    res.json({ success: true, message: `Alias de domínio ${cleanAlias} -> ${cleanTarget} criado com sucesso!`, alias_domain: newAD });
+  });
+
+  app.all(["/api/vmail/alias-domains/:domain/toggle", "/api/vmail/domain-aliases/:domain/toggle"], (req, res) => {
+    const domain = decodeURIComponent(req.params.domain).toLowerCase();
+    const ad = virtualDomainAliases.find(a => a.alias_domain.toLowerCase() === domain);
+    if (!ad) return res.status(404).json({ success: false, message: "Alias de domínio não encontrado." });
+    ad.active = !ad.active;
+    addAuditLog("DOMAIN_ALIAS_TOGGLE", domain, { active: ad.active }, "normal", req);
+    res.json({ success: true, message: `Alias de domínio ${domain} ${ad.active ? 'ativado' : 'desativado'} com sucesso!` });
+  });
+
+  app.delete(["/api/vmail/alias-domains/:domain", "/api/vmail/domain-aliases/:domain"], (req, res) => {
+    const domain = decodeURIComponent(req.params.domain).toLowerCase();
+    virtualDomainAliases = virtualDomainAliases.filter(a => a.alias_domain.toLowerCase() !== domain);
+    addAuditLog("DOMAIN_ALIAS_DELETE", domain, {}, "normal", req);
+    res.json({ success: true, message: `Alias de domínio ${domain} excluído com sucesso!` });
   });
 
   app.get("/api/vmail/mailboxes", (req, res) => {
@@ -623,6 +677,23 @@ blacklist_from *@spammerdomain.net
     mb.quota = parseInt(quota) || 1024;
     addAuditLog("MAILBOX_QUOTA_UPDATE", email, { quota: mb.quota }, "normal", req);
     res.json({ success: true, message: `Cota de ${email} atualizada para ${mb.quota} MB.` });
+  });
+
+  app.all(["/api/vmail/mailboxes/:email/password", "/api/vmail/mailboxes/:email/reset-password"], (req, res) => {
+    if (req.method === "GET") {
+      return res.json({ success: true, email: req.params.email });
+    }
+    const email = decodeURIComponent(req.params.email);
+    const { password, scheme } = req.body || {};
+    if (!password) {
+      return res.status(400).json({ success: false, message: "A nova senha é obrigatória." });
+    }
+    const mb = virtualMailboxes.find(m => m.username.toLowerCase() === email.toLowerCase());
+    if (!mb) {
+      return res.status(404).json({ success: false, message: "Caixa postal não encontrada." });
+    }
+    addAuditLog("MAILBOX_PASSWORD_RESET", email, { scheme: scheme || "SSHA512" }, "suspicious", req);
+    res.json({ success: true, message: `Senha da caixa postal ${email} redefinida com sucesso!` });
   });
 
   app.delete("/api/vmail/mailboxes/:email", (req, res) => {
