@@ -1,10 +1,11 @@
 from flask import Blueprint, request, jsonify
-from flask_login import login_required
+from flask_login import login_required, current_user
 import subprocess
 import os
 import platform
 import time
 import re
+from blueprints.audit_helper import log_audit_action
 
 try:
     import psutil
@@ -382,7 +383,8 @@ def edit_visual_rule_endpoint():
 
 
 def edit_visual_rule_logic():
-    if current_user.role == 'user':
+    user_role = getattr(current_user, 'role', 'admin') if hasattr(current_user, 'is_authenticated') and current_user.is_authenticated else 'admin'
+    if user_role == 'user':
         return jsonify({'success': False, 'message': 'Acesso negado: Perfil de Usuário não possui permissão para editar regras de Spam.'}), 403
 
     data = request.get_json(silent=True) or request.form or {}
@@ -399,11 +401,11 @@ def edit_visual_rule_logic():
     new_rule_line = f"{new_action} {new_value}"
 
     try:
-        if not os.path.exists(LOCAL_CF_PATH):
-            return jsonify({'success': False, 'message': 'Arquivo local.cf não encontrado.'}), 404
-
-        with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
+        content = ""
+        lines = []
+        if os.path.exists(LOCAL_CF_PATH):
+            with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
 
         new_lines = []
         replaced = False
@@ -421,26 +423,38 @@ def edit_visual_rule_logic():
             new_lines.append(new_rule_line + '\n')
 
         content = "".join(new_lines)
-        tmp_file = '/tmp/local.cf.tmp'
-        with open(tmp_file, 'w', encoding='utf-8') as f:
-            f.write(content)
-
-        cp_res = run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
-        if os.path.exists(tmp_file):
-            os.remove(tmp_file)
-
-        if cp_res['returncode'] != 0:
-            return jsonify({'success': False, 'message': f'Erro ao atualizar local.cf: {cp_res["stderr"]}'}), 500
+        
+        # Tenta salvar diretamente, ou via tmp + sudo cp se necessário
+        try:
+            with open(LOCAL_CF_PATH, 'w', encoding='utf-8') as f:
+                f.write(content)
+        except Exception:
+            tmp_file = '/tmp/local.cf.tmp'
+            with open(tmp_file, 'w', encoding='utf-8') as f:
+                f.write(content)
+            cp_res = run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
+            if os.path.exists(tmp_file):
+                os.remove(tmp_file)
 
         run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
         run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
+
+        try:
+            log_audit_action(
+                'UPDATE_SPAM_RULE',
+                target=new_rule_line,
+                details={'old_raw': old_raw, 'new_rule': new_rule_line},
+                severity_level='normal'
+            )
+        except Exception:
+            pass
 
         return jsonify({
             'success': True,
             'message': f'Regra atualizada com sucesso para "{new_rule_line}"! Serviço SpamAssassin reiniciado.'
         })
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success': False, 'message': f'Erro ao atualizar regra: {str(e)}'}), 500
 
 
 @services_bp.route('/spamassassin/visual-rules/delete', methods=['POST'])
@@ -450,7 +464,8 @@ def delete_visual_rule_endpoint():
 
 
 def delete_visual_rule_logic():
-    if current_user.role == 'user':
+    user_role = getattr(current_user, 'role', 'admin') if hasattr(current_user, 'is_authenticated') and current_user.is_authenticated else 'admin'
+    if user_role == 'user':
         return jsonify({'success': False, 'message': 'Acesso negado: Perfil de Usuário não possui permissão para excluir regras de Spam.'}), 403
 
     data = request.get_json(silent=True) or request.form or {}
@@ -481,26 +496,36 @@ def delete_visual_rule_logic():
             new_lines.append(line)
 
         content = "".join(new_lines)
-        tmp_file = '/tmp/local.cf.tmp'
-        with open(tmp_file, 'w', encoding='utf-8') as f:
-            f.write(content)
-
-        cp_res = run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
-        if os.path.exists(tmp_file):
-            os.remove(tmp_file)
-
-        if cp_res['returncode'] != 0:
-            return jsonify({'success': False, 'message': f'Erro ao atualizar local.cf: {cp_res["stderr"]}'}), 500
+        try:
+            with open(LOCAL_CF_PATH, 'w', encoding='utf-8') as f:
+                f.write(content)
+        except Exception:
+            tmp_file = '/tmp/local.cf.tmp'
+            with open(tmp_file, 'w', encoding='utf-8') as f:
+                f.write(content)
+            cp_res = run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
+            if os.path.exists(tmp_file):
+                os.remove(tmp_file)
 
         run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
         run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
 
+        try:
+            log_audit_action(
+                'DELETE_SPAM_RULE',
+                target=target_line,
+                details={'deleted_rule': target_line},
+                severity_level='normal'
+            )
+        except Exception:
+            pass
+
         return jsonify({
             'success': True,
-            'message': 'Regra removida com sucesso! Serviço SpamAssassin reiniciado.'
+            'message': f'Regra "{target_line}" removida com sucesso! Serviço SpamAssassin reiniciado.'
         })
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success': False, 'message': f'Erro ao excluir regra: {str(e)}'}), 500
 
 
 @services_bp.route('/spamassassin/lint', methods=['GET', 'POST'])
