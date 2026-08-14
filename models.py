@@ -197,18 +197,30 @@ class SystemAuditLog(db.Model):
     def get_severity_level(self):
         try:
             val = getattr(self, 'severity_level', None)
-            if val:
+            if val and val in ['critical', 'potential', 'suspicious']:
                 return val
         except Exception:
             pass
-        act = (self.action or '').upper()
-        if any(k in act for k in ['FAIL', 'DELETE', 'DROP', 'ATTACK', 'CRITICAL', 'RESTART', 'DISABLE']):
+
+        # Verificar se há indicativos de erro/falha nos detalhes ou na ação
+        details_upper = (self.details_json or '').upper()
+        act_upper = (self.action or '').upper()
+        error_keywords = [
+            'ERRO', 'ERROR', 'ACCESS DENIED', 'EXCEPTION', 'FAILED', 'FALHA',
+            'FATAL', '1045', 'REFUSED', 'DENIED', 'FAIL', '1142'
+        ]
+
+        if any(k in details_upper for k in error_keywords) or any(k in act_upper for k in ['FAIL', 'FATAL', 'ERROR', 'ERRO', 'EXCEPTION']):
             return 'critical'
-        elif any(k in act for k in ['BLOCK', 'SPAM', 'POTENTIAL', 'PASSWORD', 'CONFIG', 'SOAR']):
+
+        if any(k in act_upper for k in ['DELETE', 'DROP', 'ATTACK', 'CRITICAL', 'RESTART', 'DISABLE']):
+            return 'critical'
+        elif any(k in act_upper for k in ['BLOCK', 'SPAM', 'POTENTIAL', 'PASSWORD', 'CONFIG', 'SOAR']):
             return 'potential'
-        elif any(k in act for k in ['TOGGLE', 'SUSPICIOUS', 'WHITELIST', 'EDIT', 'RULE']):
+        elif any(k in act_upper for k in ['TOGGLE', 'SUSPICIOUS', 'WHITELIST', 'EDIT', 'RULE']):
             return 'suspicious'
-        return 'normal'
+
+        return getattr(self, 'severity_level', None) or 'normal'
 
     def to_dict(self):
         return {

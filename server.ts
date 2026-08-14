@@ -11,7 +11,7 @@ async function startServer() {
 
   app.use(express.json());
 
-  // Initialize SQLite Database for Persistent Audit Logging
+  // Initialize SQLite Database for Persistent Audit Logging and Mail Log History
   const dbPath = path.join(process.cwd(), "vmail.sqlite");
   const sqliteDb = new DatabaseSync(dbPath);
 
@@ -25,8 +25,45 @@ async function startServer() {
       ip_address TEXT DEFAULT '127.0.0.1',
       severity_level TEXT DEFAULT 'normal',
       details_json TEXT DEFAULT '{}'
-    )
+    );
+
+    CREATE TABLE IF NOT EXISTS mail_logs_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT NOT NULL,
+      queue_id TEXT DEFAULT '-',
+      sender TEXT DEFAULT '-',
+      recipient TEXT DEFAULT '-',
+      client_ip TEXT DEFAULT '-',
+      status TEXT DEFAULT 'Sent',
+      message TEXT,
+      created_at TEXT
+    );
   `);
+
+  // Seed sample records into mail_logs_history if empty
+  try {
+    const mlCount = (sqliteDb.prepare("SELECT COUNT(*) as c FROM mail_logs_history").get() as any)?.c || 0;
+    if (mlCount === 0) {
+      const seedStmt = sqliteDb.prepare(`
+        INSERT INTO mail_logs_history (timestamp, queue_id, sender, recipient, client_ip, status, message, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const nowIso = new Date().toISOString().substring(0, 10);
+      const seedLogs = [
+        [ `${nowIso} 08:30:00`, "NOQUEUE", "-", "-", "198.51.100.77", "Rejected", `${nowIso} 08:30:00 mailserver postfix/smtpd[13110]: NOQUEUE: reject: RCPT from unknown[198.51.100.77]: 554 5.7.1 <test@external.org>: Relay access denied;`, `${nowIso} 08:30:00` ],
+        [ `${nowIso} 09:45:12`, "NOQUEUE", "-", "-", "185.220.101.5", "AuthFail", `${nowIso} 09:45:12 mailserver postfix/smtpd[14201]: warning: unknown[185.220.101.5]: SASL LOGIN authentication failed: U3Vwb3J0ZQ==`, `${nowIso} 09:45:12` ],
+        [ `${nowIso} 10:14:02`, "4YtZ8b3K", "usuario@empresa.com.br", "destino@cliente.com.br", "198.51.100.12", "Sent", `${nowIso} 10:14:04 mailserver amavis[1204]: (4YtZ8b3K) Passed CLEAN {RelayedInbound}, [198.51.100.12] <usuario@empresa.com.br> -> <destino@cliente.com.br>, Hits: -0.100`, `${nowIso} 10:14:04` ],
+        [ `${nowIso} 10:14:05`, "4YtZ8b3K", "usuario@empresa.com.br", "destino@cliente.com.br", "198.51.100.12", "Sent", `${nowIso} 10:14:05 mailserver postfix/lmtp[14220]: 4YtZ8b3K: to=<destino@cliente.com.br>, relay=127.0.0.1[127.0.0.1]:24, delay=2.1, dsn=2.0.0, status=sent (250 2.0.0 OK saved_to_mailbox)`, `${nowIso} 10:14:05` ],
+        [ `${nowIso} 11:20:10`, "NOQUEUE", "-", "-", "185.220.101.5", "Info", `${nowIso} 11:20:10 mailserver postfix/smtpd[14500]: warning: improper command pipelining after HELO from unknown[185.220.101.5]`, `${nowIso} 11:20:10` ],
+        [ `${nowIso} 11:25:00`, "NOQUEUE", "-", "-", "192.168.1.50", "AuthFail", `${nowIso} 11:25:00 mailserver dovecot: auth-worker(14550): password mismatch for user user1@domain.com from 192.168.1.50`, `${nowIso} 11:25:00` ]
+      ];
+      for (const row of seedLogs) {
+        seedStmt.run(...row);
+      }
+    }
+  } catch (seedErr) {
+    console.error("Erro ao popular tabela mail_logs_history:", seedErr);
+  }
 
   // Virtual Database for Preview Mode (vmail MariaDB simulation)
   let sessionUser = "admin";
@@ -192,12 +229,20 @@ async function startServer() {
     const timestampStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
     const detailsStr = JSON.stringify(details || {});
 
+    // Auto-detectar severidade crítica se detalhes ou ação contiverem erro/falha
+    let finalSeverity = severityLevel || 'normal';
+    const combinedUpper = `${action} ${target || ''} ${detailsStr}`.toUpperCase();
+    const errorKeywords = ['ERRO', 'ERROR', 'ACCESS DENIED', 'EXCEPTION', 'FAILED', 'FALHA', 'FATAL', '1045', '1142', 'FAIL'];
+    if (finalSeverity === 'normal' && errorKeywords.some(k => combinedUpper.includes(k))) {
+      finalSeverity = 'critical';
+    }
+
     try {
       const stmt = sqliteDb.prepare(`
         INSERT INTO system_audit_logs (timestamp, admin_user, action, target, ip_address, severity_level, details_json)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `);
-      stmt.run(timestampStr, username, action, target || "-", reqIp, severityLevel, detailsStr);
+      stmt.run(timestampStr, username, action, target || "-", reqIp, finalSeverity, detailsStr);
     } catch (err) {
       console.error("Erro ao inserir log de auditoria no SQLite:", err);
     }
@@ -211,7 +256,7 @@ async function startServer() {
       ip_address: reqIp,
       details: details,
       details_json: detailsStr,
-      severity_level: severityLevel,
+      severity_level: finalSeverity,
       created_at: timestampStr,
       timestamp: timestampStr
     };
@@ -720,23 +765,47 @@ blacklist_from *@spammerdomain.net
     const sendAddr = (fromCond && fromCond.op !== "!=") ? fromCond.val : "usuario@empresa.com.br";
     const recvAddr = (toCond && toCond.op !== "!=") ? toCond.val : "destino@cliente.com.br";
 
-    const mockLines = [
-      `${date} 10:14:02 mailserver postfix/smtpd[14201]: connect from mail-out.parceiro.com.br[198.51.100.12]`,
-      `${date} 10:14:02 mailserver postfix/smtpd[14201]: 4YtZ8b3K: client=mail-out.parceiro.com.br[198.51.100.12]`,
-      `${date} 10:14:03 mailserver postfix/cleanup[14205]: 4YtZ8b3K: message-id=<202608091014.4YtZ8b3K@parceiro.com.br>`,
-      `${date} 10:14:03 mailserver postfix/qmgr[1820]: 4YtZ8b3K: from=<${sendAddr}>, size=2849, nrcpt=1 (queue active)`,
-      `${date} 10:14:04 mailserver amavis[1204]: (4YtZ8b3K) Passed CLEAN {RelayedInbound}, [198.51.100.12] <${sendAddr}> -> <${recvAddr}>, Hits: -0.100`,
-      `${date} 10:14:05 mailserver postfix/lmtp[14220]: 4YtZ8b3K: to=<${recvAddr}>, relay=127.0.0.1[127.0.0.1]:24, delay=2.1, dsn=2.0.0, status=sent (250 2.0.0 OK saved_to_mailbox)`,
-      `${date} 10:14:05 mailserver dovecot: lda(${recvAddr}): msgid=<202608091014.4YtZ8b3K@parceiro.com.br>: saved mail to INBOX`,
-      `${date} 10:14:05 mailserver postfix/qmgr[1820]: 4YtZ8b3K: removed`,
-      `${date} 11:20:10 mailserver postfix/smtpd[14500]: warning: improper command pipelining after HELO from unknown[185.220.101.5]`,
-      `${date} 11:20:11 mailserver postfix/smtpd[14500]: disconnect from unknown[185.220.101.5] ehlo=1 commands=1`,
-      `${date} 11:25:00 mailserver dovecot: auth-worker(14550): password mismatch for user user1@domain.com from 192.168.1.50`,
-      `${date} 11:25:01 mailserver postfix/smtpd[14560]: warning: SASL authentication failure: Password verification failed`
-    ];
+    // 1. Consulta primária na tabela SQLite mail_logs_history (Log-to-DB)
+    let sourceLines: string[] = [];
+    try {
+      const rows = sqliteDb.prepare("SELECT * FROM mail_logs_history ORDER BY id ASC").all() as Array<any>;
+      if (rows && rows.length > 0) {
+        for (const r of rows) {
+          if (r.message && r.message.trim().length > 0) {
+            const msgClean = r.message.trim();
+            if (/^[A-Z][a-z]{2}\s+\d+|\d{4}-\d{2}-\d{2}/.test(msgClean)) {
+              sourceLines.push(msgClean);
+            } else {
+              sourceLines.push(`${r.timestamp || date + ' 10:00:00'} mailserver postfix/smtpd[${r.queue_id || '1001'}]: ${r.queue_id ? r.queue_id + ': ' : ''}${msgClean}`);
+            }
+          } else {
+            sourceLines.push(`${r.timestamp || date + ' 10:00:00'} mailserver postfix/qmgr[${r.queue_id || '1001'}]: ${r.queue_id || 'NOQUEUE'}: from=<${r.sender || ''}>, to=<${r.recipient || ''}>, status=${r.status || 'Sent'}`);
+          }
+        }
+      }
+    } catch (dbErr) {
+      console.error("Erro ao consultar mail_logs_history no SQLite:", dbErr);
+    }
+
+    if (sourceLines.length === 0) {
+      sourceLines = [
+        `${date} 10:14:02 mailserver postfix/smtpd[14201]: connect from mail-out.parceiro.com.br[198.51.100.12]`,
+        `${date} 10:14:02 mailserver postfix/smtpd[14201]: 4YtZ8b3K: client=mail-out.parceiro.com.br[198.51.100.12]`,
+        `${date} 10:14:03 mailserver postfix/cleanup[14205]: 4YtZ8b3K: message-id=<202608091014.4YtZ8b3K@parceiro.com.br>`,
+        `${date} 10:14:03 mailserver postfix/qmgr[1820]: 4YtZ8b3K: from=<${sendAddr}>, size=2849, nrcpt=1 (queue active)`,
+        `${date} 10:14:04 mailserver amavis[1204]: (4YtZ8b3K) Passed CLEAN {RelayedInbound}, [198.51.100.12] <${sendAddr}> -> <${recvAddr}>, Hits: -0.100`,
+        `${date} 10:14:05 mailserver postfix/lmtp[14220]: 4YtZ8b3K: to=<${recvAddr}>, relay=127.0.0.1[127.0.0.1]:24, delay=2.1, dsn=2.0.0, status=sent (250 2.0.0 OK saved_to_mailbox)`,
+        `${date} 10:14:05 mailserver dovecot: lda(${recvAddr}): msgid=<202608091014.4YtZ8b3K@parceiro.com.br>: saved mail to INBOX`,
+        `${date} 10:14:05 mailserver postfix/qmgr[1820]: 4YtZ8b3K: removed`,
+        `${date} 11:20:10 mailserver postfix/smtpd[14500]: warning: improper command pipelining after HELO from unknown[185.220.101.5]`,
+        `${date} 11:20:11 mailserver postfix/smtpd[14500]: disconnect from unknown[185.220.101.5] ehlo=1 commands=1`,
+        `${date} 11:25:00 mailserver dovecot: auth-worker(14550): password mismatch for user user1@domain.com from 192.168.1.50`,
+        `${date} 11:25:01 mailserver postfix/smtpd[14560]: warning: SASL authentication failure: Password verification failed`
+      ];
+    }
 
     // Filter by time window
-    const timeFiltered = mockLines.filter(line => {
+    const timeFiltered = sourceLines.filter(line => {
       const match = line.match(/(?:[T\s])?(\d{2}:\d{2})/);
       if (match) {
         const t = match[1];
@@ -1391,6 +1460,28 @@ blacklist_from *@spammerdomain.net
 
     virtualIncidents.unshift(newIncident);
 
+    // Inserir batch no mail_logs_history (SQLite simulando MariaDB)
+    try {
+      const insStmt = sqliteDb.prepare(`
+        INSERT INTO mail_logs_history (timestamp, queue_id, sender, recipient, client_ip, status, message, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      insStmt.run(
+        nowStr,
+        selectedInc.severity_code === 'critical' ? 'NOQUEUE' : `${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+        `usuario${Math.floor(Math.random()*100)}@empresa.com.br`,
+        `cliente${Math.floor(Math.random()*100)}@externo.com`,
+        attackIp,
+        selectedInc.severity_code === 'critical' ? 'AuthFail' : (selectedInc.severity_code === 'potential' ? 'Rejected' : 'Spam'),
+        selectedInc.raw_logs,
+        nowStr
+      );
+      const totalInDb = (sqliteDb.prepare("SELECT COUNT(*) as c FROM mail_logs_history").get() as any)?.c || 0;
+      virtualMailLogCount = Math.max(virtualMailLogCount, totalInDb);
+    } catch (dbErr) {
+      console.error("Erro ao inserir log na tabela mail_logs_history:", dbErr);
+    }
+
     addAuditLog(
       "MAILLOG_INGEST",
       "Importação MailLog MariaDB",
@@ -1400,14 +1491,15 @@ blacklist_from *@spammerdomain.net
         new_incident_detected: selectedInc.title,
         incident_id: newIncident.id
       },
-      "normal"
+      "normal",
+      req
     );
 
     res.json({
       success: true,
       total_records: virtualMailLogCount,
-      message: `Ingestão de MailLog executada com sucesso! ${newBatch} novos registros gravados. Incidente #${newIncident.id} ("${selectedInc.title}") gerado.`,
-      output: `[${nowStr}] ${newBatch} linhas lidas de /var/log/mail.log -> ${virtualMailLogCount} total de registros inseridos no MariaDB.`
+      message: `Ingestão de MailLog executada com sucesso! ${newBatch} novos registros gravados no banco de dados e arquivo /var/log/mail.log esvaziado. Incidente #${newIncident.id} ("${selectedInc.title}") gerado.`,
+      output: `[${nowStr}] ${newBatch} linhas lidas de /var/log/mail.log -> ${virtualMailLogCount} total de registros inseridos no MariaDB.\nArquivo /var/log/mail.log truncado com sucesso.`
     });
   });
 

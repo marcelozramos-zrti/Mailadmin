@@ -34,6 +34,29 @@ def get_db_connection():
         cursorclass=pymysql.cursors.DictCursor
     )
 
+def ensure_table_exists(conn):
+    """Cria a tabela mail_logs_history no MariaDB caso ela ainda não exista."""
+    create_sql = """
+    CREATE TABLE IF NOT EXISTS mail_logs_history (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        timestamp DATETIME NOT NULL,
+        queue_id VARCHAR(50) NULL,
+        sender VARCHAR(255) NULL,
+        recipient VARCHAR(255) NULL,
+        client_ip VARCHAR(45) NULL,
+        status VARCHAR(50) NULL,
+        message TEXT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_mlh_timestamp (timestamp),
+        INDEX idx_mlh_queue_id (queue_id),
+        INDEX idx_mlh_sender (sender),
+        INDEX idx_mlh_recipient (recipient),
+        INDEX idx_mlh_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(create_sql)
+
 def parse_syslog_timestamp(line):
     """
     Extrai e converte timestamp do formato syslog (ex: 'Aug 11 15:30:10') ou ISO para datetime.
@@ -70,7 +93,7 @@ def classify_status(line):
         return 'Spam'
     elif 'reject:' in line_lower or 'status=rejected' in line_lower or '554 5.7.1' in line_lower or 'access denied' in line_lower or 'blocked' in line_lower:
         return 'Rejected'
-    elif 'sasl authentication failed' in line_lower:
+    elif 'sasl authentication failed' in line_lower or 'password mismatch' in line_lower:
         return 'AuthFail'
     return 'Info'
 
@@ -94,7 +117,7 @@ def extract_log_fields(line):
     client_ip = ip_m.group(1) if ip_m else None
 
     status = classify_status(line)
-    message = line[:500] # Limita tamanho da mensagem
+    message = line[:1000] # Limita tamanho da mensagem preservando detalhes
 
     return {
         'timestamp': timestamp,
@@ -106,70 +129,70 @@ def extract_log_fields(line):
         'message': message
     }
 
-def run_ingestion(log_path=DEFAULT_LOG_PATH):
+def run_ingestion(log_path=DEFAULT_LOG_PATH, truncate_on_success=True):
     if not os.path.exists(log_path):
-        print(f"Log file {log_path} not found.")
+        print(f"Arquivo de log {log_path} não encontrado no sistema.")
         return 0
-
-    offset = 0
-    if os.path.exists(OFFSET_FILE):
-        try:
-            with open(OFFSET_FILE, 'r') as f:
-                offset = int(f.read().strip())
-        except Exception:
-            offset = 0
-
-    file_size = os.path.getsize(log_path)
-    if file_size < offset:
-        # Arquivo foi rotacionado
-        offset = 0
 
     lines_processed = 0
     records_inserted = 0
 
     try:
         conn = get_db_connection()
+        ensure_table_exists(conn)
+
+        with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+            all_lines = f.readlines()
+
+        if not all_lines:
+            print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] O arquivo {log_path} já está vazio. Nenhum novo registro para importar.")
+            conn.close()
+            return 0
+
         with conn.cursor() as cursor:
-            with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
-                f.seek(offset)
-                new_lines = f.readlines()
-                new_offset = f.tell()
+            for line in all_lines:
+                line_clean = line.strip()
+                if not line_clean:
+                    continue
+                lines_processed += 1
 
-                for line in new_lines:
-                    line_clean = line.strip()
-                    if not line_clean:
-                        continue
-                    lines_processed += 1
+                data = extract_log_fields(line_clean)
+                
+                sql = """
+                INSERT INTO mail_logs_history (timestamp, queue_id, sender, recipient, client_ip, status, message, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                """
+                cursor.execute(sql, (
+                    data['timestamp'].strftime('%Y-%m-%d %H:%M:%S'),
+                    data['queue_id'],
+                    data['sender'],
+                    data['recipient'],
+                    data['client_ip'],
+                    data['status'],
+                    data['message']
+                ))
+                records_inserted += 1
 
-                    data = extract_log_fields(line_clean)
-                    
-                    # Insere apenas se tiver pelo menos status relevante ou queue_id/sender/rcpt
-                    if data['queue_id'] or data['sender'] or data['recipient'] or data['status'] != 'Info':
-                        sql = """
-                        INSERT INTO mail_logs_history (timestamp, queue_id, sender, recipient, client_ip, status, message, created_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
-                        """
-                        cursor.execute(sql, (
-                            data['timestamp'].strftime('%Y-%m-%d %H:%M:%S'),
-                            data['queue_id'],
-                            data['sender'],
-                            data['recipient'],
-                            data['client_ip'],
-                            data['status'],
-                            data['message']
-                        ))
-                        records_inserted += 1
-
-            # Salva novo offset
-            with open(OFFSET_FILE, 'w') as f:
-                f.write(str(new_offset))
+        # Limpar / esvaziar o arquivo de log original após ingestão bem-sucedida no MariaDB
+        if truncate_on_success:
+            try:
+                with open(log_path, 'w') as f:
+                    f.truncate(0)
+                if os.path.exists(OFFSET_FILE):
+                    with open(OFFSET_FILE, 'w') as f:
+                        f.write('0')
+            except Exception as tr_err:
+                print(f"Aviso ao esvaziar arquivo {log_path}: {tr_err}")
 
         conn.close()
-        print(f"[{datetime.datetime.now()}] Ingestão de logs concluída: {lines_processed} linhas processadas, {records_inserted} registros inseridos.")
+        print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Ingestão concluída com sucesso: {lines_processed} linhas processadas, {records_inserted} registros gravados no MariaDB. Arquivo {log_path} esvaziado.")
         return records_inserted
+
     except Exception as e:
-        print(f"Erro na ingestão de logs: {e}")
-        return 0
+        err_msg = f"Erro na ingestão de logs: {e}"
+        print(err_msg, file=sys.stderr)
+        print(err_msg)
+        sys.exit(1)
 
 if __name__ == '__main__':
     run_ingestion()

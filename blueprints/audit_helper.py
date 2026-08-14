@@ -32,6 +32,16 @@ def log_audit_action(action_type, target=None, details=None, severity_level='nor
 
         now_dt = datetime.datetime.utcnow()
 
+        # Auto-detectar severidade crítica se detalhes ou ação contiverem erro/falha
+        final_severity = severity_level or 'normal'
+        combined_text = f"{action_type} {target or ''} {details_str}".upper()
+        error_keywords = [
+            'ERRO', 'ERROR', 'ACCESS DENIED', 'EXCEPTION', 'FAILED', 'FALHA',
+            'FATAL', '1045', 'REFUSED', 'DENIED', 'FAIL', '1142'
+        ]
+        if final_severity == 'normal' and any(k in combined_text for k in error_keywords):
+            final_severity = 'critical'
+
         # 1. Tenta persistir no MariaDB via SQLAlchemy
         try:
             audit_entry = SystemAuditLog(
@@ -41,7 +51,7 @@ def log_audit_action(action_type, target=None, details=None, severity_level='nor
                 target=str(target) if target is not None else None,
                 ip_address=ip_addr,
                 details_json=details_str,
-                severity_level=severity_level or 'normal'
+                severity_level=final_severity
             )
             db.session.add(audit_entry)
             db.session.commit()
@@ -60,7 +70,7 @@ def log_audit_action(action_type, target=None, details=None, severity_level='nor
                     target=str(target) if target is not None else None,
                     ip_address=ip_addr,
                     details_json=details_str,
-                    severity_level=severity_level or 'normal'
+                    severity_level=final_severity
                 )
                 db.session.add(audit_entry)
                 db.session.commit()
@@ -83,7 +93,7 @@ def log_audit_action(action_type, target=None, details=None, severity_level='nor
                     'ip_address': ip_addr,
                     'details_json': details_str,
                     'details': details_obj,
-                    'severity_level': severity_level or 'normal'
+                    'severity_level': final_severity
                 }
                 t_bp.MEMORY_AUDIT_LOGS.insert(0, new_mem_entry)
         except Exception:

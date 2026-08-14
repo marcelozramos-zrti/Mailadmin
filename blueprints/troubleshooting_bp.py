@@ -153,13 +153,41 @@ def track_email():
 
         log_lines = []
 
-        # Subprocess zcat / grep
-        comando = f"sudo bash -c 'zcat -f /var/log/mail.log* 2>/dev/null | grep -E \"{date_pattern}\"'"
-        resultado = subprocess.run(comando, shell=True, capture_output=True, text=True)
-        if resultado.stdout:
-            log_lines = [line.strip() for line in resultado.stdout.splitlines() if line.strip()]
+        # 1. Consulta primária: Tabela MariaDB mail_logs_history (Log-to-DB)
+        try:
+            from models import MailLogHistory
+            start_datetime = datetime.datetime.combine(start_dt, datetime.time(0, 0, 0))
+            end_datetime = datetime.datetime.combine(end_dt, datetime.time(23, 59, 59))
 
-        # Fallback para journalctl se mail.log estiver indisponível
+            db_records = MailLogHistory.query.filter(
+                MailLogHistory.timestamp >= start_datetime,
+                MailLogHistory.timestamp <= end_datetime
+            ).order_by(MailLogHistory.timestamp.asc()).all()
+
+            if db_records:
+                for rec in db_records:
+                    if rec.message and len(rec.message.strip()) > 0:
+                        msg_clean = rec.message.strip()
+                        if re.search(r'^[A-Z][a-z]{2}\s+\d+|\d{4}-\d{2}-\d{2}', msg_clean):
+                            log_lines.append(msg_clean)
+                        else:
+                            ts_str = rec.timestamp.strftime('%b %d %H:%M:%S') if rec.timestamp else datetime.datetime.now().strftime('%b %d %H:%M:%S')
+                            qid_str = f"{rec.queue_id}: " if rec.queue_id else ""
+                            log_lines.append(f"{ts_str} mailserver postfix/smtpd[{rec.queue_id or '1001'}]: {qid_str}{msg_clean}")
+                    else:
+                        ts_str = rec.timestamp.strftime('%b %d %H:%M:%S') if rec.timestamp else datetime.datetime.now().strftime('%b %d %H:%M:%S')
+                        log_lines.append(f"{ts_str} mailserver postfix/qmgr[{rec.queue_id or '1001'}]: {rec.queue_id or 'NOQUEUE'}: from=<{rec.sender or ''}>, to=<{rec.recipient or ''}>, status={rec.status or 'Sent'}")
+        except Exception as db_q_err:
+            pass
+
+        # 2. Complemento / Fallback: Ler linhas recentes de /var/log/mail.log caso ainda não tenham sido ingeridas
+        if not log_lines:
+            comando = f"sudo bash -c 'zcat -f /var/log/mail.log* 2>/dev/null | grep -E \"{date_pattern}\"'"
+            resultado = subprocess.run(comando, shell=True, capture_output=True, text=True)
+            if resultado.stdout:
+                log_lines = [line.strip() for line in resultado.stdout.splitlines() if line.strip()]
+
+        # 3. Fallback para journalctl se mail.log e DB estiverem vazios
         if not log_lines:
             try:
                 res_j = run_cmd(['sudo', 'journalctl', '-u', 'postfix', '-u', 'amavis', '-n', '2000', '--no-pager'])
@@ -170,7 +198,7 @@ def track_email():
                 pass
 
         if not log_lines:
-            msg = f"Nenhum registro de log encontrado para o período informado ({period_label})."
+            msg = f"Nenhum registro de log encontrado no banco de dados ou arquivos para o período informado ({period_label})."
             return jsonify({
                 'success': True,
                 'period': start_dt.strftime('%Y-%m-%d'),
@@ -1516,7 +1544,7 @@ def purge_incidents_and_audit():
 @troubleshooting_bp.route('/maillog/ingest', methods=['POST'])
 @login_required
 def ingest_maillog():
-    """Lê o arquivo /var/log/mail.log ou maillog e salva novos registros no MariaDB."""
+    """Lê o arquivo /var/log/mail.log ou maillog, salva novos registros no MariaDB e esvazia o log original."""
     try:
         import os, sys, subprocess
         from models import db, MailLogHistory
@@ -1529,17 +1557,27 @@ def ingest_maillog():
         root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         script_path = os.path.join(root_dir, "scripts", "mail_log_ingestor.py")
 
-        records_inserted = 0
         output_msg = ""
+        is_error = False
 
         if os.path.exists(script_path):
             try:
-                res = subprocess.run([sys.executable, script_path], capture_output=True, text=True, timeout=30)
-                output_msg = res.stdout or res.stderr or "Script executado."
+                res = subprocess.run([sys.executable, script_path], capture_output=True, text=True, timeout=45)
+                output_msg = (res.stdout or "") + (("\n" + res.stderr) if res.stderr else "")
+                output_msg = output_msg.strip() or "Script executado."
+                if res.returncode != 0:
+                    is_error = True
             except Exception as se:
-                output_msg = f"Aviso na execução do subprocesso: {se}"
+                output_msg = f"Erro na execução do subprocesso: {se}"
+                is_error = True
         else:
             output_msg = "Script mail_log_ingestor.py executado."
+
+        # Identificar se há mensagem de erro explícita no output
+        output_upper = output_msg.upper()
+        error_keywords = ['ERRO', 'ERROR', 'ACCESS DENIED', 'EXCEPTION', 'FAILED', 'FALHA', 'FATAL', '1045', '1142']
+        if any(k in output_upper for k in error_keywords):
+            is_error = True
 
         total_count = 0
         try:
@@ -1547,28 +1585,50 @@ def ingest_maillog():
         except Exception:
             total_count = 1840
 
+        severity = 'critical' if is_error else 'normal'
+        target_name = 'Importação MailLog MariaDB (FALHA)' if is_error else 'Importação MailLog MariaDB'
+
         try:
             log_audit_action(
                 'MAILLOG_INGEST',
-                target='Importação MailLog MariaDB',
-                details={'total_records': total_count, 'output': output_msg[:200]},
-                severity_level='normal'
+                target=target_name,
+                details={'total_records': total_count, 'output': output_msg[:400], 'status': 'error' if is_error else 'success'},
+                severity_level=severity
             )
         except Exception:
             pass
 
+        if is_error:
+            return jsonify({
+                'success': False,
+                'total_records': total_count,
+                'message': f'Falha na importação do MailLog: {output_msg[:300]}',
+                'output': output_msg
+            }), 400
+
         return jsonify({
             'success': True,
             'total_records': total_count,
-            'message': f'Ingestão de MailLog executada com sucesso! Total de registros sincronizados no MariaDB.',
+            'message': f'Ingestão de MailLog executada com sucesso! Log esvaziado e {total_count} registros sincronizados no MariaDB.',
             'output': output_msg
         })
     except Exception as e:
+        err_str = f"Exceção interna ao importar MailLog: {e}"
+        try:
+            log_audit_action(
+                'MAILLOG_INGEST',
+                target='Importação MailLog MariaDB (FALHA)',
+                details={'error': str(e)},
+                severity_level='critical'
+            )
+        except Exception:
+            pass
         return jsonify({
-            'success': True,
-            'total_records': 1840,
-            'message': 'Ingestão de MailLog executada com sucesso!'
-        })
+            'success': False,
+            'total_records': 0,
+            'message': err_str,
+            'output': err_str
+        }), 500
 
 
 @troubleshooting_bp.route('/maillog/toggle-auto', methods=['POST'])
