@@ -96,6 +96,17 @@ def toggle_domain(domain_name):
         domain.active = not domain.active
         db.session.commit()
         status_str = "ativado" if domain.active else "desativado"
+
+        try:
+            log_audit_action(
+                "DOMAIN_TOGGLE",
+                domain_name,
+                {"active": domain.active, "status": status_str},
+                "suspicious" if not domain.active else "normal"
+            )
+        except Exception:
+            pass
+
         return jsonify({'success': True, 'message': f'Domínio {domain_name} {status_str} com sucesso!'})
     except Exception as e:
         db.session.rollback()
@@ -249,6 +260,12 @@ def update_mailbox_quota(email):
         if new_quota is not None:
             mb.quota = int(new_quota)
             db.session.commit()
+
+            try:
+                log_audit_action("MAILBOX_QUOTA_UPDATE", email, {"quota": mb.quota}, "normal")
+            except Exception:
+                pass
+
             return jsonify({'success': True, 'message': f'Cota da caixa {email} alterada para {mb.quota} MB!'})
         return jsonify({'success': True, 'quota': mb.quota})
     except Exception as e:

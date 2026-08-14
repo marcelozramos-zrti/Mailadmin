@@ -237,6 +237,10 @@ def restart_service():
 
     res = run_cmd(['sudo', 'systemctl', 'restart', service])
     if res['returncode'] == 0:
+        try:
+            log_audit_action("SERVICE_RESTART", target=service, details={"service": service}, severity_level="suspicious")
+        except Exception:
+            pass
         return jsonify({'success': True, 'message': f'Serviço {service} reiniciado com sucesso!'})
     else:
         return jsonify({'success': False, 'message': f'Erro ao reiniciar: {res["stderr"] or res["stdout"]}'}), 500
@@ -261,6 +265,12 @@ def handle_rules():
                 os.remove(tmp_file)
 
             restart_res = run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
+
+            try:
+                log_audit_action("SPAM_RULES_RAW_UPDATE", target="/etc/spamassassin/local.cf", details={"length": len(content)}, severity_level="suspicious")
+            except Exception:
+                pass
+
             return jsonify({
                 'success': True,
                 'message': 'Regras salvas no local.cf e Amavis reiniciado com sucesso!'
@@ -361,6 +371,11 @@ def handle_visual_rules():
 
             run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
             run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
+
+            try:
+                log_audit_action("SPAM_RULE_CREATE", target=value, details={"action": action, "rule": new_rule_line}, severity_level="normal")
+            except Exception:
+                pass
 
             return jsonify({
                 'success': True,

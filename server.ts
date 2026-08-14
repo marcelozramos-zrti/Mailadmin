@@ -1017,11 +1017,13 @@ blacklist_from *@spammerdomain.net
   app.post("/api/troubleshooting/queue/delete", (req, res) => {
     const { queue_id } = req.body || {};
     virtualQueue = virtualQueue.filter(q => q.queue_id !== queue_id);
+    addAuditLog("QUEUE_DELETE_MESSAGE", queue_id || "-", { queue_id }, "normal", req);
     res.json({ success: true, message: `Mensagem ${queue_id} deletada da fila com postsuper -d!` });
   });
 
   app.post("/api/troubleshooting/queue/flush", (req, res) => {
     virtualQueue = [];
+    addAuditLog("QUEUE_FLUSH", "Postfix Mail Queue", {}, "normal", req);
     res.json({ success: true, message: `Fila Postfix liberada/flushed com sucesso via postqueue -f!` });
   });
 
@@ -1042,6 +1044,7 @@ blacklist_from *@spammerdomain.net
       created_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
     };
     virtualMailRules.push(newRule);
+    addAuditLog("SOAR_RULE_ADD", newRule.target, { action_type: act }, "normal", req);
 
     return res.json({
       status: "success",
@@ -1578,6 +1581,7 @@ blacklist_from *@spammerdomain.net
       virtualServices[service].active = true;
       virtualServices[service].state = "active";
     }
+    addAuditLog("SERVICE_RESTART", service || "-", { service }, "suspicious", req);
     res.json({ success: true, message: `Serviço ${service} reiniciado com sucesso via sudo systemctl!` });
   });
 
@@ -1588,6 +1592,7 @@ blacklist_from *@spammerdomain.net
   app.post("/api/services/spamassassin/rules", (req, res) => {
     const { content } = req.body || {};
     virtualLocalCf = content;
+    addAuditLog("SPAM_RULES_RAW_UPDATE", "/etc/spamassassin/local.cf", { length: (content || "").length }, "suspicious", req);
     res.json({ success: true, message: "Regras salvas no local.cf e Amavis reiniciado!" });
   });
 
@@ -1644,6 +1649,8 @@ blacklist_from *@spammerdomain.net
       virtualLocalCf += newRuleLine + "\n";
     }
 
+    addAuditLog("SPAM_RULE_CREATE", value.trim(), { action, rule: newRuleLine }, "normal", req);
+
     res.json({
       success: true,
       message: `Regra '${newRuleLine}' adicionada com sucesso! Serviço SpamAssassin reiniciado.`
@@ -1681,6 +1688,8 @@ blacklist_from *@spammerdomain.net
 
     virtualLocalCf = newLines.join("\n");
 
+    addAuditLog("UPDATE_SPAM_RULE", val, { old_raw: old_raw, new_rule: newRuleLine, action: act }, "normal", req);
+
     res.json({
       success: true,
       message: `Regra atualizada com sucesso para '${newRuleLine}'! Serviço SpamAssassin reiniciado.`
@@ -1702,6 +1711,8 @@ blacklist_from *@spammerdomain.net
     const lines = virtualLocalCf.split("\n");
     const filtered = lines.filter(l => l.trim().toLowerCase() !== targetClean);
     virtualLocalCf = filtered.join("\n");
+
+    addAuditLog("DELETE_SPAM_RULE", targetLine, { deleted_rule: targetLine }, "normal", req);
 
     res.json({
       success: true,
