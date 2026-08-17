@@ -1,6 +1,6 @@
 {
   "name": "Suíte de Administração de E-mail (Postfix, MariaDB, Amavis, SpamAssassin)",
-  "description": "Suíte completa em Python Flask para gestão de Mail Server Linux (substituto do iRedAdmin): MFA TOTP, CRUD vmail (Domínios, Mailboxes, Aliases), Postfix Queue Manager, Mail Tracking e Validador DNS.",
+  "description": "Suíte completa v1.1.0 em Python Flask e TypeScript/Express para gestão de Mail Server Linux (substituto do iRedAdmin): MFA TOTP, CRUD vmail (Domínios, Mailboxes, Aliases), Postfix Queue Manager, Mail Tracking, Validador DNS, Gestão Visual de SpamAssassin, SQL Studio e Automação de Crontab com tolerância a falhas.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MailAdmin Suite - Painel Integrado de Administração de Servidores de E-mail
+MailAdmin Suite v1.1.0 - Painel Integrado de Administração de Servidores de E-mail
 Substituto Completo do iRedAdmin em Python Flask + MariaDB vmail
 """
 

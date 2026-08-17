@@ -48,6 +48,8 @@ export const PythonExportTab: React.FC = () => {
       case 'blueprints/vmail_bp.py': return 'Domains & Mailboxes CRUD';
       case 'blueprints/troubleshooting_bp.py': return 'Log Tracking & DNS Validator';
       case 'blueprints/services_bp.py': return 'Services & SpamAssassin Editor';
+      case 'blueprints/automation_bp.py': return 'Crontab & Script Automation';
+      case 'blueprints/audit_helper.py': return 'Audit Log Helper';
       case 'templates/index.html': return 'Bootstrap 5 SPA';
       case 'sudoers_mailadmin': return 'Sudoers Security Config';
       case 'mailadmin.service': return 'Systemd Unit File';
@@ -65,6 +67,8 @@ export const PythonExportTab: React.FC = () => {
     { key: 'blueprints/vmail_bp.py', label: 'blueprints/vmail_bp.py', icon: <Database className="w-4 h-4 text-blue-500" /> },
     { key: 'blueprints/troubleshooting_bp.py', label: 'blueprints/troubleshooting_bp.py', icon: <Terminal className="w-4 h-4 text-amber-500" /> },
     { key: 'blueprints/services_bp.py', label: 'blueprints/services_bp.py', icon: <Server className="w-4 h-4 text-purple-500" /> },
+    { key: 'blueprints/automation_bp.py', label: 'blueprints/automation_bp.py', icon: <Terminal className="w-4 h-4 text-rose-500" /> },
+    { key: 'blueprints/audit_helper.py', label: 'blueprints/audit_helper.py', icon: <ShieldCheck className="w-4 h-4 text-indigo-500" /> },
     { key: 'templates/index.html', label: 'templates/index.html', icon: <Code className="w-4 h-4 text-amber-500" /> },
     { key: 'sudoers_mailadmin', label: 'sudoers_mailadmin', icon: <ShieldCheck className="w-4 h-4 text-rose-500" /> },
     { key: 'mailadmin.service', label: 'mailadmin.service', icon: <Server className="w-4 h-4 text-emerald-500" /> },

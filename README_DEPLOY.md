@@ -1,4 +1,4 @@
-# Guia de Implantação: MailAdmin Suite v2.0 (Substituto iRedAdmin)
+# Guia de Implantação: MailAdmin Suite v1.1.0 (Substituto iRedAdmin)
 
 Este repositório contém a suíte completa de administração em **Python Flask**, **Bootstrap 5** e **SQLAlchemy** conectando-se ao **MariaDB (schema `vmail`)** para gerenciamento do **Postfix, Amavis, SpamAssassin e ClamAV**.
 

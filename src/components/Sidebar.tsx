@@ -60,7 +60,7 @@ export function Sidebar({
                 <div className="flex items-center gap-1.5">
                   <span className="font-bold text-base tracking-tight text-white">MailAdmin</span>
                   <span className="bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[9px] font-extrabold px-1.5 py-0.2 rounded uppercase">
-                    v2.0
+                    v1.1.0
                   </span>
                 </div>
                 <p className="text-[10px] text-slate-400 truncate">Debian/Ubuntu Server</p>

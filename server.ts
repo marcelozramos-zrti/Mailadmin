@@ -12,58 +12,132 @@ async function startServer() {
 
   app.use(express.json());
 
-  // Initialize SQLite Database for Persistent Audit Logging and Mail Log History
+  // Initialize SQLite Database with Auto-Recovery for Persistent Audit Logging and Mail Log History
   const dbPath = path.join(process.cwd(), "vmail.sqlite");
-  const sqliteDb = new DatabaseSync(dbPath);
+  let sqliteDb: any = null;
 
-  sqliteDb.exec(`
-    CREATE TABLE IF NOT EXISTS system_audit_logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      timestamp TEXT NOT NULL,
-      admin_user TEXT NOT NULL,
-      action TEXT NOT NULL,
-      target TEXT DEFAULT '-',
-      ip_address TEXT DEFAULT '127.0.0.1',
-      severity_level TEXT DEFAULT 'normal',
-      details_json TEXT DEFAULT '{}'
-    );
+  function initSqliteInstance(): any {
+    try {
+      const db = new DatabaseSync(dbPath);
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS system_audit_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          timestamp TEXT NOT NULL,
+          admin_user TEXT NOT NULL,
+          action TEXT NOT NULL,
+          target TEXT DEFAULT '-',
+          ip_address TEXT DEFAULT '127.0.0.1',
+          severity_level TEXT DEFAULT 'normal',
+          details_json TEXT DEFAULT '{}'
+        );
 
-    CREATE TABLE IF NOT EXISTS mail_logs_history (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      timestamp TEXT NOT NULL,
-      queue_id TEXT DEFAULT '-',
-      sender TEXT DEFAULT '-',
-      recipient TEXT DEFAULT '-',
-      client_ip TEXT DEFAULT '-',
-      status TEXT DEFAULT 'Sent',
-      message TEXT,
-      created_at TEXT
-    );
-  `);
-
-  // Seed sample records into mail_logs_history if empty
-  try {
-    const mlCount = (sqliteDb.prepare("SELECT COUNT(*) as c FROM mail_logs_history").get() as any)?.c || 0;
-    if (mlCount === 0) {
-      const seedStmt = sqliteDb.prepare(`
-        INSERT INTO mail_logs_history (timestamp, queue_id, sender, recipient, client_ip, status, message, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        CREATE TABLE IF NOT EXISTS mail_logs_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          timestamp TEXT NOT NULL,
+          queue_id TEXT DEFAULT '-',
+          sender TEXT DEFAULT '-',
+          recipient TEXT DEFAULT '-',
+          client_ip TEXT DEFAULT '-',
+          status TEXT DEFAULT 'Sent',
+          message TEXT,
+          created_at TEXT
+        );
       `);
-      const nowIso = new Date().toISOString().substring(0, 10);
-      const seedLogs = [
-        [ `${nowIso} 08:30:00`, "NOQUEUE", "-", "-", "198.51.100.77", "Rejected", `${nowIso} 08:30:00 mailserver postfix/smtpd[13110]: NOQUEUE: reject: RCPT from unknown[198.51.100.77]: 554 5.7.1 <test@external.org>: Relay access denied;`, `${nowIso} 08:30:00` ],
-        [ `${nowIso} 09:45:12`, "NOQUEUE", "-", "-", "185.220.101.5", "AuthFail", `${nowIso} 09:45:12 mailserver postfix/smtpd[14201]: warning: unknown[185.220.101.5]: SASL LOGIN authentication failed: U3Vwb3J0ZQ==`, `${nowIso} 09:45:12` ],
-        [ `${nowIso} 10:14:02`, "4YtZ8b3K", "usuario@empresa.com.br", "destino@cliente.com.br", "198.51.100.12", "Sent", `${nowIso} 10:14:04 mailserver amavis[1204]: (4YtZ8b3K) Passed CLEAN {RelayedInbound}, [198.51.100.12] <usuario@empresa.com.br> -> <destino@cliente.com.br>, Hits: -0.100`, `${nowIso} 10:14:04` ],
-        [ `${nowIso} 10:14:05`, "4YtZ8b3K", "usuario@empresa.com.br", "destino@cliente.com.br", "198.51.100.12", "Sent", `${nowIso} 10:14:05 mailserver postfix/lmtp[14220]: 4YtZ8b3K: to=<destino@cliente.com.br>, relay=127.0.0.1[127.0.0.1]:24, delay=2.1, dsn=2.0.0, status=sent (250 2.0.0 OK saved_to_mailbox)`, `${nowIso} 10:14:05` ],
-        [ `${nowIso} 11:20:10`, "NOQUEUE", "-", "-", "185.220.101.5", "Info", `${nowIso} 11:20:10 mailserver postfix/smtpd[14500]: warning: improper command pipelining after HELO from unknown[185.220.101.5]`, `${nowIso} 11:20:10` ],
-        [ `${nowIso} 11:25:00`, "NOQUEUE", "-", "-", "192.168.1.50", "AuthFail", `${nowIso} 11:25:00 mailserver dovecot: auth-worker(14550): password mismatch for user user1@domain.com from 192.168.1.50`, `${nowIso} 11:25:00` ]
-      ];
-      for (const row of seedLogs) {
-        seedStmt.run(...row);
+      return db;
+    } catch (e: any) {
+      console.warn("Aviso ao abrir vmail.sqlite (tentando auto-recuperação):", e?.message || e);
+      try {
+        if (fs.existsSync(dbPath)) {
+          fs.unlinkSync(dbPath);
+        }
+        const freshDb = new DatabaseSync(dbPath);
+        freshDb.exec(`
+          CREATE TABLE IF NOT EXISTS system_audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            admin_user TEXT NOT NULL,
+            action TEXT NOT NULL,
+            target TEXT DEFAULT '-',
+            ip_address TEXT DEFAULT '127.0.0.1',
+            severity_level TEXT DEFAULT 'normal',
+            details_json TEXT DEFAULT '{}'
+          );
+
+          CREATE TABLE IF NOT EXISTS mail_logs_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            queue_id TEXT DEFAULT '-',
+            sender TEXT DEFAULT '-',
+            recipient TEXT DEFAULT '-',
+            client_ip TEXT DEFAULT '-',
+            status TEXT DEFAULT 'Sent',
+            message TEXT,
+            created_at TEXT
+          );
+        `);
+        return freshDb;
+      } catch (fallbackErr: any) {
+        console.warn("Fallback para SQLite em memória:", fallbackErr?.message || fallbackErr);
+        try {
+          const memDb = new DatabaseSync(":memory:");
+          memDb.exec(`
+            CREATE TABLE IF NOT EXISTS system_audit_logs (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              timestamp TEXT NOT NULL,
+              admin_user TEXT NOT NULL,
+              action TEXT NOT NULL,
+              target TEXT DEFAULT '-',
+              ip_address TEXT DEFAULT '127.0.0.1',
+              severity_level TEXT DEFAULT 'normal',
+              details_json TEXT DEFAULT '{}'
+            );
+            CREATE TABLE IF NOT EXISTS mail_logs_history (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              timestamp TEXT NOT NULL,
+              queue_id TEXT DEFAULT '-',
+              sender TEXT DEFAULT '-',
+              recipient TEXT DEFAULT '-',
+              client_ip TEXT DEFAULT '-',
+              status TEXT DEFAULT 'Sent',
+              message TEXT,
+              created_at TEXT
+            );
+          `);
+          return memDb;
+        } catch {
+          return null;
+        }
       }
     }
-  } catch (seedErr) {
-    console.error("Erro ao popular tabela mail_logs_history:", seedErr);
+  }
+
+  sqliteDb = initSqliteInstance();
+
+  // Seed sample records into mail_logs_history if empty
+  if (sqliteDb) {
+    try {
+      const mlCount = (sqliteDb.prepare("SELECT COUNT(*) as c FROM mail_logs_history").get() as any)?.c || 0;
+      if (mlCount === 0) {
+        const seedStmt = sqliteDb.prepare(`
+          INSERT INTO mail_logs_history (timestamp, queue_id, sender, recipient, client_ip, status, message, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const nowIso = new Date().toISOString().substring(0, 10);
+        const seedLogs = [
+          [ `${nowIso} 08:30:00`, "NOQUEUE", "-", "-", "198.51.100.77", "Rejected", `${nowIso} 08:30:00 mailserver postfix/smtpd[13110]: NOQUEUE: reject: RCPT from unknown[198.51.100.77]: 554 5.7.1 <test@external.org>: Relay access denied;`, `${nowIso} 08:30:00` ],
+          [ `${nowIso} 09:45:12`, "NOQUEUE", "-", "-", "185.220.101.5", "AuthFail", `${nowIso} 09:45:12 mailserver postfix/smtpd[14201]: warning: unknown[185.220.101.5]: SASL LOGIN authentication failed: U3Vwb3J0ZQ==`, `${nowIso} 09:45:12` ],
+          [ `${nowIso} 10:14:02`, "4YtZ8b3K", "usuario@empresa.com.br", "destino@cliente.com.br", "198.51.100.12", "Sent", `${nowIso} 10:14:04 mailserver amavis[1204]: (4YtZ8b3K) Passed CLEAN {RelayedInbound}, [198.51.100.12] <usuario@empresa.com.br> -> <destino@cliente.com.br>, Hits: -0.100`, `${nowIso} 10:14:04` ],
+          [ `${nowIso} 10:14:05`, "4YtZ8b3K", "usuario@empresa.com.br", "destino@cliente.com.br", "198.51.100.12", "Sent", `${nowIso} 10:14:05 mailserver postfix/lmtp[14220]: 4YtZ8b3K: to=<destino@cliente.com.br>, relay=127.0.0.1[127.0.0.1]:24, delay=2.1, dsn=2.0.0, status=sent (250 2.0.0 OK saved_to_mailbox)`, `${nowIso} 10:14:05` ],
+          [ `${nowIso} 11:20:10`, "NOQUEUE", "-", "-", "185.220.101.5", "Info", `${nowIso} 11:20:10 mailserver postfix/smtpd[14500]: warning: improper command pipelining after HELO from unknown[185.220.101.5]`, `${nowIso} 11:20:10` ],
+          [ `${nowIso} 11:25:00`, "NOQUEUE", "-", "-", "192.168.1.50", "AuthFail", `${nowIso} 11:25:00 mailserver dovecot: auth-worker(14550): password mismatch for user user1@domain.com from 192.168.1.50`, `${nowIso} 11:25:00` ]
+        ];
+        for (const row of seedLogs) {
+          seedStmt.run(...row);
+        }
+      }
+    } catch (seedErr) {
+      console.error("Erro ao popular tabela mail_logs_history:", seedErr);
+    }
   }
 
   // Virtual Database for Preview Mode (vmail MariaDB simulation)
@@ -242,14 +316,16 @@ async function startServer() {
       finalSeverity = 'critical';
     }
 
-    try {
-      const stmt = sqliteDb.prepare(`
-        INSERT INTO system_audit_logs (timestamp, admin_user, action, target, ip_address, severity_level, details_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
-      stmt.run(timestampStr, username, action, target || "-", reqIp, finalSeverity, detailsStr);
-    } catch (err) {
-      console.error("Erro ao inserir log de auditoria no SQLite:", err);
+    if (sqliteDb) {
+      try {
+        const stmt = sqliteDb.prepare(`
+          INSERT INTO system_audit_logs (timestamp, admin_user, action, target, ip_address, severity_level, details_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        stmt.run(timestampStr, username, action, target || "-", reqIp, finalSeverity, detailsStr);
+      } catch (err) {
+        console.error("Erro ao inserir log de auditoria no SQLite:", err);
+      }
     }
 
     const newLog = {
@@ -2221,6 +2297,12 @@ blacklist_from *@spammerdomain.net
       const vmailBp = fs.readFileSync(path.join(process.cwd(), "blueprints/vmail_bp.py"), "utf-8");
       const troubleshootingBp = fs.readFileSync(path.join(process.cwd(), "blueprints/troubleshooting_bp.py"), "utf-8");
       const servicesBp = fs.readFileSync(path.join(process.cwd(), "blueprints/services_bp.py"), "utf-8");
+      const automationBp = fs.existsSync(path.join(process.cwd(), "blueprints/automation_bp.py"))
+        ? fs.readFileSync(path.join(process.cwd(), "blueprints/automation_bp.py"), "utf-8")
+        : "";
+      const auditHelper = fs.existsSync(path.join(process.cwd(), "blueprints/audit_helper.py"))
+        ? fs.readFileSync(path.join(process.cwd(), "blueprints/audit_helper.py"), "utf-8")
+        : "";
       const sudoers = fs.readFileSync(path.join(process.cwd(), "sudoers_mailadmin"), "utf-8");
       const service = fs.readFileSync(path.join(process.cwd(), "mailadmin.service"), "utf-8");
       const readme = fs.readFileSync(path.join(process.cwd(), "README_DEPLOY.md"), "utf-8");
@@ -2236,6 +2318,8 @@ blacklist_from *@spammerdomain.net
           "blueprints/vmail_bp.py": vmailBp,
           "blueprints/troubleshooting_bp.py": troubleshootingBp,
           "blueprints/services_bp.py": servicesBp,
+          "blueprints/automation_bp.py": automationBp,
+          "blueprints/audit_helper.py": auditHelper,
           "sudoers_mailadmin": sudoers,
           "mailadmin.service": service,
           "README_DEPLOY.md": readme

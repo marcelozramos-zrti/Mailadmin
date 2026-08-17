@@ -200,6 +200,8 @@ export interface PythonFiles {
   "blueprints/vmail_bp.py"?: string;
   "blueprints/troubleshooting_bp.py"?: string;
   "blueprints/services_bp.py"?: string;
+  "blueprints/automation_bp.py"?: string;
+  "blueprints/audit_helper.py"?: string;
   "templates/index.html": string;
   "sudoers_mailadmin": string;
   "mailadmin.service": string;

@@ -56,7 +56,7 @@ export function Navbar({
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-lg tracking-tight">MailAdmin</span>
                     <span className="bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                      Suite v2.0
+                      Suite v1.1.0
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-400 hidden sm:block">
