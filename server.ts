@@ -2602,7 +2602,65 @@ Checks 12
     });
   });
 
-  // POST Simulator & Tester for E-mail Headers / Subject / From against local.cf
+  // Helper to extract email addresses from header strings like "Nome <user@domain.com>"
+  function extractEmails(text: string): string[] {
+    if (!text) return [];
+    const matches = text.match(/[a-zA-Z0-9_.+\-]+@[a-zA-Z0-9\-]+(?:\.[a-zA-Z0-9\-.]+)+/g);
+    const emails = matches ? Array.from(matches).map(e => e.toLowerCase().trim()) : [];
+    const cleanRaw = text.trim().toLowerCase();
+    if (cleanRaw && !emails.includes(cleanRaw) && cleanRaw.includes("@")) {
+      emails.push(cleanRaw);
+    }
+    return emails;
+  }
+
+  // Helper to test if an email or header matches a SpamAssassin wildcard pattern (e.g. *@spammer.com, bad@domain.com, *@*.domain.com)
+  function matchesAccessListPattern(pattern: string, headerValue: string): boolean {
+    if (!pattern || !headerValue) return false;
+    const cleanPat = pattern.trim().toLowerCase();
+    const cleanHeader = headerValue.trim().toLowerCase();
+
+    // 1. Direct contains check
+    if (cleanHeader.includes(cleanPat)) return true;
+
+    // 2. Extract emails and domains from the header
+    const emails = extractEmails(cleanHeader);
+    const domains = emails.map(e => e.split("@")[1] || "").filter(Boolean);
+
+    // If pattern is wildcard like *@domain.com or *@*.domain.com
+    let regexStr = cleanPat
+      .replace(/\./g, "\\.")
+      .replace(/\*/g, ".*")
+      .replace(/\?/g, ".");
+    
+    try {
+      const reg = new RegExp(`^${regexStr}$`, "i");
+
+      // Check extracted emails
+      for (const email of emails) {
+        if (reg.test(email)) return true;
+        const dom = email.split("@")[1];
+        if (dom && cleanPat.endsWith(`@${dom}`)) return true;
+      }
+
+      // Check if raw pattern stripped of *@ matches domain
+      const patDomain = cleanPat.replace(/^\*@/, "").replace(/^\*/, "").replace(/^@/, "");
+      for (const dom of domains) {
+        if (dom === patDomain || dom.endsWith(`.${patDomain}`)) return true;
+      }
+
+      // Test raw header string directly
+      if (reg.test(cleanHeader)) return true;
+    } catch {
+      // fallback substring
+      const fallbackDomain = cleanPat.replace(/^\*@/, "").replace(/^\*/, "");
+      if (fallbackDomain && cleanHeader.includes(fallbackDomain)) return true;
+    }
+
+    return false;
+  }
+
+  // POST Simulator & Tester for E-mail Headers / Subject / From against local.cf (Blacklist, Whitelist, Inteligência AntiSPAM)
   const handleSpamSimulate = (req: express.Request, res: express.Response) => {
     const { subject, from, reply_to, replyto, body, raw_headers } = req.body || {};
     const testSubj = String(subject || "").trim();
@@ -2611,9 +2669,107 @@ Checks 12
     const testBody = String(body || "").trim();
     const testHeaders = String(raw_headers || "").trim();
 
-    const customRules = parseCustomSpamRules(virtualLocalCf);
-    const triggered: Array<{ rule: string; name: string; target: string; pattern: string; score: number; points: number; describe: string; matched_value: string }> = [];
+    const triggered: Array<{
+      rule: string;
+      name: string;
+      type: 'blacklist' | 'whitelist' | 'spam_list' | 'heuristic';
+      category_label: string;
+      target: string;
+      pattern: string;
+      score: number;
+      points: number;
+      describe: string;
+      matched_value: string;
+    }> = [];
+
     let totalScore = 0;
+    let isBlacklisted = false;
+    let isWhitelisted = false;
+
+    // 1. EVALUATE BLACKLIST & LISTAS DE ACESSO (blacklist_from, whitelist_from, spam_from)
+    const lines = virtualLocalCf.split("\n");
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) continue;
+
+      const blMatch = line.match(/^blacklist_from\s+(.+)$/i);
+      if (blMatch) {
+        const pattern = blMatch[1].trim();
+        const fromMatched = matchesAccessListPattern(pattern, testFrom);
+        const replyToMatched = testReplyTo ? matchesAccessListPattern(pattern, testReplyTo) : false;
+        const headersMatched = testHeaders ? matchesAccessListPattern(pattern, testHeaders) : false;
+
+        if (fromMatched || replyToMatched || headersMatched) {
+          isBlacklisted = true;
+          const matchedVal = fromMatched ? testFrom : (replyToMatched ? testReplyTo : testHeaders);
+          triggered.push({
+            rule: `BLACKLIST_FROM (${pattern})`,
+            name: "BLACKLIST_FROM",
+            type: "blacklist",
+            category_label: "🚫 Blacklist (Lista Negra)",
+            target: fromMatched ? "From (Remetente)" : (replyToMatched ? "Reply-To" : "Header"),
+            pattern: pattern,
+            score: 100.0,
+            points: 100.0,
+            describe: `Remetente ou domínio presente na Blacklist oficial (${pattern})`,
+            matched_value: matchedVal
+          });
+          totalScore += 100.0;
+        }
+      }
+
+      const wlMatch = line.match(/^whitelist_from\s+(.+)$/i);
+      if (wlMatch) {
+        const pattern = wlMatch[1].trim();
+        const fromMatched = matchesAccessListPattern(pattern, testFrom);
+        const replyToMatched = testReplyTo ? matchesAccessListPattern(pattern, testReplyTo) : false;
+
+        if (fromMatched || replyToMatched) {
+          isWhitelisted = true;
+          const matchedVal = fromMatched ? testFrom : testReplyTo;
+          triggered.push({
+            rule: `WHITELIST_FROM (${pattern})`,
+            name: "WHITELIST_FROM",
+            type: "whitelist",
+            category_label: "🟢 Whitelist (Lista Confiável)",
+            target: fromMatched ? "From (Remetente)" : "Reply-To",
+            pattern: pattern,
+            score: -100.0,
+            points: -100.0,
+            describe: `Remetente ou domínio liberado na Whitelist (${pattern})`,
+            matched_value: matchedVal
+          });
+          totalScore -= 100.0;
+        }
+      }
+
+      const spamMatch = line.match(/^spam_from\s+(.+)$/i);
+      if (spamMatch) {
+        const pattern = spamMatch[1].trim();
+        const fromMatched = matchesAccessListPattern(pattern, testFrom);
+        const replyToMatched = testReplyTo ? matchesAccessListPattern(pattern, testReplyTo) : false;
+
+        if (fromMatched || replyToMatched) {
+          const matchedVal = fromMatched ? testFrom : testReplyTo;
+          triggered.push({
+            rule: `SPAM_FROM (${pattern})`,
+            name: "SPAM_FROM",
+            type: "spam_list",
+            category_label: "⚠️ Lista de SPAM Direto",
+            target: fromMatched ? "From (Remetente)" : "Reply-To",
+            pattern: pattern,
+            score: 20.0,
+            points: 20.0,
+            describe: `Remetente ou domínio marcado como SPAM direto (${pattern})`,
+            matched_value: matchedVal
+          });
+          totalScore += 20.0;
+        }
+      }
+    }
+
+    // 2. EVALUATE INTELIGÊNCIA ANTISPAM (Regras Heurísticas Locais)
+    const customRules = parseCustomSpamRules(virtualLocalCf);
 
     for (const rule of customRules) {
       if (!rule.pattern) continue;
@@ -2638,6 +2794,8 @@ Checks 12
           targetText = testReplyTo;
         } else if (targetLower === "body") {
           targetText = testBody;
+        } else if (targetLower === "uri") {
+          targetText = `${testSubj}\n${testBody}\n${testHeaders}`;
         } else {
           targetText = `${testHeaders}\nSubject: ${testSubj}\nFrom: ${testFrom}\nReply-To: ${testReplyTo}\n\n${testBody}`;
         }
@@ -2647,12 +2805,14 @@ Checks 12
           triggered.push({
             rule: rule.name,
             name: rule.name,
+            type: "heuristic",
+            category_label: "🧠 Inteligência AntiSPAM (Regra Heurística)",
             target: rule.target,
             pattern: rule.pattern,
             score: pts,
             points: pts,
-            describe: rule.describe || "Regra customizada acionada",
-            matched_value: targetText
+            describe: rule.describe || "Regra customizada heurística acionada",
+            matched_value: targetText.length > 80 ? `${targetText.substring(0, 80)}...` : targetText
           });
           totalScore += pts;
         }
@@ -2661,49 +2821,33 @@ Checks 12
       }
     }
 
-    // Check standard blacklist / whitelist lines
-    const lines = virtualLocalCf.split("\n");
-    for (const l of lines) {
-      const line = l.trim();
-      if (line.startsWith("blacklist_from ")) {
-        const blVal = line.replace("blacklist_from ", "").trim();
-        const blDomain = blVal.replace("*@", "");
-        if (testFrom.toLowerCase().includes(blDomain) || (testReplyTo && testReplyTo.toLowerCase().includes(blDomain))) {
-          triggered.push({
-            rule: "USER_IN_BLACKLIST",
-            name: "USER_IN_BLACKLIST",
-            target: "From",
-            pattern: blVal,
-            score: 100.0,
-            points: 100.0,
-            describe: `Remetente ou domínio presente na Blacklist (${blVal})`,
-            matched_value: testFrom
-          });
-          totalScore += 100.0;
-        }
-      } else if (line.startsWith("whitelist_from ")) {
-        const wlVal = line.replace("whitelist_from ", "").trim();
-        const wlDomain = wlVal.replace("*@", "");
-        if (testFrom.toLowerCase().includes(wlDomain)) {
-          triggered.push({
-            rule: "USER_IN_WHITELIST",
-            name: "USER_IN_WHITELIST",
-            target: "From",
-            pattern: wlVal,
-            score: -100.0,
-            points: -100.0,
-            describe: `Remetente ou domínio presente na Whitelist (${wlVal})`,
-            matched_value: testFrom
-          });
-          totalScore -= 100.0;
-        }
-      }
+    const isSpam = isBlacklisted || (!isWhitelisted && totalScore >= 5.0);
+
+    let verdictStatus = "CLEAN";
+    let verdictTitle = "MENSAGEM LIMPA / ACEITA";
+    let verdictAction = "Entregar normalmente na Caixa de Entrada";
+
+    if (isBlacklisted) {
+      verdictStatus = "BLACKLISTED";
+      verdictTitle = "BLOQUEIO IMEDIATO (Blacklist)";
+      verdictAction = "Rejeitar conexão SMTP / Descarte Imediato";
+    } else if (isWhitelisted) {
+      verdictStatus = "WHITELISTED";
+      verdictTitle = "LIBERADO POR WHITELIST (Lista Confiável)";
+      verdictAction = "Entregar na Caixa de Entrada (Ignorar regras de Spam)";
+    } else if (isSpam) {
+      verdictStatus = "SPAM_DETECTED";
+      verdictTitle = "CLASSIFICADO COMO SPAM";
+      verdictAction = "Mover para Quarentena / Pasta de Lixo Eletrônico";
     }
 
-    const isSpam = totalScore >= 5.0;
+    const blacklistMatches = triggered.filter(r => r.type === "blacklist" || r.type === "spam_list");
+    const whitelistMatches = triggered.filter(r => r.type === "whitelist");
+    const heuristicMatches = triggered.filter(r => r.type === "heuristic");
+
     const breakdown = triggered.length > 0
-      ? `Pontuação Total: ${totalScore.toFixed(1)} / 5.0 (${isSpam ? "DETECTADO COMO SPAM" : "MENSAGEM LIBERADA"}). ${triggered.length} regra(s) acionada(s).`
-      : `Pontuação Total: 0.0 / 5.0 (Nenhuma regra heurística ativada). Mensagem limpa.`;
+      ? `Pontuação Total: ${totalScore.toFixed(1)} / 5.0 (${verdictTitle}). ${triggered.length} regra(s) acionada(s).`
+      : `Pontuação Total: 0.0 / 5.0 (Nenhuma regra heurística ou blacklist ativada). Mensagem limpa.`;
 
     res.json({
       success: true,
@@ -2712,8 +2856,16 @@ Checks 12
       score: Number(totalScore.toFixed(1)),
       required_score: 5.0,
       is_spam: isSpam,
+      is_blacklisted: isBlacklisted,
+      is_whitelisted: isWhitelisted,
+      verdict_status: verdictStatus,
+      verdict_title: verdictTitle,
+      verdict_action: verdictAction,
       rules_matched: triggered,
       rules_triggered: triggered,
+      blacklist_matches: blacklistMatches,
+      whitelist_matches: whitelistMatches,
+      heuristic_matches: heuristicMatches,
       breakdown_text: breakdown
     });
   };

@@ -756,6 +756,42 @@ def delete_custom_spam_rule():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
+def match_access_pattern_py(pattern, header_val):
+    if not pattern or not header_val:
+        return False
+    pat = pattern.strip().lower()
+    val = header_val.strip().lower()
+    if pat in val:
+        return True
+    
+    # Extract emails
+    emails = re.findall(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', val)
+    domains = [e.split('@')[1] for e in emails if '@' in e]
+    
+    reg_str = '^' + pat.replace('.', r'\.').replace('*', '.*').replace('?', '.') + '$'
+    try:
+        reg = re.compile(reg_str, re.IGNORECASE)
+        for e in emails:
+            if reg.match(e):
+                return True
+            dom = e.split('@')[1] if '@' in e else ''
+            if dom and pat.endswith(f'@{dom}'):
+                return True
+        
+        pat_dom = pat.replace('*@', '').replace('*', '').replace('@', '')
+        for d in domains:
+            if d == pat_dom or d.endswith(f'.{pat_dom}'):
+                return True
+                
+        if reg.match(val):
+            return True
+    except Exception:
+        fallback_dom = pat.replace('*@', '').replace('*', '')
+        if fallback_dom and fallback_dom in val:
+            return True
+    return False
+
+
 @services_bp.route('/spamassassin/simulate', methods=['POST'])
 @services_bp.route('/spamassassin/test-rule', methods=['POST'])
 @login_required
@@ -771,10 +807,78 @@ def test_spam_rules_simulation():
         with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
             content = f.read()
 
-    custom_rules = parse_custom_spam_rules_py(content)
     triggered = []
     total_score = 0.0
+    is_blacklisted = False
+    is_whitelisted = False
 
+    # 1. Evaluate Access Lists (Blacklist, Whitelist, Spam List)
+    for line in content.split('\n'):
+        l = line.strip()
+        if not l or l.startswith('#'):
+            continue
+            
+        if l.lower().startswith('blacklist_from '):
+            pat = l[15:].strip()
+            from_m = match_access_pattern_py(pat, test_from)
+            reply_m = match_access_pattern_py(pat, test_reply_to) if test_reply_to else False
+            if from_m or reply_m:
+                is_blacklisted = True
+                triggered.append({
+                    'rule': f'BLACKLIST_FROM ({pat})',
+                    'name': 'BLACKLIST_FROM',
+                    'type': 'blacklist',
+                    'category_label': '🚫 Blacklist (Lista Negra)',
+                    'target': 'From (Remetente)' if from_m else 'Reply-To',
+                    'pattern': pat,
+                    'score': 100.0,
+                    'points': 100.0,
+                    'describe': f'Remetente ou domínio presente na Blacklist oficial ({pat})',
+                    'matched_value': test_from if from_m else test_reply_to
+                })
+                total_score += 100.0
+                
+        elif l.lower().startswith('whitelist_from '):
+            pat = l[15:].strip()
+            from_m = match_access_pattern_py(pat, test_from)
+            reply_m = match_access_pattern_py(pat, test_reply_to) if test_reply_to else False
+            if from_m or reply_m:
+                is_whitelisted = True
+                triggered.append({
+                    'rule': f'WHITELIST_FROM ({pat})',
+                    'name': 'WHITELIST_FROM',
+                    'type': 'whitelist',
+                    'category_label': '🟢 Whitelist (Lista Confiável)',
+                    'target': 'From (Remetente)' if from_m else 'Reply-To',
+                    'pattern': pat,
+                    'score': -100.0,
+                    'points': -100.0,
+                    'describe': f'Remetente ou domínio liberado na Whitelist ({pat})',
+                    'matched_value': test_from if from_m else test_reply_to
+                })
+                total_score -= 100.0
+
+        elif l.lower().startswith('spam_from '):
+            pat = l[10:].strip()
+            from_m = match_access_pattern_py(pat, test_from)
+            reply_m = match_access_pattern_py(pat, test_reply_to) if test_reply_to else False
+            if from_m or reply_m:
+                triggered.append({
+                    'rule': f'SPAM_FROM ({pat})',
+                    'name': 'SPAM_FROM',
+                    'type': 'spam_list',
+                    'category_label': '⚠️ Lista de SPAM Direto',
+                    'target': 'From (Remetente)' if from_m else 'Reply-To',
+                    'pattern': pat,
+                    'score': 20.0,
+                    'points': 20.0,
+                    'describe': f'Remetente ou domínio cadastrado como SPAM direto ({pat})',
+                    'matched_value': test_from if from_m else test_reply_to
+                })
+                total_score += 20.0
+
+    # 2. Evaluate Heuristic Rules
+    custom_rules = parse_custom_spam_rules_py(content)
     for rule in custom_rules:
         pattern = rule.get('pattern', '')
         if not pattern:
@@ -804,19 +908,43 @@ def test_spam_rules_simulation():
                 triggered.append({
                     'rule': rule['name'],
                     'name': rule['name'],
+                    'type': 'heuristic',
+                    'category_label': '🧠 Inteligência AntiSPAM (Regra Heurística)',
                     'target': rule['target'],
                     'pattern': rule['pattern'],
                     'score': score_val,
                     'points': score_val,
                     'describe': rule.get('describe', 'Regra customizada acionada'),
-                    'matched_value': target_text
+                    'matched_value': target_text[:80] + '...' if len(target_text) > 80 else target_text
                 })
                 total_score += score_val
         except Exception:
             pass
 
-    is_spam = total_score >= 5.0
-    breakdown = f"Pontuação Total: {total_score:.1f} / 5.0 ({'DETECTADO COMO SPAM' if is_spam else 'MENSAGEM LIBERADA'}). {len(triggered)} regra(s) acionada(s)." if triggered else "Pontuação Total: 0.0 / 5.0. Nenhuma regra heurística ativada."
+    is_spam = is_blacklisted or (not is_whitelisted and total_score >= 5.0)
+
+    verdict_status = "CLEAN"
+    verdict_title = "MENSAGEM LIMPA / ACEITA"
+    verdict_action = "Entregar normalmente na Caixa de Entrada"
+
+    if is_blacklisted:
+        verdict_status = "BLACKLISTED"
+        verdict_title = "BLOQUEIO IMEDIATO (Blacklist)"
+        verdict_action = "Rejeitar conexão SMTP / Descarte Imediato"
+    elif is_whitelisted:
+        verdict_status = "WHITELISTED"
+        verdict_title = "LIBERADO POR WHITELIST (Lista Confiável)"
+        verdict_action = "Entregar na Caixa de Entrada (Ignorar regras de Spam)"
+    elif is_spam:
+        verdict_status = "SPAM_DETECTED"
+        verdict_title = "CLASSIFICADO COMO SPAM"
+        verdict_action = "Mover para Quarentena / Pasta de Lixo Eletrônico"
+
+    blacklist_matches = [r for r in triggered if r.get('type') in ['blacklist', 'spam_list']]
+    whitelist_matches = [r for r in triggered if r.get('type') == 'whitelist']
+    heuristic_matches = [r for r in triggered if r.get('type') == 'heuristic']
+
+    breakdown = f"Pontuação Total: {total_score:.1f} / 5.0 ({verdict_title}). {len(triggered)} regra(s) acionada(s)." if triggered else "Pontuação Total: 0.0 / 5.0. Nenhuma regra ativada."
 
     return jsonify({
         'success': True,
@@ -825,8 +953,16 @@ def test_spam_rules_simulation():
         'score': round(total_score, 1),
         'required_score': 5.0,
         'is_spam': is_spam,
+        'is_blacklisted': is_blacklisted,
+        'is_whitelisted': is_whitelisted,
+        'verdict_status': verdict_status,
+        'verdict_title': verdict_title,
+        'verdict_action': verdict_action,
         'rules_matched': triggered,
         'rules_triggered': triggered,
+        'blacklist_matches': blacklist_matches,
+        'whitelist_matches': whitelist_matches,
+        'heuristic_matches': heuristic_matches,
         'breakdown_text': breakdown
     })
 

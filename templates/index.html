@@ -1925,26 +1925,52 @@
 
                                 <!-- Testador Rápido Integrado (Validação Instantânea) -->
                                 <div class="card bg-dark text-white border-0 rounded-4 p-4 shadow-md">
-                                    <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 mb-3">
                                         <div>
                                             <h6 class="fw-bold text-warning mb-1 d-flex align-items-center gap-2">
-                                                <i class="bi bi-play-circle-fill"></i> Testador Rápido de Inteligência AntiSPAM
+                                                <i class="bi bi-play-circle-fill"></i> Testador Rápido de Inteligência AntiSPAM & Blacklist
                                             </h6>
-                                            <small class="text-white-50">Insira um Assunto e Corpo de e-mail de teste para verificar em tempo real quais regras locais dariam match e qual seria a pontuação somada:</small>
+                                            <small class="text-white-50">Validação completa e instantânea contra as Regras Heurísticas Locais e Listas de Acesso (Blacklist / Whitelist):</small>
                                         </div>
-                                        <button class="btn btn-warning btn-sm fw-bold text-dark rounded-3 px-3" id="btn-run-inline-test" onclick="runInlineSpamTest()">
+                                        <button class="btn btn-warning btn-sm fw-bold text-dark rounded-3 px-3 shadow-sm" id="btn-run-inline-test" onclick="runInlineSpamTest()">
                                             <i class="bi bi-lightning-fill me-1"></i> Verificar Mensagem
                                         </button>
                                     </div>
 
-                                    <div class="row g-3">
-                                        <div class="col-md-6">
+                                    <!-- Cenários Rápidos Inline -->
+                                    <div class="mb-3">
+                                        <small class="text-white-50 fw-semibold d-block mb-1.5"><i class="bi bi-lightning-charge text-warning me-1"></i>Preencher Cenário de Teste Rápido:</small>
+                                        <div class="d-flex flex-wrap gap-2">
+                                            <button type="button" class="btn btn-outline-danger btn-sm rounded-pill text-white py-0.5 px-2.5 font-monospace small" onclick="loadInlineScenario('blacklist')">
+                                                <i class="bi bi-slash-circle me-1"></i> Blacklist (*@spammerdomain.net)
+                                            </button>
+                                            <button type="button" class="btn btn-outline-success btn-sm rounded-pill text-white py-0.5 px-2.5 font-monospace small" onclick="loadInlineScenario('whitelist')">
+                                                <i class="bi bi-check2-circle me-1"></i> Whitelist (*@empresa.com.br)
+                                            </button>
+                                            <button type="button" class="btn btn-outline-warning btn-sm rounded-pill text-white py-0.5 px-2.5 font-monospace small" onclick="loadInlineScenario('pedagio')">
+                                                <i class="bi bi-shield-x me-1"></i> Golpe Pedágio (Assunto)
+                                            </button>
+                                            <button type="button" class="btn btn-outline-info btn-sm rounded-pill text-white py-0.5 px-2.5 font-monospace small" onclick="loadInlineScenario('replyto')">
+                                                <i class="bi bi-reply me-1"></i> Reply-To Sequestrado
+                                            </button>
+                                            <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill text-white py-0.5 px-2.5 font-monospace small" onclick="loadInlineScenario('limpo')">
+                                                <i class="bi bi-envelope-check me-1"></i> E-mail Limpo / Legítimo
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div class="row g-2">
+                                        <div class="col-md-5">
                                             <label class="form-label text-white-50 small fw-semibold mb-1">Assunto do E-mail (Subject):</label>
                                             <input type="text" id="inline-test-subject" class="form-control form-control-sm bg-black text-white border-secondary font-monospace" value="Regularizacao de Debito de Pedagio Rodoviario">
                                         </div>
-                                        <div class="col-md-6">
+                                        <div class="col-md-4">
                                             <label class="form-label text-white-50 small fw-semibold mb-1">Remetente (From):</label>
                                             <input type="text" id="inline-test-from" class="form-control form-control-sm bg-black text-white border-secondary font-monospace" value="Concessionaria <notificacao@pedagio-cobranca.com>">
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label text-white-50 small fw-semibold mb-1">Reply-To (Opcional):</label>
+                                            <input type="text" id="inline-test-replyto" class="form-control form-control-sm bg-black text-white border-secondary font-monospace" placeholder="Ex: financeiro@vidracariarubi.com.br" value="">
                                         </div>
                                         <div class="col-12">
                                             <label class="form-label text-white-50 small fw-semibold mb-1">Corpo da Mensagem (Body):</label>
@@ -2052,8 +2078,14 @@
 
                                     <!-- Cenários Rápidos -->
                                     <div class="mb-3">
-                                        <small class="text-muted fw-bold d-block mb-1">Cenários Rápidos:</small>
+                                        <small class="text-muted fw-bold d-block mb-1">Cenários Rápidos de Teste:</small>
                                         <div class="d-flex flex-wrap gap-2">
+                                            <button type="button" class="btn btn-outline-danger btn-sm rounded-pill font-monospace" onclick="loadSimScenario('blacklist')">
+                                                <i class="bi bi-slash-circle me-1"></i> Blacklist (*@spammerdomain.net)
+                                            </button>
+                                            <button type="button" class="btn btn-outline-success btn-sm rounded-pill font-monospace" onclick="loadSimScenario('whitelist')">
+                                                <i class="bi bi-check2-circle me-1"></i> Whitelist (*@empresa.com.br)
+                                            </button>
                                             <button type="button" class="btn btn-outline-danger btn-sm rounded-pill" onclick="loadSimScenario('pedagio')">
                                                 <i class="bi bi-shield-x me-1"></i> Golpe do Pedágio
                                             </button>
@@ -5392,9 +5424,40 @@
     // -------------------------------------------------------------
     // TESTADOR RÁPIDO INLINE & SIMULADOR
     // -------------------------------------------------------------
+    function loadInlineScenario(type) {
+        if (type === 'blacklist') {
+            document.getElementById('inline-test-subject').value = 'Oferta Imperdível - Desconto Especial';
+            document.getElementById('inline-test-from').value = 'Marketing Global <notificacao@spammerdomain.net>';
+            document.getElementById('inline-test-replyto').value = 'contato@spammerdomain.net';
+            document.getElementById('inline-test-body').value = 'Prezado usuário, aproveite as nossas super promoções clicando no link abaixo.';
+        } else if (type === 'whitelist') {
+            document.getElementById('inline-test-subject').value = 'Relatório Mensal de Operações e Alinhamento';
+            document.getElementById('inline-test-from').value = 'Diretoria Executiva <diretoria@empresa.com.br>';
+            document.getElementById('inline-test-replyto').value = 'diretoria@empresa.com.br';
+            document.getElementById('inline-test-body').value = 'Olá equipe, segue o relatório mensal consolidado para revisão da diretoria.';
+        } else if (type === 'pedagio') {
+            document.getElementById('inline-test-subject').value = 'Regularizacao de Debito de Pedagio Rodoviario';
+            document.getElementById('inline-test-from').value = 'Concessionaria <notificacao@pedagio-cobranca.com>';
+            document.getElementById('inline-test-replyto').value = '';
+            document.getElementById('inline-test-body').value = 'Prezado motorista, consta uma notificacao de pedagio pendente de pagamento na rodovia.';
+        } else if (type === 'replyto') {
+            document.getElementById('inline-test-subject').value = 'Faturamento de Serviços Prestados';
+            document.getElementById('inline-test-from').value = 'Atendimento Comercial <comercial@empresa-cliente.com>';
+            document.getElementById('inline-test-replyto').value = 'financeiro@vidracariarubi.com.br';
+            document.getElementById('inline-test-body').value = 'Favor confirmar os dados bancários para compensação do pagamento pendente.';
+        } else if (type === 'limpo') {
+            document.getElementById('inline-test-subject').value = 'Atualização de Sistema de Manutenção Programada';
+            document.getElementById('inline-test-from').value = 'Suporte Técnico <suporte@parceiro.com.br>';
+            document.getElementById('inline-test-replyto').value = 'suporte@parceiro.com.br';
+            document.getElementById('inline-test-body').value = 'Informamos que realizaremos uma manutenção preventiva em nossos servidores neste sábado às 22h.';
+        }
+        runInlineSpamTest();
+    }
+
     async function runInlineSpamTest() {
         const subject = document.getElementById('inline-test-subject').value;
         const from = document.getElementById('inline-test-from').value;
+        const replyto = document.getElementById('inline-test-replyto')?.value || '';
         const body = document.getElementById('inline-test-body').value;
         const resDiv = document.getElementById('inline-test-result-container');
         const btn = document.getElementById('btn-run-inline-test');
@@ -5406,44 +5469,120 @@
             const data = await fetchJson('/api/services/spamassassin/simulate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ subject, from, body, replyto: '' })
+                body: JSON.stringify({ subject, from, replyto, body })
             });
 
             resDiv.classList.remove('d-none');
             const isSpam = data.is_spam;
-            const score = data.score;
+            const isBlacklisted = data.is_blacklisted;
+            const isWhitelisted = data.is_whitelisted;
+            const score = Number(data.score || 0);
             const rulesMatched = data.rules_matched || [];
+            const blacklistMatches = data.blacklist_matches || rulesMatched.filter(r => r.type === 'blacklist' || r.type === 'spam_list');
+            const whitelistMatches = data.whitelist_matches || rulesMatched.filter(r => r.type === 'whitelist');
+            const heuristicMatches = data.heuristic_matches || rulesMatched.filter(r => r.type === 'heuristic' || !r.type);
 
-            let badgeStatus = isSpam 
-                ? '<span class="badge bg-danger fs-6 px-3 py-1.5"><i class="bi bi-shield-x me-1"></i> SPAM DETECTADO (BLOQUEIO IMEDIATO)</span>' 
-                : '<span class="badge bg-success fs-6 px-3 py-1.5"><i class="bi bi-shield-check me-1"></i> MENSAGEM LIMPA / ACEITA</span>';
+            let verdictBadge = '';
+            let verdictBorder = 'border-secondary';
+            let verdictBg = 'bg-secondary bg-opacity-25';
 
-            let rulesHtml = '';
-            if (rulesMatched.length > 0) {
-                rulesHtml = rulesMatched.map(r => `
-                    <div class="d-flex align-items-center justify-content-between bg-black bg-opacity-50 p-2 rounded border border-secondary mb-1">
-                        <div>
-                            <span class="badge bg-warning text-dark font-monospace me-2">${r.rule}</span>
-                            <span class="small text-white-50">${r.describe || 'Regra acionada'}</span>
-                        </div>
-                        <span class="badge bg-danger-subtle text-danger font-monospace fs-6">+${parseFloat(r.points || 0).toFixed(1)} pts</span>
-                    </div>
-                `).join('');
+            if (isBlacklisted) {
+                verdictBadge = '<span class="badge bg-danger fs-6 px-3 py-1.5"><i class="bi bi-slash-circle-fill me-1"></i> BLOQUEIO IMEDIATO (BLACK-LIST)</span>';
+                verdictBorder = 'border-danger';
+                verdictBg = 'bg-danger bg-opacity-10';
+            } else if (isWhitelisted) {
+                verdictBadge = '<span class="badge bg-success fs-6 px-3 py-1.5"><i class="bi bi-check-circle-fill me-1"></i> LIBERADO POR WHITE-LIST</span>';
+                verdictBorder = 'border-success';
+                verdictBg = 'bg-success bg-opacity-10';
+            } else if (isSpam) {
+                verdictBadge = '<span class="badge bg-danger fs-6 px-3 py-1.5"><i class="bi bi-shield-x me-1"></i> SPAM DETECTADO (INTELIGÊNCIA ANTISPAM)</span>';
+                verdictBorder = 'border-warning';
+                verdictBg = 'bg-warning bg-opacity-10';
             } else {
-                rulesHtml = '<div class="text-white-50 small p-2">Nenhuma regra local ou filtro de lista foi disparado para este texto.</div>';
+                verdictBadge = '<span class="badge bg-success fs-6 px-3 py-1.5"><i class="bi bi-shield-check me-1"></i> MENSAGEM LIMPA / ACEITA</span>';
+                verdictBorder = 'border-success';
+                verdictBg = 'bg-success bg-opacity-10';
+            }
+
+            let blacklistHtml = '';
+            if (blacklistMatches.length > 0) {
+                blacklistHtml = `
+                    <div class="mb-3">
+                        <div class="fw-bold text-danger small mb-1.5 d-flex align-items-center gap-1.5">
+                            <i class="bi bi-slash-circle-fill"></i> Bloqueio por Lista de Acesso (Blacklist / Spam_From):
+                        </div>
+                        ${blacklistMatches.map(r => `
+                            <div class="d-flex align-items-center justify-content-between bg-black bg-opacity-60 p-2 rounded border border-danger border-opacity-50 mb-1">
+                                <div>
+                                    <span class="badge bg-danger font-monospace me-2">${r.rule || r.name}</span>
+                                    <span class="small text-white-50">${r.describe || 'Remetente ou domínio em Blacklist'}</span>
+                                    <div class="text-white-50 font-monospace" style="font-size: 0.75rem;">Alvo: ${r.target || 'From'} &bull; Match: <code>${r.pattern || ''}</code></div>
+                                </div>
+                                <span class="badge bg-danger text-white font-monospace fs-6">+${parseFloat(r.points || r.score || 100).toFixed(1)} pts</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            let whitelistHtml = '';
+            if (whitelistMatches.length > 0) {
+                whitelistHtml = `
+                    <div class="mb-3">
+                        <div class="fw-bold text-success small mb-1.5 d-flex align-items-center gap-1.5">
+                            <i class="bi bi-check2-circle"></i> Liberação por Lista Confiável (Whitelist):
+                        </div>
+                        ${whitelistMatches.map(r => `
+                            <div class="d-flex align-items-center justify-content-between bg-black bg-opacity-60 p-2 rounded border border-success border-opacity-50 mb-1">
+                                <div>
+                                    <span class="badge bg-success font-monospace me-2">${r.rule || r.name}</span>
+                                    <span class="small text-white-50">${r.describe || 'Remetente liberado por Whitelist'}</span>
+                                    <div class="text-white-50 font-monospace" style="font-size: 0.75rem;">Alvo: ${r.target || 'From'} &bull; Match: <code>${r.pattern || ''}</code></div>
+                                </div>
+                                <span class="badge bg-success text-white font-monospace fs-6">${parseFloat(r.points || r.score || -100).toFixed(1)} pts</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            let heuristicHtml = '';
+            if (heuristicMatches.length > 0) {
+                heuristicHtml = `
+                    <div class="mb-2">
+                        <div class="fw-bold text-warning small mb-1.5 d-flex align-items-center gap-1.5">
+                            <i class="bi bi-magic"></i> Regras da Inteligência AntiSPAM (Heurísticas Locais):
+                        </div>
+                        ${heuristicMatches.map(r => `
+                            <div class="d-flex align-items-center justify-content-between bg-black bg-opacity-60 p-2 rounded border border-secondary mb-1">
+                                <div>
+                                    <span class="badge bg-warning text-dark font-monospace me-2">${r.rule || r.name}</span>
+                                    <span class="small text-white-50">${r.describe || 'Regra heurística acionada'}</span>
+                                    <div class="text-white-50 font-monospace" style="font-size: 0.75rem;">Alvo: ${r.target || 'Subject'} &bull; Regex: <code>${r.pattern || ''}</code></div>
+                                </div>
+                                <span class="badge bg-danger-subtle text-danger font-monospace fs-6">+${parseFloat(r.points || r.score || 0).toFixed(1)} pts</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            if (rulesMatched.length === 0) {
+                heuristicHtml = '<div class="text-white-50 small p-2 bg-black bg-opacity-40 rounded border border-secondary"><i class="bi bi-check-circle text-success me-1"></i> Nenhuma regra local, filtro de blacklist ou padrão suspeito foi detectado neste e-mail.</div>';
             }
 
             resDiv.innerHTML = `
-                <div class="card bg-secondary bg-opacity-25 border border-secondary rounded-3 p-3">
-                    <div class="d-flex align-items-center justify-content-between mb-3 border-bottom border-secondary pb-2">
-                        <div class="d-flex align-items-center gap-2">
-                            ${badgeStatus}
+                <div class="card ${verdictBg} border ${verdictBorder} rounded-3 p-3 shadow-sm">
+                    <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 mb-3 border-bottom border-secondary pb-2">
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            ${verdictBadge}
                             <span class="badge bg-dark text-white border font-monospace fs-6 px-2.5 py-1">Score Total: ${score.toFixed(1)} / Limite: ${data.required_score || 5.0}</span>
                         </div>
-                        <small class="text-white-50">Avaliação do Motor de Regras SpamAssassin</small>
+                        <small class="text-white-50">Ação: <strong class="text-white">${data.verdict_action || (isSpam ? 'Descarte / Quarentena' : 'Entregar na Caixa')}</strong></small>
                     </div>
-                    <div class="fw-bold text-white small mb-2"><i class="bi bi-magic text-warning me-1"></i> Regras da Inteligência AntiSPAM Acionadas:</div>
-                    ${rulesHtml}
+                    ${blacklistHtml}
+                    ${whitelistHtml}
+                    ${heuristicHtml}
                 </div>
             `;
         } catch (e) {
@@ -5455,7 +5594,17 @@
     }
 
     function loadSimScenario(type) {
-        if (type === 'pedagio') {
+        if (type === 'blacklist') {
+            document.getElementById('sim-subject').value = 'Oferta Especial Exclusiva para Você';
+            document.getElementById('sim-from').value = 'Marketing <notificacao@spammerdomain.net>';
+            document.getElementById('sim-replyto').value = 'contato@spammerdomain.net';
+            document.getElementById('sim-body').value = 'Prezado usuário, aproveite as nossas super promoções clicando no link abaixo.';
+        } else if (type === 'whitelist') {
+            document.getElementById('sim-subject').value = 'Relatório Mensal de Operações e Alinhamento';
+            document.getElementById('sim-from').value = 'Diretoria Executiva <diretoria@empresa.com.br>';
+            document.getElementById('sim-replyto').value = 'diretoria@empresa.com.br';
+            document.getElementById('sim-body').value = 'Olá equipe, segue o relatório mensal consolidado para revisão da diretoria.';
+        } else if (type === 'pedagio') {
             document.getElementById('sim-subject').value = 'Regularização de Débito de Pedágio Rodoviário';
             document.getElementById('sim-from').value = 'Concessionaria <notificacao@pedagio-cobranca.com>';
             document.getElementById('sim-replyto').value = 'financeiro@vidracariarubi.com.br';
@@ -5476,6 +5625,7 @@
             document.getElementById('sim-replyto').value = 'diretoria@empresa-parceira.com.br';
             document.getElementById('sim-body').value = 'Olá equipe, segue em anexo a pauta para nossa reunião de alinhamento trimestral amanhã às 14h.';
         }
+        runSpamSimulator();
     }
 
     async function runSpamSimulator() {
@@ -5496,46 +5646,70 @@
             });
 
             const isSpam = data.is_spam;
-            const score = data.score;
+            const isBlacklisted = data.is_blacklisted;
+            const isWhitelisted = data.is_whitelisted;
+            const score = Number(data.score || 0);
             const rulesMatched = data.rules_matched || [];
 
-            let rulesHtml = '';
-            if (rulesMatched.length > 0) {
-                rulesHtml = rulesMatched.map(r => `
-                    <tr>
-                        <td><code class="fw-bold text-dark fs-6">${r.rule}</code></td>
-                        <td><span class="small text-secondary">${r.describe || 'Regra acionada'}</span></td>
-                        <td class="text-center"><span class="badge bg-danger-subtle text-danger font-monospace fs-6">+${parseFloat(r.points || 0).toFixed(1)}</span></td>
-                    </tr>
-                `).join('');
+            let badgeHtml = '';
+            if (isBlacklisted) {
+                badgeHtml = '<span class="badge bg-danger fs-6 px-3 py-2"><i class="bi bi-slash-circle-fill me-1"></i> BLOQUEIO IMEDIATO (BLACK-LIST)</span>';
+            } else if (isWhitelisted) {
+                badgeHtml = '<span class="badge bg-success fs-6 px-3 py-2"><i class="bi bi-check-circle-fill me-1"></i> LIBERADO POR WHITE-LIST</span>';
+            } else if (isSpam) {
+                badgeHtml = '<span class="badge bg-danger fs-6 px-3 py-2"><i class="bi bi-shield-x me-1"></i> CLASSIFICADO COMO SPAM</span>';
             } else {
-                rulesHtml = '<tr><td colspan="3" class="text-center text-muted py-3">Nenhuma regra foi disparada pelo conteúdo deste e-mail.</td></tr>';
+                badgeHtml = '<span class="badge bg-success fs-6 px-3 py-2"><i class="bi bi-shield-check me-1"></i> E-MAIL LEGÍTIMO (CLEAN)</span>';
+            }
+
+            let rulesRows = '';
+            if (rulesMatched.length > 0) {
+                rulesRows = rulesMatched.map(r => {
+                    const isPositive = Number(r.points || r.score || 0) >= 0;
+                    const pts = Number(r.points || r.score || 0);
+                    const ptsClass = pts < 0 ? 'badge bg-success-subtle text-success' : (pts >= 50 ? 'badge bg-danger text-white' : 'badge bg-danger-subtle text-danger');
+                    const ptsPrefix = pts > 0 ? '+' : '';
+                    const typeLabel = r.category_label || (r.type === 'blacklist' ? '🚫 Blacklist' : (r.type === 'whitelist' ? '🟢 Whitelist' : '🧠 Heurística'));
+                    return `
+                        <tr>
+                            <td>
+                                <div class="d-flex align-items-center gap-1.5 flex-wrap">
+                                    <code class="fw-bold text-dark fs-6">${r.rule || r.name}</code>
+                                    <span class="badge bg-secondary-subtle text-dark small" style="font-size: 0.7rem;">${typeLabel}</span>
+                                </div>
+                                <div class="text-muted font-monospace" style="font-size: 0.75rem;">Alvo: ${r.target || 'Geral'} &bull; Match: <code>${r.pattern || ''}</code></div>
+                            </td>
+                            <td><span class="small text-secondary">${r.describe || 'Regra acionada'}</span></td>
+                            <td class="text-center"><span class="${ptsClass} font-monospace fs-6">${ptsPrefix}${pts.toFixed(1)}</span></td>
+                        </tr>
+                    `;
+                }).join('');
+            } else {
+                rulesRows = '<tr><td colspan="3" class="text-center text-muted py-3"><i class="bi bi-check-circle text-success me-1"></i> Nenhuma regra de Blacklist, Whitelist ou Heurística foi disparada. O e-mail está limpo.</td></tr>';
             }
 
             resDiv.innerHTML = `
-                <div class="card bg-light border p-3 rounded-4">
+                <div class="card bg-light border p-3 rounded-4 shadow-sm">
                     <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 mb-3 pb-3 border-bottom">
-                        <div class="d-flex align-items-center gap-2">
-                            <span class="badge ${isSpam ? 'bg-danger' : 'bg-success'} fs-6 px-3 py-2">
-                                ${isSpam ? '<i class="bi bi-shield-x me-1"></i> CLASSIFICADO COMO SPAM' : '<i class="bi bi-shield-check me-1"></i> E-MAIL LEGÍTIMO (CLEAN)'}
-                            </span>
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            ${badgeHtml}
                             <span class="badge bg-white text-dark border font-monospace fs-6 px-2.5 py-1.5">Score: ${score.toFixed(1)} / ${data.required_score || 5.0} pts</span>
                         </div>
-                        <small class="text-muted">Ação Recomendada: <strong>${isSpam ? 'Quarentena / Descarte' : 'Entregar na Caixa de Entrada'}</strong></small>
+                        <small class="text-muted">Ação Recomendada: <strong class="text-dark">${data.verdict_action || (isSpam ? 'Quarentena / Descarte' : 'Entregar na Caixa de Entrada')}</strong></small>
                     </div>
 
-                    <h6 class="fw-bold text-dark small mb-2"><i class="bi bi-list-check text-primary me-1"></i> Regras Disparadas:</h6>
+                    <h6 class="fw-bold text-dark small mb-2"><i class="bi bi-list-check text-primary me-1"></i> Regras Disparadas & Diagnóstico:</h6>
                     <div class="table-responsive bg-white rounded-3 border shadow-xs mb-0">
                         <table class="table table-sm align-middle mb-0">
                             <thead class="table-light">
                                 <tr>
-                                    <th style="width: 220px;">Regra</th>
+                                    <th style="width: 280px;">Regra & Alvo</th>
                                     <th>Descrição / Detalhe</th>
-                                    <th style="width: 100px;" class="text-center">Pontos</th>
+                                    <th style="width: 110px;" class="text-center">Pontuação</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                ${rulesHtml}
+                                ${rulesRows}
                             </tbody>
                         </table>
                     </div>
