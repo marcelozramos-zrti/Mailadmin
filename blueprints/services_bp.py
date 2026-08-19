@@ -756,13 +756,14 @@ def delete_custom_spam_rule():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
+@services_bp.route('/spamassassin/simulate', methods=['POST'])
 @services_bp.route('/spamassassin/test-rule', methods=['POST'])
 @login_required
 def test_spam_rules_simulation():
     data = request.get_json(silent=True) or request.form or {}
     test_subj = (data.get('subject') or '').strip()
     test_from = (data.get('from') or '').strip()
-    test_reply_to = (data.get('reply_to') or '').strip()
+    test_reply_to = (data.get('reply_to') or data.get('replyto') or '').strip()
     test_body = (data.get('body') or '').strip()
 
     content = ''
@@ -795,16 +796,18 @@ def test_spam_rules_simulation():
         elif target_lower == 'body':
             target_text = test_body
         else:
-            target_text = f"Subject: {test_subj}\nFrom: {test_from}\nReply-To: {test_reply_to}"
+            target_text = f"Subject: {test_subj}\nFrom: {test_from}\nReply-To: {test_reply_to}\n\n{test_body}"
 
         try:
             if target_text and re.search(raw_pat, target_text, flags):
                 score_val = float(rule.get('score', 5.0))
                 triggered.append({
+                    'rule': rule['name'],
                     'name': rule['name'],
                     'target': rule['target'],
                     'pattern': rule['pattern'],
                     'score': score_val,
+                    'points': score_val,
                     'describe': rule.get('describe', 'Regra customizada acionada'),
                     'matched_value': target_text
                 })
@@ -819,7 +822,10 @@ def test_spam_rules_simulation():
         'success': True,
         'matched': len(triggered) > 0,
         'total_score': round(total_score, 1),
+        'score': round(total_score, 1),
+        'required_score': 5.0,
         'is_spam': is_spam,
+        'rules_matched': triggered,
         'rules_triggered': triggered,
         'breakdown_text': breakdown
     })

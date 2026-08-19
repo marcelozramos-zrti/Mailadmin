@@ -2515,7 +2515,7 @@ Checks 12
   });
 
   // POST Create or Edit Custom Regex Rule
-  app.post("/api/services/spamassassin/custom-rules", (req, res) => {
+  const saveCustomRuleHandler = (req: express.Request, res: express.Response) => {
     const { name, target, pattern, score, describe, old_name } = req.body || {};
     
     if (!name || !name.trim()) {
@@ -2568,7 +2568,10 @@ Checks 12
       success: true,
       message: `Regra customizada '${cleanName}' salva com sucesso no local.cf! SpamAssassin atualizado.`
     });
-  });
+  };
+
+  app.post("/api/services/spamassassin/custom-rules", saveCustomRuleHandler);
+  app.post("/api/services/spamassassin/custom-rules/edit", saveCustomRuleHandler);
 
   // DELETE Custom Regex Rule
   app.post("/api/services/spamassassin/custom-rules/delete", (req, res) => {
@@ -2600,16 +2603,16 @@ Checks 12
   });
 
   // POST Simulator & Tester for E-mail Headers / Subject / From against local.cf
-  app.post("/api/services/spamassassin/test-rule", (req, res) => {
-    const { subject, from, reply_to, body, raw_headers } = req.body || {};
+  const handleSpamSimulate = (req: express.Request, res: express.Response) => {
+    const { subject, from, reply_to, replyto, body, raw_headers } = req.body || {};
     const testSubj = String(subject || "").trim();
     const testFrom = String(from || "").trim();
-    const testReplyTo = String(reply_to || "").trim();
+    const testReplyTo = String(reply_to || replyto || "").trim();
     const testBody = String(body || "").trim();
     const testHeaders = String(raw_headers || "").trim();
 
     const customRules = parseCustomSpamRules(virtualLocalCf);
-    const triggered: Array<{ name: string; target: string; pattern: string; score: number; describe: string; matched_value: string }> = [];
+    const triggered: Array<{ rule: string; name: string; target: string; pattern: string; score: number; points: number; describe: string; matched_value: string }> = [];
     let totalScore = 0;
 
     for (const rule of customRules) {
@@ -2636,19 +2639,22 @@ Checks 12
         } else if (targetLower === "body") {
           targetText = testBody;
         } else {
-          targetText = `${testHeaders}\nSubject: ${testSubj}\nFrom: ${testFrom}\nReply-To: ${testReplyTo}`;
+          targetText = `${testHeaders}\nSubject: ${testSubj}\nFrom: ${testFrom}\nReply-To: ${testReplyTo}\n\n${testBody}`;
         }
 
         if (targetText && re.test(targetText)) {
+          const pts = Number(rule.score || 0);
           triggered.push({
+            rule: rule.name,
             name: rule.name,
             target: rule.target,
             pattern: rule.pattern,
-            score: rule.score,
+            score: pts,
+            points: pts,
             describe: rule.describe || "Regra customizada acionada",
             matched_value: targetText
           });
-          totalScore += rule.score;
+          totalScore += pts;
         }
       } catch (err) {
         console.error("Regex test error for rule:", rule.name, err);
@@ -2664,10 +2670,12 @@ Checks 12
         const blDomain = blVal.replace("*@", "");
         if (testFrom.toLowerCase().includes(blDomain) || (testReplyTo && testReplyTo.toLowerCase().includes(blDomain))) {
           triggered.push({
+            rule: "USER_IN_BLACKLIST",
             name: "USER_IN_BLACKLIST",
             target: "From",
             pattern: blVal,
             score: 100.0,
+            points: 100.0,
             describe: `Remetente ou domínio presente na Blacklist (${blVal})`,
             matched_value: testFrom
           });
@@ -2678,10 +2686,12 @@ Checks 12
         const wlDomain = wlVal.replace("*@", "");
         if (testFrom.toLowerCase().includes(wlDomain)) {
           triggered.push({
+            rule: "USER_IN_WHITELIST",
             name: "USER_IN_WHITELIST",
             target: "From",
             pattern: wlVal,
             score: -100.0,
+            points: -100.0,
             describe: `Remetente ou domínio presente na Whitelist (${wlVal})`,
             matched_value: testFrom
           });
@@ -2699,11 +2709,17 @@ Checks 12
       success: true,
       matched: triggered.length > 0,
       total_score: Number(totalScore.toFixed(1)),
+      score: Number(totalScore.toFixed(1)),
+      required_score: 5.0,
       is_spam: isSpam,
+      rules_matched: triggered,
       rules_triggered: triggered,
       breakdown_text: breakdown
     });
-  });
+  };
+
+  app.post("/api/services/spamassassin/simulate", handleSpamSimulate);
+  app.post("/api/services/spamassassin/test-rule", handleSpamSimulate);
 
   app.post("/api/services/spamassassin/lint", (req, res) => {
     res.json({ success: true, message: "Sintaxe OK! O arquivo de regras local.cf é válido." });
