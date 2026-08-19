@@ -3,8 +3,8 @@ import { ServicesMap, LayoutPosition } from '../types';
 import { Server, Mail, Wrench, Shield, Terminal, Download, ShieldCheck, LayoutGrid, PanelLeft } from 'lucide-react';
 
 interface NavbarProps {
-  activeTab: 'dashboard' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export';
-  setActiveTab: (tab: 'dashboard' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export') => void;
+  activeTab: 'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export';
+  setActiveTab: (tab: 'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export') => void;
   services: ServicesMap;
   onOpenMfa: () => void;
   layoutPosition: LayoutPosition;
@@ -90,6 +90,18 @@ export function Navbar({
               >
                 <Server className="w-4 h-4" />
                 Dashboard
+              </button>
+
+              <button
+                onClick={() => setActiveTab('servers')}
+                className={`px-3.5 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 ${
+                  activeTab === 'servers'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <LayoutGrid className="w-4 h-4" />
+                Servidores
               </button>
 
               <button

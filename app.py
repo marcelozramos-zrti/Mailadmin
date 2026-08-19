@@ -14,6 +14,7 @@ from blueprints.auth_bp import auth_bp
 from blueprints.vmail_bp import vmail_bp
 from blueprints.troubleshooting_bp import troubleshooting_bp
 from blueprints.services_bp import services_bp
+from blueprints.servers_bp import servers_bp
 from blueprints.automation_bp import automation_bp, sync_system_crontab
 
 def create_app():
@@ -42,6 +43,7 @@ def create_app():
     app.register_blueprint(vmail_bp)
     app.register_blueprint(troubleshooting_bp)
     app.register_blueprint(services_bp)
+    app.register_blueprint(servers_bp)
     app.register_blueprint(automation_bp)
 
     @app.route('/')

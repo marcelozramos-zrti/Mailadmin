@@ -543,6 +543,288 @@ def delete_visual_rule_logic():
         return jsonify({'success': False, 'message': f'Erro ao excluir regra: {str(e)}'}), 500
 
 
+def parse_custom_spam_rules_py(cf_content):
+    lines = cf_content.splitlines()
+    rules_map = {}
+
+    for line in lines:
+        clean = line.strip()
+        if not clean or clean.startswith('# ==') or clean.startswith('# --'):
+            continue
+
+        header_match = re.match(r'^header\s+([A-Za-z0-9_]+)\s+([A-Za-z0-9_\-]+)\s*=~\s*(.+)$', clean, re.IGNORECASE)
+        if header_match:
+            name, target, raw_pattern = header_match.group(1), header_match.group(2), header_match.group(3).strip()
+            if name not in rules_map:
+                rules_map[name] = {'id': name, 'name': name, 'target': target, 'pattern': raw_pattern, 'score': 5.0, 'describe': '', 'enabled': True}
+            else:
+                rules_map[name]['target'] = target
+                rules_map[name]['pattern'] = raw_pattern
+            continue
+
+        body_match = re.match(r'^body\s+([A-Za-z0-9_]+)\s*=~\s*(.+)$', clean, re.IGNORECASE)
+        if body_match:
+            name, raw_pattern = body_match.group(1), body_match.group(2).strip()
+            if name not in rules_map:
+                rules_map[name] = {'id': name, 'name': name, 'target': 'Body', 'pattern': raw_pattern, 'score': 5.0, 'describe': '', 'enabled': True}
+            else:
+                rules_map[name]['target'] = 'Body'
+                rules_map[name]['pattern'] = raw_pattern
+            continue
+
+        score_match = re.match(r'^score\s+([A-Za-z0-9_]+)\s+([0-9\.\-]+)', clean, re.IGNORECASE)
+        if score_match:
+            name = score_match.group(1)
+            score_val = float(score_match.group(2))
+            if name in rules_map:
+                rules_map[name]['score'] = score_val
+            elif name.startswith('LOCAL_') or name.startswith('ZRTI_'):
+                rules_map[name] = {'id': name, 'name': name, 'target': 'Header', 'pattern': '', 'score': score_val, 'describe': '', 'enabled': True}
+            continue
+
+        desc_match = re.match(r'^describe\s+([A-Za-z0-9_]+)\s+(.+)$', clean, re.IGNORECASE)
+        if desc_match:
+            name = desc_match.group(1)
+            desc_val = desc_match.group(2).strip()
+            if name in rules_map:
+                rules_map[name]['describe'] = desc_val
+            continue
+
+    rule_list = []
+    for r in rules_map.values():
+        name_lower = r['name'].lower()
+        desc_lower = (r['describe'] or '').lower()
+        category = 'custom'
+        if 'golpe' in name_lower or 'phish' in name_lower or 'golpe' in desc_lower or 'phishing' in desc_lower:
+            category = 'phishing'
+        elif 'quebrado' in name_lower or 'ofuscado' in name_lower or 'ofusca' in desc_lower or 'encoding' in desc_lower:
+            category = 'obfuscation'
+        elif 'replyto' in name_lower or 'sequestrado' in desc_lower or 'reply-to' in desc_lower:
+            category = 'hijack'
+        r['category'] = category
+        rule_list.append(r)
+
+    return rule_list
+
+
+@services_bp.route('/spamassassin/custom-rules', methods=['GET', 'POST'])
+@services_bp.route('/spamassassin/custom-rules/edit', methods=['POST'])
+@login_required
+def handle_custom_spam_rules():
+    if request.method == 'GET':
+        try:
+            content = ''
+            if os.path.exists(LOCAL_CF_PATH):
+                with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
+                    content = f.read()
+            rules = parse_custom_spam_rules_py(content)
+            return jsonify({'success': True, 'rules': rules})
+        except Exception as e:
+            return jsonify({'success': False, 'message': str(e)}), 500
+
+    elif request.method == 'POST':
+        user_role = getattr(current_user, 'role', 'admin') if hasattr(current_user, 'is_authenticated') and current_user.is_authenticated else 'admin'
+        if user_role == 'user':
+            return jsonify({'success': False, 'message': 'Acesso negado: Perfil de Usuário não possui permissão para editar regras de Spam.'}), 403
+
+        data = request.get_json(silent=True) or request.form or {}
+        name = (data.get('name') or '').strip().upper()
+        target = (data.get('target') or 'Subject').strip()
+        pattern = (data.get('pattern') or '').strip()
+        score = data.get('score', 15.0)
+        describe = (data.get('describe') or f'ZRTI - Regra {name}').strip()
+        old_name = (data.get('old_name') or '').strip().upper()
+
+        if not name or not pattern:
+            return jsonify({'success': False, 'message': 'Nome identificador e padrão Regex são obrigatórios.'}), 400
+
+        clean_name = re.sub(r'[^A-Z0-9_]', '_', name)
+        clean_target = target
+        clean_pattern = pattern if pattern.startswith('/') else f'/{pattern}/i'
+        clean_score = f"{float(score):.1f}"
+
+        name_to_remove = old_name if old_name else clean_name
+
+        try:
+            content = ''
+            lines = []
+            if os.path.exists(LOCAL_CF_PATH):
+                with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+
+            new_lines = []
+            for line in lines:
+                l_str = line.strip()
+                if l_str.startswith(f'header {name_to_remove} ') or l_str.startswith(f'header   {name_to_remove} '):
+                    continue
+                if l_str.startswith(f'body {name_to_remove} ') or l_str.startswith(f'body   {name_to_remove} '):
+                    continue
+                if l_str.startswith(f'uri {name_to_remove} ') or l_str.startswith(f'uri   {name_to_remove} '):
+                    continue
+                if l_str.startswith(f'score {name_to_remove} ') or l_str.startswith(f'score    {name_to_remove} '):
+                    continue
+                if l_str.startswith(f'describe {name_to_remove} ') or l_str.startswith(f'describe {name_to_remove} '):
+                    continue
+                new_lines.append(line)
+
+            if clean_target.lower() == 'body':
+                rule_block = f"\n# Regra Customizada Heurística {clean_name}\nbody     {clean_name} =~ {clean_pattern}\nscore    {clean_name} {clean_score}\ndescribe {clean_name} {describe}\n"
+            else:
+                rule_block = f"\n# Regra Customizada Heurística {clean_name}\nheader   {clean_name} {clean_target} =~ {clean_pattern}\nscore    {clean_name} {clean_score}\ndescribe {clean_name} {describe}\n"
+
+            content = "".join(new_lines) + rule_block
+
+            try:
+                with open(LOCAL_CF_PATH, 'w', encoding='utf-8') as f:
+                    f.write(content)
+            except Exception:
+                tmp_file = '/tmp/local.cf.tmp'
+                with open(tmp_file, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
+                if os.path.exists(tmp_file):
+                    os.remove(tmp_file)
+
+            run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
+            run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
+
+            try:
+                log_audit_action('SPAM_CUSTOM_RULE_SAVE', target=clean_name, details={'target': clean_target, 'pattern': clean_pattern, 'score': clean_score, 'describe': describe}, severity_level='normal')
+            except Exception:
+                pass
+
+            return jsonify({'success': True, 'message': f'Regra heurística "{clean_name}" salva com sucesso no local.cf!'})
+        except Exception as e:
+            return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@services_bp.route('/spamassassin/custom-rules/delete', methods=['POST'])
+@login_required
+def delete_custom_spam_rule():
+    user_role = getattr(current_user, 'role', 'admin') if hasattr(current_user, 'is_authenticated') and current_user.is_authenticated else 'admin'
+    if user_role == 'user':
+        return jsonify({'success': False, 'message': 'Acesso negado: Perfil de Usuário não possui permissão para excluir regras de Spam.'}), 403
+
+    data = request.get_json(silent=True) or request.form or {}
+    name = (data.get('name') or '').strip().upper()
+
+    if not name:
+        return jsonify({'success': False, 'message': 'Nome da regra não informado.'}), 400
+
+    try:
+        if not os.path.exists(LOCAL_CF_PATH):
+            return jsonify({'success': False, 'message': 'Arquivo local.cf não encontrado.'}), 404
+
+        with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        new_lines = []
+        for line in lines:
+            l_str = line.strip()
+            if l_str.startswith(f'header {name} ') or l_str.startswith(f'header   {name} '):
+                continue
+            if l_str.startswith(f'body {name} ') or l_str.startswith(f'body   {name} '):
+                continue
+            if l_str.startswith(f'score {name} ') or l_str.startswith(f'score    {name} '):
+                continue
+            if l_str.startswith(f'describe {name} ') or l_str.startswith(f'describe {name} '):
+                continue
+            new_lines.append(line)
+
+        content = "".join(new_lines)
+        try:
+            with open(LOCAL_CF_PATH, 'w', encoding='utf-8') as f:
+                f.write(content)
+        except Exception:
+            tmp_file = '/tmp/local.cf.tmp'
+            with open(tmp_file, 'w', encoding='utf-8') as f:
+                f.write(content)
+            run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
+            if os.path.exists(tmp_file):
+                os.remove(tmp_file)
+
+        run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
+        run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
+
+        try:
+            log_audit_action('SPAM_CUSTOM_RULE_DELETE', target=name, details={'name': name}, severity_level='normal')
+        except Exception:
+            pass
+
+        return jsonify({'success': True, 'message': f'Regra heurística "{name}" removida com sucesso!'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@services_bp.route('/spamassassin/test-rule', methods=['POST'])
+@login_required
+def test_spam_rules_simulation():
+    data = request.get_json(silent=True) or request.form or {}
+    test_subj = (data.get('subject') or '').strip()
+    test_from = (data.get('from') or '').strip()
+    test_reply_to = (data.get('reply_to') or '').strip()
+    test_body = (data.get('body') or '').strip()
+
+    content = ''
+    if os.path.exists(LOCAL_CF_PATH):
+        with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+    custom_rules = parse_custom_spam_rules_py(content)
+    triggered = []
+    total_score = 0.0
+
+    for rule in custom_rules:
+        pattern = rule.get('pattern', '')
+        if not pattern:
+            continue
+
+        raw_pat = pattern.strip()
+        flags = re.IGNORECASE
+        if raw_pat.startswith('/') and raw_pat.rfind('/') > 0:
+            raw_pat = raw_pat[1:raw_pat.rfind('/')]
+
+        target_lower = (rule.get('target') or 'subject').lower()
+        target_text = ''
+        if target_lower == 'subject':
+            target_text = test_subj
+        elif target_lower == 'from':
+            target_text = test_from
+        elif target_lower in ['reply-to', 'replyto']:
+            target_text = test_reply_to
+        elif target_lower == 'body':
+            target_text = test_body
+        else:
+            target_text = f"Subject: {test_subj}\nFrom: {test_from}\nReply-To: {test_reply_to}"
+
+        try:
+            if target_text and re.search(raw_pat, target_text, flags):
+                score_val = float(rule.get('score', 5.0))
+                triggered.append({
+                    'name': rule['name'],
+                    'target': rule['target'],
+                    'pattern': rule['pattern'],
+                    'score': score_val,
+                    'describe': rule.get('describe', 'Regra customizada acionada'),
+                    'matched_value': target_text
+                })
+                total_score += score_val
+        except Exception:
+            pass
+
+    is_spam = total_score >= 5.0
+    breakdown = f"Pontuação Total: {total_score:.1f} / 5.0 ({'DETECTADO COMO SPAM' if is_spam else 'MENSAGEM LIBERADA'}). {len(triggered)} regra(s) acionada(s)." if triggered else "Pontuação Total: 0.0 / 5.0. Nenhuma regra heurística ativada."
+
+    return jsonify({
+        'success': True,
+        'matched': len(triggered) > 0,
+        'total_score': round(total_score, 1),
+        'is_spam': is_spam,
+        'rules_triggered': triggered,
+        'breakdown_text': breakdown
+    })
+
+
 @services_bp.route('/spamassassin/lint', methods=['GET', 'POST'])
 @login_required
 def lint_rules():

@@ -123,6 +123,68 @@ export interface VisualSpamRule {
   raw: string;
 }
 
+export interface CustomRegexRule {
+  id: string | number;
+  name: string;
+  target: 'Subject' | 'From' | 'Reply-To' | 'To' | 'Received' | 'Message-ID' | 'Body' | 'URI' | string;
+  match_mode?: 'regex' | 'phrase' | 'contains' | 'obfuscated';
+  pattern: string;
+  score: number;
+  describe: string;
+  enabled?: boolean;
+  category?: 'phishing' | 'obfuscation' | 'hijack' | 'banking_pix' | 'fake_invoice' | 'custom';
+  action_type?: 'quarantine' | 'mark_spam' | 'reject';
+  hits_count?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SslCertificateInfo {
+  domain: string;
+  valid: boolean;
+  issuer: string;
+  subject: string;
+  valid_from: string;
+  valid_to: string;
+  days_remaining: number;
+  auto_renew_active: boolean;
+  cert_path: string;
+  key_path: string;
+}
+
+export interface ServerServiceDetail {
+  id: 'postfix' | 'amavis' | 'clamav-daemon' | 'spamassassin';
+  name: string;
+  service_unit: string;
+  display_name: string;
+  status: 'active' | 'inactive' | 'failed' | 'degraded';
+  pid: number | null;
+  memory_mb: number;
+  cpu_percent: number;
+  uptime: string;
+  ports: number[];
+  config_file: string;
+  config_content: string;
+  features: Record<string, any>;
+  ssl_info?: SslCertificateInfo;
+  recent_logs: string[];
+}
+
+export interface RegexRuleTestResult {
+  matched: boolean;
+  total_score: number;
+  is_spam: boolean;
+  rules_triggered: {
+    name: string;
+    target: string;
+    pattern: string;
+    score: number;
+    describe: string;
+    matched_value?: string;
+  }[];
+  breakdown_text: string;
+}
+
 export interface LintResponse {
   success: boolean;
   message: string;

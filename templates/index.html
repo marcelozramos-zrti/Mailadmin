@@ -1765,8 +1765,20 @@
                         <!-- Sub-abas (Bootstrap Nav-Tabs) -->
                         <ul class="nav nav-tabs mb-4" id="spamTabs" role="tablist">
                             <li class="nav-item" role="presentation">
-                                <button class="nav-link active fw-bold small text-dark d-flex align-items-center gap-2" id="spam-visual-tab" data-bs-toggle="tab" data-bs-target="#spam-tab-visual" type="button" role="tab">
-                                    <i class="bi bi-list-check text-primary"></i> Gestão Visual (Listas de Acesso)
+                                <button class="nav-link active fw-bold small text-dark d-flex align-items-center gap-2" id="spam-heuristics-tab" data-bs-toggle="tab" data-bs-target="#spam-tab-heuristics" type="button" role="tab">
+                                    <i class="bi bi-magic text-warning"></i> Inteligência AntiSPAM (Regras Locais)
+                                    <span id="badge-custom-rules-count" class="badge bg-warning-subtle text-dark border border-warning-subtle font-monospace ms-1">0</span>
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link fw-bold small text-muted d-flex align-items-center gap-2" id="spam-visual-tab" data-bs-toggle="tab" data-bs-target="#spam-tab-visual" type="button" role="tab">
+                                    <i class="bi bi-shield-slash text-danger"></i> Blacklist & Listas de Acesso
+                                    <span id="badge-visual-rules-count" class="badge bg-secondary-subtle text-secondary font-monospace ms-1">0</span>
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link fw-bold small text-muted d-flex align-items-center gap-2" id="spam-sim-tab" data-bs-toggle="tab" data-bs-target="#spam-tab-sim" type="button" role="tab">
+                                    <i class="bi bi-play-circle text-primary"></i> Simulador & Testador
                                 </button>
                             </li>
                             <li class="nav-item" role="presentation">
@@ -1777,15 +1789,183 @@
                         </ul>
 
                         <div class="tab-content" id="spamTabsContent">
-                            <!-- TAB 1: GESTÃO VISUAL DE REGRAS -->
-                            <div class="tab-pane fade show active" id="spam-tab-visual" role="tabpanel">
+                            
+                            <!-- TAB 1: INTELIGÊNCIA ANTISPAM (REGRAS LOCAIS NO ASSUNTO/CORPO) -->
+                            <div class="tab-pane fade show active" id="spam-tab-heuristics" role="tabpanel">
+                                
+                                <!-- Alert Container para mensagens da Inteligência AntiSPAM -->
+                                <div id="custom-spam-alert-container"></div>
+
+                                <!-- Banner de Persistência no Banco de Dados -->
+                                <div class="alert alert-warning border border-warning-subtle bg-warning bg-opacity-10 d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-3 rounded-4 p-3 mb-4 shadow-sm">
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="p-2.5 rounded-3 bg-warning text-dark fw-bold">
+                                            <i class="bi bi-database-fill-gear fs-4"></i>
+                                        </div>
+                                        <div>
+                                            <h6 class="fw-bold text-dark mb-0">Armazenamento em Banco de Dados MariaDB (<code>spam_custom_rules</code>)</h6>
+                                            <small class="text-secondary">Identifique palavras/termos suspeitos no Assunto (Subject), Corpo (Body), Remetente ou Reply-To. As regras são persistidas no banco e sincronizadas automaticamente com o <code>/etc/spamassassin/local.cf</code>.</small>
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-warning btn-sm fw-bold text-dark rounded-3 px-3 py-2 text-nowrap shadow-sm" onclick="openNewCustomSpamRuleModal()">
+                                        <i class="bi bi-plus-circle-fill me-1"></i> Criar Nova Regra Inteligente
+                                    </button>
+                                </div>
+
+                                <!-- Presets Rápidos 1-Clique -->
+                                <div class="card border border-warning-subtle bg-light p-3 mb-4 rounded-4 shadow-sm">
+                                    <div class="d-flex align-items-center justify-content-between mb-2">
+                                        <h6 class="fw-bold text-dark mb-0 small d-flex align-items-center gap-2">
+                                            <i class="bi bi-lightning-charge-fill text-warning"></i> Modelos Prontos de Bloqueio ZRTI (1-Clique para Importar)
+                                        </h6>
+                                        <small class="text-muted">Ajuste o termo ou adicione direto:</small>
+                                    </div>
+                                    <div class="row g-2">
+                                        <div class="col-md-6 col-lg-4">
+                                            <div class="bg-white border rounded-3 p-2.5 h-100 d-flex flex-column justify-content-between shadow-xs">
+                                                <div>
+                                                    <div class="d-flex align-items-center justify-content-between mb-1">
+                                                        <span class="fw-bold small text-dark">Phishing Pedágio (Sem Acento)</span>
+                                                        <span class="badge bg-danger-subtle text-danger font-monospace">+15.0</span>
+                                                    </div>
+                                                    <small class="text-muted d-block line-clamp-2">Bloqueia no Assunto termos como pedágio, viária, rodoviário e pendência.</small>
+                                                    <code class="d-block text-truncate small bg-light p-1 rounded mt-1 border">Subject: /ped.gios?|vi.ria|rodovi.rio/i</code>
+                                                </div>
+                                                <div class="text-end mt-2 pt-2 border-top">
+                                                    <button type="button" class="btn btn-link btn-sm text-warning-emphasis p-0 fw-bold text-decoration-none" onclick="applyCustomSpamPreset('pedagio')">
+                                                        <i class="bi bi-plus-circle me-1"></i> Adicionar / Ajustar
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="col-md-6 col-lg-4">
+                                            <div class="bg-white border rounded-3 p-2.5 h-100 d-flex flex-column justify-content-between shadow-xs">
+                                                <div>
+                                                    <div class="d-flex align-items-center justify-content-between mb-1">
+                                                        <span class="fw-bold small text-dark">Falso Reclame Aqui / Cobrança</span>
+                                                        <span class="badge bg-danger-subtle text-danger font-monospace">+15.0</span>
+                                                    </div>
+                                                    <small class="text-muted d-block line-clamp-2">Detecta remetentes falsos simulando Reclame Aqui ou Regularização.</small>
+                                                    <code class="d-block text-truncate small bg-light p-1 rounded mt-1 border">From: /Regulariza..o|Cobran.a|ReclameAqui/i</code>
+                                                </div>
+                                                <div class="text-end mt-2 pt-2 border-top">
+                                                    <button type="button" class="btn btn-link btn-sm text-warning-emphasis p-0 fw-bold text-decoration-none" onclick="applyCustomSpamPreset('reclame_aqui')">
+                                                        <i class="bi bi-plus-circle me-1"></i> Adicionar / Ajustar
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="col-md-6 col-lg-4">
+                                            <div class="bg-white border rounded-3 p-2.5 h-100 d-flex flex-column justify-content-between shadow-xs">
+                                                <div>
+                                                    <div class="d-flex align-items-center justify-content-between mb-1">
+                                                        <span class="fw-bold small text-dark">Reply-To Domínio Sequestrado</span>
+                                                        <span class="badge bg-danger-subtle text-danger font-monospace">+15.0</span>
+                                                    </div>
+                                                    <small class="text-muted d-block line-clamp-2">Bloqueia domínio específico identificado como sequestrado em golpes.</small>
+                                                    <code class="d-block text-truncate small bg-light p-1 rounded mt-1 border">Reply-To: /vidracariarubi\.com\.br/i</code>
+                                                </div>
+                                                <div class="text-end mt-2 pt-2 border-top">
+                                                    <button type="button" class="btn btn-link btn-sm text-warning-emphasis p-0 fw-bold text-decoration-none" onclick="applyCustomSpamPreset('replyto')">
+                                                        <i class="bi bi-plus-circle me-1"></i> Adicionar / Ajustar
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Filtros por Categoria e Busca de Regras Heurísticas -->
+                                <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 mb-3">
+                                    <div class="btn-group btn-group-sm" role="group" aria-label="Filtro Heurístico">
+                                        <button type="button" class="btn btn-outline-secondary active fw-semibold" id="filter-heuristic-btn-all" onclick="setHeuristicCategoryFilter('all')">
+                                            <i class="bi bi-layers me-1"></i> Todas as Regras <span id="badge-heuristic-all" class="badge bg-secondary ms-1">0</span>
+                                        </button>
+                                        <button type="button" class="btn btn-outline-danger fw-semibold" id="filter-heuristic-btn-phishing" onclick="setHeuristicCategoryFilter('phishing')">
+                                            <i class="bi bi-shield-exclamation me-1"></i> Phishing & Golpes
+                                        </button>
+                                        <button type="button" class="btn btn-outline-warning text-dark fw-semibold" id="filter-heuristic-btn-obfuscation" onclick="setHeuristicCategoryFilter('obfuscation')">
+                                            <i class="bi bi-exclamation-diamond me-1"></i> Ofuscação & Charset
+                                        </button>
+                                        <button type="button" class="btn btn-outline-info text-dark fw-semibold" id="filter-heuristic-btn-hijack" onclick="setHeuristicCategoryFilter('hijack')">
+                                            <i class="bi bi-link-45deg me-1"></i> Domínio Sequestrado
+                                        </button>
+                                    </div>
+
+                                    <div class="col-md-5 col-lg-4">
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-light border-light-subtle text-muted">
+                                                <i class="bi bi-search"></i>
+                                            </span>
+                                            <input type="text" id="search-heuristic-rules-input" class="form-control" placeholder="Buscar por regra, termo ou descrição..." onkeyup="renderCustomSpamRulesTable()">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Tabela de Regras Heurísticas / Inteligência AntiSPAM -->
+                                <div class="table-responsive bg-white rounded-3 border shadow-sm mb-4">
+                                    <table class="table table-custom align-middle mb-0">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th style="width: 220px;">Identificador & Categoria</th>
+                                                <th style="width: 140px;">Onde Verifica (Alvo)</th>
+                                                <th>Padrão / Palavras Pesquisadas</th>
+                                                <th style="width: 100px;" class="text-center">Score (+Pts)</th>
+                                                <th>Descrição Didática</th>
+                                                <th style="width: 110px;" class="text-center">Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="custom-rules-table-body">
+                                            <tr><td colspan="6" class="text-center text-muted py-3">Carregando regras da Inteligência AntiSPAM...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <!-- Testador Rápido Integrado (Validação Instantânea) -->
+                                <div class="card bg-dark text-white border-0 rounded-4 p-4 shadow-md">
+                                    <div class="d-flex align-items-center justify-content-between mb-3">
+                                        <div>
+                                            <h6 class="fw-bold text-warning mb-1 d-flex align-items-center gap-2">
+                                                <i class="bi bi-play-circle-fill"></i> Testador Rápido de Inteligência AntiSPAM
+                                            </h6>
+                                            <small class="text-white-50">Insira um Assunto e Corpo de e-mail de teste para verificar em tempo real quais regras locais dariam match e qual seria a pontuação somada:</small>
+                                        </div>
+                                        <button class="btn btn-warning btn-sm fw-bold text-dark rounded-3 px-3" id="btn-run-inline-test" onclick="runInlineSpamTest()">
+                                            <i class="bi bi-lightning-fill me-1"></i> Verificar Mensagem
+                                        </button>
+                                    </div>
+
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label text-white-50 small fw-semibold mb-1">Assunto do E-mail (Subject):</label>
+                                            <input type="text" id="inline-test-subject" class="form-control form-control-sm bg-black text-white border-secondary font-monospace" value="Regularizacao de Debito de Pedagio Rodoviario">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label text-white-50 small fw-semibold mb-1">Remetente (From):</label>
+                                            <input type="text" id="inline-test-from" class="form-control form-control-sm bg-black text-white border-secondary font-monospace" value="Concessionaria <notificacao@pedagio-cobranca.com>">
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="form-label text-white-50 small fw-semibold mb-1">Corpo da Mensagem (Body):</label>
+                                            <textarea id="inline-test-body" class="form-control form-control-sm bg-black text-white border-secondary font-monospace" rows="2">Prezado motorista, consta uma notificacao de pedagio pendente de pagamento.</textarea>
+                                        </div>
+                                    </div>
+
+                                    <div id="inline-test-result-container" class="mt-3 d-none"></div>
+                                </div>
+
+                            </div>
+
+                            <!-- TAB 2: BLACKLIST & LISTAS DE ACESSO -->
+                            <div class="tab-pane fade" id="spam-tab-visual" role="tabpanel">
                                 <!-- Alert Container para mensagens visuais -->
                                 <div id="visual-spam-alert-container"></div>
 
                                 <!-- Formulário Inline para Adicionar Regra -->
                                 <div class="card bg-light border-light-subtle p-3 mb-4 rounded-3 shadow-sm">
                                     <h6 class="fw-bold text-dark mb-2 small d-flex align-items-center gap-2">
-                                        <i class="bi bi-plus-circle-fill text-primary"></i> Adicionar Nova Regra Antispam
+                                        <i class="bi bi-plus-circle-fill text-danger"></i> Adicionar Endereço ou Domínio à Lista
                                     </h6>
                                     <form id="add-visual-rule-form" onsubmit="addVisualSpamRule(event)">
                                         <div class="row g-2 align-items-center">
@@ -1805,8 +1985,8 @@
                                                 </div>
                                             </div>
                                             <div class="col-md-3 col-lg-3 d-flex align-items-end mt-2 mt-md-0">
-                                                <button type="submit" id="btn-add-visual-rule" class="btn btn-primary btn-sm w-100 fw-bold py-1.5 rounded-3">
-                                                    <i class="bi bi-plus-lg me-1"></i> Adicionar Regra
+                                                <button type="submit" id="btn-add-visual-rule" class="btn btn-danger btn-sm w-100 fw-bold py-1.5 rounded-3">
+                                                    <i class="bi bi-plus-lg me-1"></i> Adicionar à Lista
                                                 </button>
                                             </div>
                                         </div>
@@ -1820,7 +2000,7 @@
                                             <i class="bi bi-collection me-1"></i> Todas <span id="badge-spam-count-all" class="badge bg-secondary ms-1">0</span>
                                         </button>
                                         <button type="button" class="btn btn-outline-danger fw-semibold" id="filter-spam-btn-blacklist" onclick="setSpamRuleCategoryFilter('blacklist_from')">
-                                            <i class="bi bi-shield-x me-1"></i> Bloqueados <span id="badge-spam-count-blacklist" class="badge bg-danger-subtle text-danger ms-1">0</span>
+                                            <i class="bi bi-shield-x me-1"></i> Bloqueados (Blacklist) <span id="badge-spam-count-blacklist" class="badge bg-danger-subtle text-danger ms-1">0</span>
                                         </button>
                                         <button type="button" class="btn btn-outline-warning text-dark fw-semibold" id="filter-spam-btn-spam" onclick="setSpamRuleCategoryFilter('spam_from')">
                                             <i class="bi bi-exclamation-triangle-fill me-1 text-warning"></i> SPAM <span id="badge-spam-count-spam" class="badge bg-warning-subtle text-dark ms-1">0</span>
@@ -1852,13 +2032,73 @@
                                             </tr>
                                         </thead>
                                         <tbody id="visual-rules-table-body">
-                                            <tr><td colspan="4" class="text-center text-muted py-3">Carregando regras antispam...</td></tr>
+                                            <tr><td colspan="4" class="text-center text-muted py-3">Carregando regras da lista...</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
                             </div>
 
-                            <!-- TAB 2: MODO AVANÇADO (RAW EDITOR) -->
+                            <!-- TAB 3: SIMULADOR & TESTADOR COMPLETO -->
+                            <div class="tab-pane fade" id="spam-tab-sim" role="tabpanel">
+                                <div class="card border p-4 rounded-4 shadow-sm mb-4">
+                                    <div class="d-flex align-items-center justify-content-between mb-3">
+                                        <div>
+                                            <h6 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
+                                                <i class="bi bi-play-circle-fill text-primary"></i> Simulador Completo de Classificação Antispam
+                                            </h6>
+                                            <small class="text-muted">Insira os campos de um e-mail para testar como o SpamAssassin avalia os cabeçalhos, corpo e regras:</small>
+                                        </div>
+                                    </div>
+
+                                    <!-- Cenários Rápidos -->
+                                    <div class="mb-3">
+                                        <small class="text-muted fw-bold d-block mb-1">Cenários Rápidos:</small>
+                                        <div class="d-flex flex-wrap gap-2">
+                                            <button type="button" class="btn btn-outline-danger btn-sm rounded-pill" onclick="loadSimScenario('pedagio')">
+                                                <i class="bi bi-shield-x me-1"></i> Golpe do Pedágio
+                                            </button>
+                                            <button type="button" class="btn btn-outline-danger btn-sm rounded-pill" onclick="loadSimScenario('reclame_aqui')">
+                                                <i class="bi bi-exclamation-triangle me-1"></i> Falso Reclame Aqui
+                                            </button>
+                                            <button type="button" class="btn btn-outline-warning text-dark btn-sm rounded-pill" onclick="loadSimScenario('ofuscado')">
+                                                <i class="bi bi-eye-slash me-1"></i> Remetente Ofuscado
+                                            </button>
+                                            <button type="button" class="btn btn-outline-success btn-sm rounded-pill" onclick="loadSimScenario('legitimo')">
+                                                <i class="bi bi-check-circle me-1"></i> E-mail Legítimo
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label text-muted small fw-semibold mb-1">Assunto (Subject):</label>
+                                            <input type="text" id="sim-subject" class="form-control form-control-sm" value="Regularização de Débito de Pedágio Rodoviário">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label text-muted small fw-semibold mb-1">Remetente (From):</label>
+                                            <input type="text" id="sim-from" class="form-control form-control-sm font-monospace" value="Concessionaria <notificacao@pedagio-cobranca.com>">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label text-muted small fw-semibold mb-1">Reply-To (Endereço Resposta):</label>
+                                            <input type="text" id="sim-replyto" class="form-control form-control-sm font-monospace" value="financeiro@vidracariarubi.com.br">
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="form-label text-muted small fw-semibold mb-1">Corpo da Mensagem (Body):</label>
+                                            <textarea id="sim-body" class="form-control form-control-sm" rows="3">Prezado cliente, consta uma pendência no sistema rodoviário. Clique no link para emitir o boleto atualizado.</textarea>
+                                        </div>
+                                    </div>
+
+                                    <div class="text-end mt-3">
+                                        <button class="btn btn-primary btn-sm fw-bold px-4 rounded-3" onclick="runSpamSimulator()">
+                                            <i class="bi bi-play-fill me-1"></i> Executar Teste de E-mail
+                                        </button>
+                                    </div>
+
+                                    <div id="sim-result-container" class="mt-4 d-none"></div>
+                                </div>
+                            </div>
+
+                            <!-- TAB 4: MODO AVANÇADO (RAW EDITOR) -->
                             <div class="tab-pane fade" id="spam-tab-raw" role="tabpanel">
                                 <div class="d-flex align-items-center justify-content-between mb-3">
                                     <div>
@@ -2694,7 +2934,7 @@
         <div class="modal-content shadow-lg border-0 rounded-4">
             <div class="modal-header bg-light rounded-top-4 border-bottom">
                 <h5 class="modal-title fw-bold text-dark fs-6 d-flex align-items-center gap-2" id="editVisualRuleModalLabel">
-                    <i class="bi bi-pencil-square text-primary"></i> Editar Regra Antispam
+                    <i class="bi bi-pencil-square text-danger"></i> Editar Entrada da Lista (Blacklist / Whitelist)
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
             </div>
@@ -2720,8 +2960,112 @@
                 </div>
                 <div class="modal-footer bg-light py-2 rounded-bottom-4">
                     <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" id="btn-save-edited-rule" class="btn btn-primary btn-sm fw-bold rounded-3">
+                    <button type="submit" id="btn-save-edited-rule" class="btn btn-danger btn-sm fw-bold rounded-3">
                         <i class="bi bi-check-lg me-1"></i> Salvar Alterações
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- CRIAR / EDITAR REGRA HEURÍSTICA DE INTELIGÊNCIA ANTISPAM MODAL -->
+<div class="modal fade" id="customSpamRuleModal" tabindex="-1" aria-labelledby="customSpamRuleModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content shadow-lg border-0 rounded-4">
+            <div class="modal-header bg-light rounded-top-4 border-bottom">
+                <h5 class="modal-title fw-bold text-dark fs-6 d-flex align-items-center gap-2" id="customSpamRuleModalLabel">
+                    <i class="bi bi-magic text-warning"></i> Regra da Inteligência AntiSPAM (Regra Local)
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            
+            <form id="custom-spam-rule-form" onsubmit="saveCustomSpamRule(event)">
+                <div class="modal-body p-4">
+                    <input type="hidden" id="custom-rule-old-name" value="">
+
+                    <!-- Tabs de Alternância de Modo no Modal -->
+                    <ul class="nav nav-pills nav-fill mb-3" id="modalRuleModeTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active fw-bold small py-1.5" id="pills-friendly-tab" type="button" onclick="setCustomRuleModalMode('friendly')">
+                                <i class="bi bi-sliders me-1"></i> Modo Amigável (Palavras & Termos)
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link fw-bold small py-1.5" id="pills-regex-tab" type="button" onclick="setCustomRuleModalMode('regex')">
+                                <i class="bi bi-code-slash me-1"></i> Expressão Regular Avançada (Regex)
+                            </button>
+                        </li>
+                    </ul>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-7">
+                            <label class="form-label text-dark small fw-bold mb-1">Nome Identificador da Regra:</label>
+                            <input type="text" id="custom-rule-name" class="form-control form-control-sm font-monospace fw-bold" placeholder="Ex: LOCAL_GOLPE_PEDAGIO" required onkeyup="this.value = this.value.toUpperCase()">
+                            <div class="form-text small text-muted">Salvo no MariaDB (<code>spam_custom_rules</code>) e SpamAssassin.</div>
+                        </div>
+
+                        <div class="col-md-5">
+                            <label class="form-label text-dark small fw-bold mb-1">Pontuação (Score):</label>
+                            <select id="custom-rule-score" class="form-select form-select-sm font-monospace fw-bold">
+                                <option value="15.0">15.0 (SPAM Imediato / Bloqueio)</option>
+                                <option value="10.0">10.0 (SPAM Alto)</option>
+                                <option value="5.0">5.0 (SPAM Padrão)</option>
+                                <option value="3.0">3.0 (Suspeito / Pontuar)</option>
+                                <option value="1.0">1.0 (Leve Heurística)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label text-dark small fw-bold mb-1">Onde Verificar (Alvo):</label>
+                            <select id="custom-rule-target" class="form-select form-select-sm fw-semibold">
+                                <option value="Subject">Assunto do E-mail (Subject)</option>
+                                <option value="Body">Corpo do E-mail (Body)</option>
+                                <option value="From">Remetente (From)</option>
+                                <option value="Reply-To">Endereço de Retorno (Reply-To)</option>
+                                <option value="URI">Links / URLs no Corpo (URI)</option>
+                                <option value="To">Destinatário (To)</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label text-dark small fw-bold mb-1">Descrição Didática / Motivo:</label>
+                            <input type="text" id="custom-rule-describe" class="form-control form-control-sm" placeholder="Ex: ZRTI - Bloqueio de Assunto Phishing Pedágio">
+                        </div>
+                    </div>
+
+                    <!-- MODO AMIGÁVEL -->
+                    <div id="modal-mode-friendly-section" class="card bg-warning bg-opacity-10 border-warning-subtle p-3 rounded-3 mb-3">
+                        <label class="form-label text-dark small fw-bold mb-1">Palavras ou Termos Suspeitos (separados por vírgula):</label>
+                        <input type="text" id="custom-rule-friendly-keywords" class="form-control form-control-sm mb-2" placeholder="Ex: pedagio, rodoviario, notificacao de debito" onkeyup="updateGeneratedPattern()">
+                        <small class="text-muted d-block mb-2">O sistema converte automaticamente ignorando acentos (ex: pega tanto <em>pedágio</em> quanto <em>pedagio</em>).</small>
+                        
+                        <div class="d-flex gap-2">
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="friendlyMatchType" id="matchContains" value="contains" checked onchange="updateGeneratedPattern()">
+                                <label class="form-check-label small fw-semibold" for="matchContains">Contém o texto (Recomendado)</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="friendlyMatchType" id="matchObfuscated" value="obfuscated" onchange="updateGeneratedPattern()">
+                                <label class="form-check-label small fw-semibold" for="matchObfuscated">Com caracteres ofuscados (p.e.d.a.g.i.o)</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- MODO REGEX -->
+                    <div id="modal-mode-regex-section" class="mb-3 d-none">
+                        <label class="form-label text-dark small fw-bold mb-1">Padrão Regex (Expressão Regular):</label>
+                        <input type="text" id="custom-rule-pattern" class="form-control form-control-sm font-monospace bg-dark text-success" placeholder="Ex: /ped.gios?|vi.ria|rodovi.rio/i" required>
+                        <small class="text-muted d-block mt-1">Dica: Use <code>.</code> para ignorar acentos e <code>/i</code> para ignorar maiúsculas/minúsculas.</small>
+                    </div>
+
+                </div>
+                <div class="modal-footer bg-light py-2 rounded-bottom-4">
+                    <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" id="btn-save-custom-rule" class="btn btn-warning text-dark btn-sm fw-bold rounded-3 px-3">
+                        <i class="bi bi-check-lg me-1"></i> Salvar Regra no Banco & Ativar
                     </button>
                 </div>
             </form>
@@ -4753,14 +5097,461 @@
         }
     }
 
-    // 6. SPAMASSASSIN & LOGS
+    // 6. SPAMASSASSIN (INTELIGÊNCIA ANTISPAM, BLACKLIST & SIMULADOR)
     let currentVisualSpamRules = [];
+    let currentCustomSpamRules = [];
     let currentSpamCategoryFilter = 'all';
+    let currentHeuristicCategory = 'all';
+    let currentModalMode = 'friendly';
 
+    // -------------------------------------------------------------
+    // INTELIGÊNCIA ANTISPAM (REGRAS LOCAIS)
+    // -------------------------------------------------------------
+    function setHeuristicCategoryFilter(category) {
+        currentHeuristicCategory = category;
+
+        const btnAll = document.getElementById('filter-heuristic-btn-all');
+        const btnPhishing = document.getElementById('filter-heuristic-btn-phishing');
+        const btnObfuscation = document.getElementById('filter-heuristic-btn-obfuscation');
+        const btnHijack = document.getElementById('filter-heuristic-btn-hijack');
+
+        if (btnAll) btnAll.className = `btn btn-sm ${category === 'all' ? 'btn-secondary text-white' : 'btn-outline-secondary'} fw-semibold`;
+        if (btnPhishing) btnPhishing.className = `btn btn-sm ${category === 'phishing' ? 'btn-danger text-white' : 'btn-outline-danger'} fw-semibold`;
+        if (btnObfuscation) btnObfuscation.className = `btn btn-sm ${category === 'obfuscation' ? 'btn-warning text-dark' : 'btn-outline-warning text-dark'} fw-semibold`;
+        if (btnHijack) btnHijack.className = `btn btn-sm ${category === 'hijack' ? 'btn-info text-dark' : 'btn-outline-info text-dark'} fw-semibold`;
+
+        renderCustomSpamRulesTable();
+    }
+
+    function renderCustomSpamRulesTable() {
+        const tbody = document.getElementById('custom-rules-table-body');
+        if (!tbody) return;
+
+        const searchInput = document.getElementById('search-heuristic-rules-input');
+        const searchTerm = (searchInput ? searchInput.value : '').toLowerCase().trim();
+
+        // 1. Atualizar badges de contagem
+        const countAll = currentCustomSpamRules.length;
+        const bAll = document.getElementById('badge-heuristic-all');
+        const bCustomCount = document.getElementById('badge-custom-rules-count');
+        if (bAll) bAll.textContent = countAll;
+        if (bCustomCount) bCustomCount.textContent = countAll;
+
+        // 2. Filtrar por categoria
+        let filtered = currentCustomSpamRules;
+        if (currentHeuristicCategory !== 'all') {
+            filtered = filtered.filter(r => {
+                const cat = (r.category || '').toLowerCase();
+                const name = (r.name || '').toLowerCase();
+                const desc = (r.describe || '').toLowerCase();
+                if (currentHeuristicCategory === 'phishing') {
+                    return cat === 'phishing' || name.includes('PEDAGIO') || name.includes('RECLAME') || desc.includes('phishing') || desc.includes('golpe');
+                } else if (currentHeuristicCategory === 'obfuscation') {
+                    return cat === 'obfuscation' || name.includes('OFUSCADO') || desc.includes('ofuscado') || desc.includes('charset');
+                } else if (currentHeuristicCategory === 'hijack') {
+                    return cat === 'hijack' || name.includes('REPLYTO') || desc.includes('sequestrado') || desc.includes('reply-to');
+                }
+                return true;
+            });
+        }
+
+        // 3. Filtrar por busca textual
+        if (searchTerm) {
+            filtered = filtered.filter(r => 
+                (r.name || '').toLowerCase().includes(searchTerm) ||
+                (r.pattern || '').toLowerCase().includes(searchTerm) ||
+                (r.describe || '').toLowerCase().includes(searchTerm) ||
+                (r.target || '').toLowerCase().includes(searchTerm)
+            );
+        }
+
+        if (filtered.length === 0) {
+            let msg = 'Nenhuma regra personalizada encontrada nesta categoria.';
+            if (searchTerm) msg = `Nenhuma regra encontrada para a busca "${searchTerm}".`;
+            tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted py-4 small font-monospace">${msg}</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = filtered.map(r => {
+            const scoreVal = parseFloat(r.score || 15.0);
+            const scoreBadgeClass = scoreVal >= 10.0 ? 'bg-danger-subtle text-danger border border-danger-subtle' : scoreVal >= 5.0 ? 'bg-warning-subtle text-warning-emphasis border border-warning-subtle' : 'bg-secondary-subtle text-secondary';
+            
+            let targetBadge = `<span class="badge bg-light text-dark border font-monospace px-2 py-1">${r.target || 'Subject'}</span>`;
+            if (r.target === 'Subject') targetBadge = `<span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace px-2 py-1"><i class="bi bi-chat-left-text me-1"></i> Assunto</span>`;
+            else if (r.target === 'Body') targetBadge = `<span class="badge bg-warning-subtle text-dark border border-warning-subtle font-monospace px-2 py-1"><i class="bi bi-file-text me-1"></i> Corpo (Body)</span>`;
+            else if (r.target === 'From') targetBadge = `<span class="badge bg-danger-subtle text-danger border border-danger-subtle font-monospace px-2 py-1"><i class="bi bi-person me-1"></i> Remetente</span>`;
+            else if (r.target === 'Reply-To') targetBadge = `<span class="badge bg-info-subtle text-info-emphasis border border-info-subtle font-monospace px-2 py-1"><i class="bi bi-reply me-1"></i> Reply-To</span>`;
+
+            return `
+                <tr>
+                    <td>
+                        <div class="fw-bold text-dark font-monospace fs-6">${r.name}</div>
+                        <small class="text-muted d-flex align-items-center gap-1"><i class="bi bi-shield-check text-success"></i> Ativa no MariaDB</small>
+                    </td>
+                    <td>${targetBadge}</td>
+                    <td>
+                        <code class="d-inline-block text-break font-monospace p-1 bg-light rounded border small text-dark">${r.pattern}</code>
+                    </td>
+                    <td class="text-center">
+                        <span class="badge ${scoreBadgeClass} font-monospace fs-6 px-2.5 py-1">+${scoreVal.toFixed(1)}</span>
+                    </td>
+                    <td>
+                        <span class="small text-secondary">${r.describe || 'Regra personalizada de inteligência antispam local.'}</span>
+                    </td>
+                    <td class="text-center">
+                        <div class="d-inline-flex align-items-center gap-1">
+                            <button class="btn btn-sm btn-outline-warning text-dark p-1 border-0" onclick="openEditCustomSpamRuleModal('${r.name}')" title="Editar Regra">
+                                <i class="bi bi-pencil-square fs-6"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger p-1 border-0" onclick="deleteCustomSpamRule('${r.name}')" title="Excluir Regra">
+                                <i class="bi bi-trash fs-6"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function setCustomRuleModalMode(mode) {
+        currentModalMode = mode;
+        const btnFriendly = document.getElementById('pills-friendly-tab');
+        const btnRegex = document.getElementById('pills-regex-tab');
+        const secFriendly = document.getElementById('modal-mode-friendly-section');
+        const secRegex = document.getElementById('modal-mode-regex-section');
+
+        if (mode === 'friendly') {
+            btnFriendly.classList.add('active');
+            btnRegex.classList.remove('active');
+            secFriendly.classList.remove('d-none');
+            secRegex.classList.add('d-none');
+            updateGeneratedPattern();
+        } else {
+            btnFriendly.classList.remove('active');
+            btnRegex.classList.add('active');
+            secFriendly.classList.add('d-none');
+            secRegex.classList.remove('d-none');
+        }
+    }
+
+    function updateGeneratedPattern() {
+        if (currentModalMode !== 'friendly') return;
+        const keywordsInput = document.getElementById('custom-rule-friendly-keywords');
+        const patternInput = document.getElementById('custom-rule-pattern');
+        const isObfuscated = document.getElementById('matchObfuscated') && document.getElementById('matchObfuscated').checked;
+
+        const rawWords = (keywordsInput ? keywordsInput.value : '').split(',').map(w => w.trim()).filter(w => w.length > 0);
+        if (rawWords.length === 0) {
+            patternInput.value = '';
+            return;
+        }
+
+        const patterns = rawWords.map(w => {
+            // Substitui caracteres acentuados por . para ignorar variações de charset
+            let clean = w.replace(/[aáàãâäAÁÀÃÂÄ]/g, '[aáàãâä.]')
+                         .replace(/[eéèêëEÉÈÊË]/g, '[eéèêë.]')
+                         .replace(/[iíìîïIÍÌÎÏ]/g, '[iíìîï.]')
+                         .replace(/[oóòõôöOÓÒÕÔÖ]/g, '[oóòõôö.]')
+                         .replace(/[uúùûüUÚÙÛÜ]/g, '[uúùûü.]')
+                         .replace(/[cçCÇ]/g, '[cç.]');
+            if (isObfuscated) {
+                // Intercala com pontuação/espaço opcional
+                clean = clean.split('').join('[\\s._-]?');
+            }
+            return clean;
+        });
+
+        patternInput.value = `/${patterns.join('|')}/i`;
+    }
+
+    function openNewCustomSpamRuleModal() {
+        document.getElementById('custom-rule-old-name').value = '';
+        document.getElementById('custom-rule-name').value = 'LOCAL_REGRA_' + Math.floor(Math.random() * 8999 + 1000);
+        document.getElementById('custom-rule-name').readOnly = false;
+        document.getElementById('custom-rule-score').value = '15.0';
+        document.getElementById('custom-rule-target').value = 'Subject';
+        document.getElementById('custom-rule-describe').value = 'Regra de bloqueio personalizada local ZRTI';
+        document.getElementById('custom-rule-friendly-keywords').value = '';
+        document.getElementById('custom-rule-pattern').value = '';
+        setCustomRuleModalMode('friendly');
+
+        const modalEl = document.getElementById('customSpamRuleModal');
+        if (modalEl) {
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            modal.show();
+        }
+    }
+
+    function openEditCustomSpamRuleModal(ruleName) {
+        const rule = currentCustomSpamRules.find(r => r.name === ruleName);
+        if (!rule) return;
+
+        document.getElementById('custom-rule-old-name').value = rule.name;
+        document.getElementById('custom-rule-name').value = rule.name;
+        document.getElementById('custom-rule-name').readOnly = true;
+        document.getElementById('custom-rule-score').value = (parseFloat(rule.score || 15.0)).toFixed(1);
+        document.getElementById('custom-rule-target').value = rule.target || 'Subject';
+        document.getElementById('custom-rule-describe').value = rule.describe || '';
+        document.getElementById('custom-rule-pattern').value = rule.pattern || '';
+        document.getElementById('custom-rule-friendly-keywords').value = '';
+        setCustomRuleModalMode('regex');
+
+        const modalEl = document.getElementById('customSpamRuleModal');
+        if (modalEl) {
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            modal.show();
+        }
+    }
+
+    async function saveCustomSpamRule(event) {
+        event.preventDefault();
+        const oldName = document.getElementById('custom-rule-old-name').value.trim();
+        const name = document.getElementById('custom-rule-name').value.trim();
+        const target = document.getElementById('custom-rule-target').value;
+        const score = parseFloat(document.getElementById('custom-rule-score').value || 15.0);
+        const describe = document.getElementById('custom-rule-describe').value.trim();
+        let pattern = document.getElementById('custom-rule-pattern').value.trim();
+
+        if (!pattern) {
+            updateGeneratedPattern();
+            pattern = document.getElementById('custom-rule-pattern').value.trim();
+        }
+
+        if (!name || !pattern) {
+            showAlert("O nome da regra e o padrão de verificação são obrigatórios.", "warning");
+            return;
+        }
+
+        try {
+            const isEditing = !!oldName;
+            const endpoint = isEditing ? '/api/services/spamassassin/custom-rules/edit' : '/api/services/spamassassin/custom-rules';
+            const bodyPayload = isEditing ? { old_name: oldName, name, target, pattern, score, describe } : { name, target, pattern, score, describe };
+
+            const data = await fetchJson(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(bodyPayload)
+            });
+
+            const modalEl = document.getElementById('customSpamRuleModal');
+            if (modalEl) {
+                const modal = bootstrap.Modal.getInstance(modalEl);
+                if (modal) modal.hide();
+            }
+
+            showAlert(data.message || "Regra da Inteligência AntiSPAM salva com sucesso!", 'success');
+            loadSpamRules();
+        } catch (e) {
+            showAlert(`Erro ao salvar regra: ${e.message}`, 'danger');
+        }
+    }
+
+    async function deleteCustomSpamRule(ruleName) {
+        if (!confirm(`Tem certeza que deseja remover a regra "${ruleName}" do banco e do SpamAssassin?`)) return;
+
+        try {
+            const data = await fetchJson('/api/services/spamassassin/custom-rules/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: ruleName })
+            });
+
+            showAlert(data.message || "Regra removida com sucesso.", 'success');
+            loadSpamRules();
+        } catch (e) {
+            showAlert(`Erro ao remover regra: ${e.message}`, 'danger');
+        }
+    }
+
+    function applyCustomSpamPreset(presetKey) {
+        openNewCustomSpamRuleModal();
+        if (presetKey === 'pedagio') {
+            document.getElementById('custom-rule-name').value = 'LOCAL_GOLPE_PEDAGIO_' + Math.floor(Math.random() * 899 + 100);
+            document.getElementById('custom-rule-target').value = 'Subject';
+            document.getElementById('custom-rule-score').value = '15.0';
+            document.getElementById('custom-rule-describe').value = 'ZRTI - Bloqueio de Assunto Phishing Pedágio / Notificação Débito';
+            document.getElementById('custom-rule-friendly-keywords').value = 'pedagio, pedagios, rodoviario, debito de pedagio, notificacao pedagio';
+            updateGeneratedPattern();
+        } else if (presetKey === 'reclame_aqui') {
+            document.getElementById('custom-rule-name').value = 'LOCAL_FALSO_RECLAME_AQUI_' + Math.floor(Math.random() * 899 + 100);
+            document.getElementById('custom-rule-target').value = 'From';
+            document.getElementById('custom-rule-score').value = '15.0';
+            document.getElementById('custom-rule-describe').value = 'ZRTI - Phishing Remetente Falso Reclame Aqui / Regularização';
+            document.getElementById('custom-rule-pattern').value = '/Regulariza..o|Cobran.a|ReclameAqui/i';
+            setCustomRuleModalMode('regex');
+        } else if (presetKey === 'replyto') {
+            document.getElementById('custom-rule-name').value = 'LOCAL_REPLYTO_SEQUESTRADO_' + Math.floor(Math.random() * 899 + 100);
+            document.getElementById('custom-rule-target').value = 'Reply-To';
+            document.getElementById('custom-rule-score').value = '15.0';
+            document.getElementById('custom-rule-describe').value = 'ZRTI - Bloqueio de Domínio Sequestrado em Reply-To';
+            document.getElementById('custom-rule-pattern').value = '/vidracariarubi\\.com\\.br/i';
+            setCustomRuleModalMode('regex');
+        }
+    }
+
+    // -------------------------------------------------------------
+    // TESTADOR RÁPIDO INLINE & SIMULADOR
+    // -------------------------------------------------------------
+    async function runInlineSpamTest() {
+        const subject = document.getElementById('inline-test-subject').value;
+        const from = document.getElementById('inline-test-from').value;
+        const body = document.getElementById('inline-test-body').value;
+        const resDiv = document.getElementById('inline-test-result-container');
+        const btn = document.getElementById('btn-run-inline-test');
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Verificando...';
+
+        try {
+            const data = await fetchJson('/api/services/spamassassin/simulate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ subject, from, body, replyto: '' })
+            });
+
+            resDiv.classList.remove('d-none');
+            const isSpam = data.is_spam;
+            const score = data.score;
+            const rulesMatched = data.rules_matched || [];
+
+            let badgeStatus = isSpam 
+                ? '<span class="badge bg-danger fs-6 px-3 py-1.5"><i class="bi bi-shield-x me-1"></i> SPAM DETECTADO (BLOQUEIO IMEDIATO)</span>' 
+                : '<span class="badge bg-success fs-6 px-3 py-1.5"><i class="bi bi-shield-check me-1"></i> MENSAGEM LIMPA / ACEITA</span>';
+
+            let rulesHtml = '';
+            if (rulesMatched.length > 0) {
+                rulesHtml = rulesMatched.map(r => `
+                    <div class="d-flex align-items-center justify-content-between bg-black bg-opacity-50 p-2 rounded border border-secondary mb-1">
+                        <div>
+                            <span class="badge bg-warning text-dark font-monospace me-2">${r.rule}</span>
+                            <span class="small text-white-50">${r.describe || 'Regra acionada'}</span>
+                        </div>
+                        <span class="badge bg-danger-subtle text-danger font-monospace fs-6">+${parseFloat(r.points || 0).toFixed(1)} pts</span>
+                    </div>
+                `).join('');
+            } else {
+                rulesHtml = '<div class="text-white-50 small p-2">Nenhuma regra local ou filtro de lista foi disparado para este texto.</div>';
+            }
+
+            resDiv.innerHTML = `
+                <div class="card bg-secondary bg-opacity-25 border border-secondary rounded-3 p-3">
+                    <div class="d-flex align-items-center justify-content-between mb-3 border-bottom border-secondary pb-2">
+                        <div class="d-flex align-items-center gap-2">
+                            ${badgeStatus}
+                            <span class="badge bg-dark text-white border font-monospace fs-6 px-2.5 py-1">Score Total: ${score.toFixed(1)} / Limite: ${data.required_score || 5.0}</span>
+                        </div>
+                        <small class="text-white-50">Avaliação do Motor de Regras SpamAssassin</small>
+                    </div>
+                    <div class="fw-bold text-white small mb-2"><i class="bi bi-magic text-warning me-1"></i> Regras da Inteligência AntiSPAM Acionadas:</div>
+                    ${rulesHtml}
+                </div>
+            `;
+        } catch (e) {
+            showAlert(`Erro no teste: ${e.message}`, 'danger');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-lightning-fill me-1"></i> Verificar Mensagem';
+        }
+    }
+
+    function loadSimScenario(type) {
+        if (type === 'pedagio') {
+            document.getElementById('sim-subject').value = 'Regularização de Débito de Pedágio Rodoviário';
+            document.getElementById('sim-from').value = 'Concessionaria <notificacao@pedagio-cobranca.com>';
+            document.getElementById('sim-replyto').value = 'financeiro@vidracariarubi.com.br';
+            document.getElementById('sim-body').value = 'Prezado cliente, consta uma pendência no sistema rodoviário. Clique no link para emitir o boleto atualizado.';
+        } else if (type === 'reclame_aqui') {
+            document.getElementById('sim-subject').value = 'Notificação de Reclamação Aberta no Reclame Aqui';
+            document.getElementById('sim-from').value = 'ReclameAqui Regularização <suporte@reclameaqui-notifica.com>';
+            document.getElementById('sim-replyto').value = 'atendimento@empresa-fake.com';
+            document.getElementById('sim-body').value = 'Você recebeu uma reclamação de cobrança pendente. Acesse o painel para responder.';
+        } else if (type === 'ofuscado') {
+            document.getElementById('sim-subject').value = 'N.o.t.i.f.i.c.a.c.a.o   P.e.d.a.g.i.o   P.e.n.d.e.n.t.e';
+            document.getElementById('sim-from').value = 'Aviso Rodovia <aviso@via-sistema.com>';
+            document.getElementById('sim-replyto').value = 'contato@via-sistema.com';
+            document.getElementById('sim-body').value = 'Evite multas e bloqueio do documento do veiculo.';
+        } else if (type === 'legitimo') {
+            document.getElementById('sim-subject').value = 'Relatório Mensal de Desempenho e Reunião de Alinhamento';
+            document.getElementById('sim-from').value = 'Diretoria Executiva <diretoria@empresa-parceira.com.br>';
+            document.getElementById('sim-replyto').value = 'diretoria@empresa-parceira.com.br';
+            document.getElementById('sim-body').value = 'Olá equipe, segue em anexo a pauta para nossa reunião de alinhamento trimestral amanhã às 14h.';
+        }
+    }
+
+    async function runSpamSimulator() {
+        const subject = document.getElementById('sim-subject').value;
+        const from = document.getElementById('sim-from').value;
+        const replyto = document.getElementById('sim-replyto').value;
+        const body = document.getElementById('sim-body').value;
+        const resDiv = document.getElementById('sim-result-container');
+
+        resDiv.classList.remove('d-none');
+        resDiv.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary me-2"></div>Simulando e analisando com o motor SpamAssassin...</div>';
+
+        try {
+            const data = await fetchJson('/api/services/spamassassin/simulate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ subject, from, replyto, body })
+            });
+
+            const isSpam = data.is_spam;
+            const score = data.score;
+            const rulesMatched = data.rules_matched || [];
+
+            let rulesHtml = '';
+            if (rulesMatched.length > 0) {
+                rulesHtml = rulesMatched.map(r => `
+                    <tr>
+                        <td><code class="fw-bold text-dark fs-6">${r.rule}</code></td>
+                        <td><span class="small text-secondary">${r.describe || 'Regra acionada'}</span></td>
+                        <td class="text-center"><span class="badge bg-danger-subtle text-danger font-monospace fs-6">+${parseFloat(r.points || 0).toFixed(1)}</span></td>
+                    </tr>
+                `).join('');
+            } else {
+                rulesHtml = '<tr><td colspan="3" class="text-center text-muted py-3">Nenhuma regra foi disparada pelo conteúdo deste e-mail.</td></tr>';
+            }
+
+            resDiv.innerHTML = `
+                <div class="card bg-light border p-3 rounded-4">
+                    <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 mb-3 pb-3 border-bottom">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="badge ${isSpam ? 'bg-danger' : 'bg-success'} fs-6 px-3 py-2">
+                                ${isSpam ? '<i class="bi bi-shield-x me-1"></i> CLASSIFICADO COMO SPAM' : '<i class="bi bi-shield-check me-1"></i> E-MAIL LEGÍTIMO (CLEAN)'}
+                            </span>
+                            <span class="badge bg-white text-dark border font-monospace fs-6 px-2.5 py-1.5">Score: ${score.toFixed(1)} / ${data.required_score || 5.0} pts</span>
+                        </div>
+                        <small class="text-muted">Ação Recomendada: <strong>${isSpam ? 'Quarentena / Descarte' : 'Entregar na Caixa de Entrada'}</strong></small>
+                    </div>
+
+                    <h6 class="fw-bold text-dark small mb-2"><i class="bi bi-list-check text-primary me-1"></i> Regras Disparadas:</h6>
+                    <div class="table-responsive bg-white rounded-3 border shadow-xs mb-0">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width: 220px;">Regra</th>
+                                    <th>Descrição / Detalhe</th>
+                                    <th style="width: 100px;" class="text-center">Pontos</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rulesHtml}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        } catch (e) {
+            resDiv.innerHTML = `<div class="alert alert-danger font-monospace mb-0"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro na simulação: ${e.message}</div>`;
+        }
+    }
+
+    // -------------------------------------------------------------
+    // BLACKLIST & LISTAS DE ACESSO (VISUAL RULES)
+    // -------------------------------------------------------------
     function setSpamRuleCategoryFilter(category) {
         currentSpamCategoryFilter = category;
 
-        // Atualiza estilo dos botões de filtro
         const btnAll = document.getElementById('filter-spam-btn-all');
         const btnBlacklist = document.getElementById('filter-spam-btn-blacklist');
         const btnSpam = document.getElementById('filter-spam-btn-spam');
@@ -4791,11 +5582,13 @@
         const bBlacklist = document.getElementById('badge-spam-count-blacklist');
         const bSpam = document.getElementById('badge-spam-count-spam');
         const bWhitelist = document.getElementById('badge-spam-count-whitelist');
+        const bVisualCount = document.getElementById('badge-visual-rules-count');
 
         if (bAll) bAll.textContent = countAll;
         if (bBlacklist) bBlacklist.textContent = countBlacklist;
         if (bSpam) bSpam.textContent = countSpam;
         if (bWhitelist) bWhitelist.textContent = countWhitelist;
+        if (bVisualCount) bVisualCount.textContent = countAll;
 
         // 2. Filtrar por categoria ativa
         let filtered = currentVisualSpamRules;
@@ -4841,7 +5634,7 @@
                     <td><span class="font-monospace text-secondary small">${r.raw}</span></td>
                     <td class="text-center">
                         <div class="d-inline-flex align-items-center gap-1">
-                            <button class="btn btn-sm btn-outline-primary p-1 border-0" onclick="openEditVisualRuleModal('${encodeURIComponent(r.raw || '')}', '${r.type}', '${encodeURIComponent(r.value || '')}')" title="Editar Regra / Alterar Tipo">
+                            <button class="btn btn-sm btn-outline-danger p-1 border-0" onclick="openEditVisualRuleModal('${encodeURIComponent(r.raw || '')}', '${r.type}', '${encodeURIComponent(r.value || '')}')" title="Editar Regra / Alterar Tipo">
                                 <i class="bi bi-pencil-square fs-6"></i>
                             </button>
                             <button class="btn btn-sm btn-outline-danger p-1 border-0" onclick="deleteVisualSpamRule('${encodeURIComponent(r.raw || '')}')" title="Remover Regra">
@@ -4875,7 +5668,22 @@
             }
         }
 
-        // 2. Carregar Regras Visuais (Visual List)
+        // 2. Carregar Regras Heurísticas da Inteligência AntiSPAM (MariaDB + local.cf)
+        const customTbody = document.getElementById('custom-rules-table-body');
+        try {
+            const customData = await fetchJson('/api/services/spamassassin/custom-rules');
+            if (customData && customData.rules) {
+                currentCustomSpamRules = customData.rules;
+                renderCustomSpamRulesTable();
+            }
+        } catch (e) {
+            console.error("Erro ao carregar regras da Inteligência AntiSPAM:", e);
+            if (customTbody) {
+                customTbody.innerHTML = `<tr><td colspan="6" class="text-danger text-center font-monospace py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar inteligência antispam: ${e.message}</td></tr>`;
+            }
+        }
+
+        // 3. Carregar Regras Visuais (Blacklist & Listas de Acesso)
         const tbody = document.getElementById('visual-rules-table-body');
         try {
             const data = await fetchJson('/api/services/spamassassin/visual-rules');
@@ -4890,7 +5698,7 @@
             }
         }
 
-        // 3. Carregar Conteúdo Raw do local.cf
+        // 4. Carregar Conteúdo Raw do local.cf
         try {
             const rawData = await fetchJson('/api/services/spamassassin/rules');
             if (rawData.content !== undefined) {
@@ -4973,7 +5781,7 @@
                 if (modal) modal.hide();
             }
 
-            showAlert(data.message || "Regra antispam atualizada com sucesso!", 'success');
+            showAlert(data.message || "Regra da lista atualizada com sucesso!", 'success');
             loadSpamRules();
         } catch (e) {
             showAlert(`Erro ao atualizar regra: ${e.message}`, 'danger');

@@ -354,7 +354,7 @@ async function startServer() {
 
   let virtualLocalCf = `# /etc/spamassassin/local.cf
 # Configurações de Filtro de Spam do Servidor de E-mail
-# Gerenciado via MailAdmin Suite Web
+# Gerenciado via MailAdmin Suite Web v1.1.0
 
 required_score 5.0
 rewrite_header Subject ***SPAM (_SCORE_)***
@@ -372,9 +372,206 @@ score HELO_DYNAMIC_IPADDR 2.5
 score SPF_FAIL 3.0
 score DKIM_SIGNED -0.5
 
+# Listas de Acesso Padrão
 whitelist_from *@empresa.com.br
 whitelist_from *@parceiro.com.br
+whitelist_from *@zrti.com.br
 blacklist_from *@spammerdomain.net
+
+# ==========================================================
+# BLOQUEIO ZRTI: PHISHING PEDAGIO / RECLAME AQUI (V2 - Sem Acentos)
+# ==========================================================
+
+# 1. Pega palavras no Assunto (Subject) ignorando acentos
+header   LOCAL_GOLPE_ASSUNTO Subject =~ /ped.gios?|vi.ria|rodovi.rio|pend.ncia/i
+score    LOCAL_GOLPE_ASSUNTO 15.0
+describe LOCAL_GOLPE_ASSUNTO ZRTI - Bloqueio de Assunto Phishing
+
+# 2. Pega nomes falsos no Remetente (From) ignorando acentos
+header   LOCAL_GOLPE_REMETENTE From =~ /Regulariza..o|Pend.ncias|Cobran.a|ReclameAqui/i
+score    LOCAL_GOLPE_REMETENTE 15.0
+describe LOCAL_GOLPE_REMETENTE ZRTI - Bloqueio de Remetente Phishing
+
+# 3. Pega o dominio de Reply-To hackeado (A falha deles)
+header   LOCAL_GOLPE_REPLYTO Reply-To =~ /vidracariarubi\\.com\\.br/i
+score    LOCAL_GOLPE_REPLYTO 15.0
+describe LOCAL_GOLPE_REPLYTO ZRTI - Bloqueio de Dominio Sequestrado
+
+# ==========================================================
+# BLOQUEIO ZRTI: OFUSCACAO E ERROS DE ENCODING (Spammer Amador)
+# ==========================================================
+
+# 1. Pega multiplas interrogacoes seguidas no Assunto (Falha de charset do spammer)
+header   LOCAL_ASSUNTO_QUEBRADO Subject =~ /\\?{2,}/
+score    LOCAL_ASSUNTO_QUEBRADO 5.0
+describe LOCAL_ASSUNTO_QUEBRADO ZRTI - Assunto com erro de codificacao (??)
+
+# 2. Pega pontuacao/simbolos repetidos no meio de letras no Remetente (Ofuscacao ex: S.e.r.v.i.c.o)
+header   LOCAL_REMETENTE_OFUSCADO From =~ /[a-z][._\\-*&%][a-z][._\\-*&%][a-z]/i
+score    LOCAL_REMETENTE_OFUSCADO 5.0
+describe LOCAL_REMETENTE_OFUSCADO ZRTI - Remetente com caracteres ofuscados
+`;
+
+  let virtualMainCf = `# /etc/postfix/main.cf - Debian 12 Production Config
+# Gerenciado via MailAdmin Suite Web
+
+# Informações do Servidor
+myhostname = mail.empresa.com.br
+mydomain = empresa.com.br
+myorigin = $mydomain
+mydestination = $myhostname, localhost.$mydomain, localhost
+
+# Configurações de Rede e Interfaces
+inet_interfaces = all
+inet_protocols = ipv4
+mynetworks = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128 192.168.1.0/24
+
+# Autenticação SASL (Dovecot)
+smtpd_sasl_type = dovecot
+smtpd_sasl_path = private/auth
+smtpd_sasl_auth_enable = yes
+smtpd_sasl_security_options = noanonymous, noplaintext
+smtpd_sasl_tls_security_options = noanonymous
+smtpd_sasl_authenticated_header = yes
+
+# Criptografia TLS / SSL (Certbot Let's Encrypt)
+smtpd_tls_security_level = may
+smtpd_tls_cert_file = /etc/letsencrypt/live/mail.empresa.com.br/fullchain.pem
+smtpd_tls_key_file = /etc/letsencrypt/live/mail.empresa.com.br/privkey.pem
+smtpd_tls_session_cache_database = btree:\${data_directory}/smtpd_scache
+smtp_tls_security_level = may
+smtp_tls_session_cache_database = btree:\${data_directory}/smtp_scache
+smtpd_tls_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1
+smtpd_tls_mandatory_ciphers = medium
+
+# Políticas e Restrições de Envio (Anti-Spam / Anti-Relay)
+smtpd_recipient_restrictions =
+    permit_mynetworks,
+    permit_sasl_authenticated,
+    reject_unauth_destination,
+    reject_invalid_helo_hostname,
+    reject_non_fqdn_helo_hostname,
+    reject_non_fqdn_sender,
+    reject_non_fqdn_recipient,
+    reject_unknown_recipient_domain
+
+# Integração com Amavis (Content Filter Porta 10024)
+content_filter = smtp-amavis:[127.0.0.1]:10024
+
+# Limites de Tamanho
+message_size_limit = 52428800
+mailbox_size_limit = 0
+biff = no
+append_dot_mydomain = no
+readme_directory = no
+`;
+
+  let virtualMasterCf = `# /etc/postfix/master.cf
+# ==========================================================================
+# service type  private unpriv  chroot  wakeup  maxproc command + args
+#               (yes)   (yes)   (no)    (never) (100)
+# ==========================================================================
+smtp      inet  n       -       y       -       -       smtpd
+submission inet n       -       y       -       -       smtpd
+  -o syslog_name=postfix/submission
+  -o smtpd_tls_security_level=encrypt
+  -o smtpd_sasl_auth_enable=yes
+  -o smtpd_recipient_restrictions=permit_sasl_authenticated,reject
+smtps     inet  n       -       y       -       -       smtpd
+  -o syslog_name=postfix/smtps
+  -o smtpd_tls_wrappermode=yes
+  -o smtpd_sasl_auth_enable=yes
+  -o smtpd_recipient_restrictions=permit_sasl_authenticated,reject
+
+# Amavis Filter Feeder
+smtp-amavis unix -      -       y       -       2       smtp
+  -o smtp_data_done_timeout=1200
+  -o smtp_send_xforward_command=yes
+  -o disable_dns_lookups=yes
+  -o max_use=20
+
+# Amavis Re-injection
+127.0.0.1:10025 inet n  -       y       -       -       smtpd
+  -o content_filter=
+  -o local_recipient_maps=
+  -o relay_recipient_maps=
+  -o smtpd_restriction_classes=
+  -o smtpd_client_restrictions=
+  -o smtpd_helo_restrictions=
+  -o smtpd_sender_restrictions=
+  -o smtpd_recipient_restrictions=permit_mynetworks,reject
+  -o mynetworks=127.0.0.0/8
+  -o strict_rfc821_envelopes=yes
+  -o smtpd_error_sleep_time=0
+`;
+
+  let virtualAmavis50User = `# /etc/amavis/conf.d/50-user - Amavis Configuration
+use strict;
+
+# Níveis de Tag e Bloqueio de Spam
+$sa_tag_level_deflt  = 2.0;
+$sa_tag2_level_deflt = 5.0;
+$sa_kill_level_deflt = 8.0;
+$sa_dsn_cutoff_level = 15.0;
+
+# Ações de Quarentena
+$final_virus_destiny      = D_DISCARD;
+$final_banned_destiny     = D_BOUNCE;
+$final_spam_destiny       = D_PASS;
+$final_bad_header_destiny = D_PASS;
+
+# Concorrência e Conexões
+$max_servers = 4;
+$daemon_user  = 'amavis';
+$daemon_group = 'amavis';
+
+# Integração ClamAV Socket
+@av_scanners = (
+  ['ClamAV-clamd',
+    \\&ask_daemon, ["CONTSCAN {}\\n", "/var/run/clamav/clamd.ctl"],
+    qr/\\bOK$/m, qr/\\bFOUND$/m,
+    qr/^.*?: (?!Infected Archive)(.*) FOUND$/m ],
+);
+
+# Bypass Flags (0 = verificar, 1 = ignorar)
+@bypass_virus_checks_maps = ( 0 );
+@bypass_spam_checks_maps  = ( 0 );
+
+1;
+`;
+
+  let virtualClamdConf = `# /etc/clamav/clamd.conf - ClamAV Antivirus Daemon
+LocalSocket /var/run/clamav/clamd.ctl
+FixStaleSocket true
+LocalSocketGroup amavis
+LocalSocketMode 660
+
+ScanArchive true
+ScanOLE2 true
+ScanPDF true
+ScanHTML true
+ScanMail true
+ScanSWF true
+
+AlertEncrypted false
+MaxFileSize 25M
+MaxScanSize 100M
+MaxRecursion 16
+MaxFiles 10000
+
+User clamav
+DatabaseDirectory /var/lib/clamav
+`;
+
+  let virtualFreshclamConf = `# /etc/clamav/freshclam.conf - FreshClam Signature Updater
+DatabaseOwner clamav
+UpdateLogFile /var/log/clamav/freshclam.log
+LogVerbose false
+LogSyslog false
+
+DatabaseMirror db.local.clamav.net
+DatabaseMirror database.clamav.net
+Checks 12
 `;
 
   const runCmd = (cmd: string): Promise<{ code: number; stdout: string; stderr: string }> => {
@@ -2221,6 +2418,293 @@ blacklist_from *@spammerdomain.net
   app.delete("/api/services/spamassassin/visual-rules", deleteVisualRule);
   app.post("/api/services/spamassassin/visual-rules/delete", deleteVisualRule);
 
+  // Helper parser for Custom Regex Rules (header, score, describe)
+  function parseCustomSpamRules(cfContent: string) {
+    const lines = cfContent.split("\n");
+    const rulesMap = new Map<string, any>();
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line || line.startsWith("# ==") || line.startsWith("# --")) continue;
+
+      const headerMatch = line.match(/^header\s+([A-Za-z0-9_]+)\s+([A-Za-z0-9_\-]+)\s*=~\s*(.+)$/i);
+      if (headerMatch) {
+        const name = headerMatch[1];
+        const target = headerMatch[2];
+        const rawPattern = headerMatch[3].trim();
+        if (!rulesMap.has(name)) {
+          rulesMap.set(name, { id: name, name, target, pattern: rawPattern, score: 5.0, describe: "", enabled: true });
+        } else {
+          const r = rulesMap.get(name);
+          r.target = target;
+          r.pattern = rawPattern;
+        }
+        continue;
+      }
+
+      const bodyMatch = line.match(/^body\s+([A-Za-z0-9_]+)\s*=~\s*(.+)$/i);
+      if (bodyMatch) {
+        const name = bodyMatch[1];
+        const rawPattern = bodyMatch[2].trim();
+        if (!rulesMap.has(name)) {
+          rulesMap.set(name, { id: name, name, target: "Body", pattern: rawPattern, score: 5.0, describe: "", enabled: true });
+        } else {
+          const r = rulesMap.get(name);
+          r.target = "Body";
+          r.pattern = rawPattern;
+        }
+        continue;
+      }
+
+      const uriMatch = line.match(/^uri\s+([A-Za-z0-9_]+)\s*=~\s*(.+)$/i);
+      if (uriMatch) {
+        const name = uriMatch[1];
+        const rawPattern = uriMatch[2].trim();
+        if (!rulesMap.has(name)) {
+          rulesMap.set(name, { id: name, name, target: "URI", pattern: rawPattern, score: 5.0, describe: "", enabled: true });
+        } else {
+          const r = rulesMap.get(name);
+          r.target = "URI";
+          r.pattern = rawPattern;
+        }
+        continue;
+      }
+
+      const scoreMatch = line.match(/^score\s+([A-Za-z0-9_]+)\s+([0-9\.\-]+)/i);
+      if (scoreMatch) {
+        const name = scoreMatch[1];
+        const scoreVal = parseFloat(scoreMatch[2]);
+        if (rulesMap.has(name)) {
+          rulesMap.get(name).score = scoreVal;
+        } else if (name.startsWith("LOCAL_") || name.startsWith("ZRTI_")) {
+          rulesMap.set(name, { id: name, name, target: "Header", pattern: "", score: scoreVal, describe: "", enabled: true });
+        }
+        continue;
+      }
+
+      const descMatch = line.match(/^describe\s+([A-Za-z0-9_]+)\s+(.+)$/i);
+      if (descMatch) {
+        const name = descMatch[1];
+        const descVal = descMatch[2].trim();
+        if (rulesMap.has(name)) {
+          rulesMap.get(name).describe = descVal;
+        }
+        continue;
+      }
+    }
+
+    return Array.from(rulesMap.values()).map(r => {
+      let cat: 'phishing' | 'obfuscation' | 'hijack' | 'custom' = 'custom';
+      const nameLower = r.name.toLowerCase();
+      const descLower = (r.describe || '').toLowerCase();
+      if (nameLower.includes('golpe') || nameLower.includes('phish') || descLower.includes('phishing') || descLower.includes('golpe')) {
+        cat = 'phishing';
+      } else if (nameLower.includes('quebrado') || nameLower.includes('ofuscado') || descLower.includes('ofusca') || descLower.includes('encoding')) {
+        cat = 'obfuscation';
+      } else if (nameLower.includes('replyto') || descLower.includes('sequestrado') || descLower.includes('reply-to')) {
+        cat = 'hijack';
+      }
+      return { ...r, category: cat };
+    });
+  }
+
+  // GET Custom Regex / Heuristic Rules
+  app.get("/api/services/spamassassin/custom-rules", (req, res) => {
+    const rules = parseCustomSpamRules(virtualLocalCf);
+    res.json({ success: true, rules });
+  });
+
+  // POST Create or Edit Custom Regex Rule
+  app.post("/api/services/spamassassin/custom-rules", (req, res) => {
+    const { name, target, pattern, score, describe, old_name } = req.body || {};
+    
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, message: "Nome identificador da regra é obrigatório (ex: LOCAL_GOLPE_ASSUNTO)." });
+    }
+    if (!pattern || !pattern.trim()) {
+      return res.status(400).json({ success: false, message: "Padrão Regex da regra é obrigatório." });
+    }
+
+    const cleanName = name.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+    const cleanTarget = (target || "Subject").trim();
+    let cleanPattern = pattern.trim();
+    if (!cleanPattern.startsWith("/")) {
+      cleanPattern = `/${cleanPattern}/i`;
+    }
+    const cleanScore = typeof score === "number" ? score.toFixed(1) : (parseFloat(score) || 15.0).toFixed(1);
+    const cleanDesc = (describe || `ZRTI - Regra Customizada ${cleanName}`).trim();
+
+    const targetNameToRemove = old_name ? old_name.trim().toUpperCase() : cleanName;
+
+    // Remove old definitions of this rule name
+    const lines = virtualLocalCf.split("\n");
+    const newLines = lines.filter(l => {
+      const t = l.trim();
+      if (t.startsWith(`header ${targetNameToRemove} `) || t.startsWith(`header   ${targetNameToRemove} `)) return false;
+      if (t.startsWith(`body ${targetNameToRemove} `) || t.startsWith(`body   ${targetNameToRemove} `)) return false;
+      if (t.startsWith(`uri ${targetNameToRemove} `) || t.startsWith(`uri   ${targetNameToRemove} `)) return false;
+      if (t.startsWith(`score ${targetNameToRemove} `) || t.startsWith(`score    ${targetNameToRemove} `)) return false;
+      if (t.startsWith(`describe ${targetNameToRemove} `) || t.startsWith(`describe ${targetNameToRemove} `)) return false;
+      return true;
+    });
+
+    const isBody = cleanTarget.toLowerCase() === "body";
+    const isUri = cleanTarget.toLowerCase() === "uri";
+
+    let ruleBlock = "";
+    if (isBody) {
+      ruleBlock = `\n# Regra Customizada Heurística ${cleanName}\nbody     ${cleanName} =~ ${cleanPattern}\nscore    ${cleanName} ${cleanScore}\ndescribe ${cleanName} ${cleanDesc}\n`;
+    } else if (isUri) {
+      ruleBlock = `\n# Regra Customizada Heurística ${cleanName}\nuri      ${cleanName} =~ ${cleanPattern}\nscore    ${cleanName} ${cleanScore}\ndescribe ${cleanName} ${cleanDesc}\n`;
+    } else {
+      ruleBlock = `\n# Regra Customizada Heurística ${cleanName}\nheader   ${cleanName} ${cleanTarget} =~ ${cleanPattern}\nscore    ${cleanName} ${cleanScore}\ndescribe ${cleanName} ${cleanDesc}\n`;
+    }
+
+    virtualLocalCf = newLines.join("\n") + ruleBlock;
+
+    addAuditLog("SPAM_CUSTOM_RULE_SAVE", cleanName, { target: cleanTarget, pattern: cleanPattern, score: cleanScore, describe: cleanDesc }, "normal", req);
+
+    res.json({
+      success: true,
+      message: `Regra customizada '${cleanName}' salva com sucesso no local.cf! SpamAssassin atualizado.`
+    });
+  });
+
+  // DELETE Custom Regex Rule
+  app.post("/api/services/spamassassin/custom-rules/delete", (req, res) => {
+    const { name } = req.body || {};
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, message: "Nome da regra não informado." });
+    }
+
+    const cleanName = name.trim().toUpperCase();
+    const lines = virtualLocalCf.split("\n");
+    const newLines = lines.filter(l => {
+      const t = l.trim();
+      if (t.startsWith(`header ${cleanName} `) || t.startsWith(`header   ${cleanName} `)) return false;
+      if (t.startsWith(`body ${cleanName} `) || t.startsWith(`body   ${cleanName} `)) return false;
+      if (t.startsWith(`uri ${cleanName} `) || t.startsWith(`uri   ${cleanName} `)) return false;
+      if (t.startsWith(`score ${cleanName} `) || t.startsWith(`score    ${cleanName} `)) return false;
+      if (t.startsWith(`describe ${cleanName} `) || t.startsWith(`describe ${cleanName} `)) return false;
+      return true;
+    });
+
+    virtualLocalCf = newLines.join("\n");
+
+    addAuditLog("SPAM_CUSTOM_RULE_DELETE", cleanName, { name: cleanName }, "normal", req);
+
+    res.json({
+      success: true,
+      message: `Regra customizada '${cleanName}' removida com sucesso do local.cf.`
+    });
+  });
+
+  // POST Simulator & Tester for E-mail Headers / Subject / From against local.cf
+  app.post("/api/services/spamassassin/test-rule", (req, res) => {
+    const { subject, from, reply_to, body, raw_headers } = req.body || {};
+    const testSubj = String(subject || "").trim();
+    const testFrom = String(from || "").trim();
+    const testReplyTo = String(reply_to || "").trim();
+    const testBody = String(body || "").trim();
+    const testHeaders = String(raw_headers || "").trim();
+
+    const customRules = parseCustomSpamRules(virtualLocalCf);
+    const triggered: Array<{ name: string; target: string; pattern: string; score: number; describe: string; matched_value: string }> = [];
+    let totalScore = 0;
+
+    for (const rule of customRules) {
+      if (!rule.pattern) continue;
+
+      let regexStr = rule.pattern.trim();
+      let flags = "i";
+      if (regexStr.startsWith("/") && regexStr.lastIndexOf("/") > 0) {
+        flags = regexStr.substring(regexStr.lastIndexOf("/") + 1) || "";
+        regexStr = regexStr.substring(1, regexStr.lastIndexOf("/"));
+      }
+
+      try {
+        const re = new RegExp(regexStr, flags);
+        const targetLower = (rule.target || "subject").toLowerCase();
+        let targetText = "";
+
+        if (targetLower === "subject") {
+          targetText = testSubj;
+        } else if (targetLower === "from") {
+          targetText = testFrom;
+        } else if (targetLower === "reply-to" || targetLower === "replyto") {
+          targetText = testReplyTo;
+        } else if (targetLower === "body") {
+          targetText = testBody;
+        } else {
+          targetText = `${testHeaders}\nSubject: ${testSubj}\nFrom: ${testFrom}\nReply-To: ${testReplyTo}`;
+        }
+
+        if (targetText && re.test(targetText)) {
+          triggered.push({
+            name: rule.name,
+            target: rule.target,
+            pattern: rule.pattern,
+            score: rule.score,
+            describe: rule.describe || "Regra customizada acionada",
+            matched_value: targetText
+          });
+          totalScore += rule.score;
+        }
+      } catch (err) {
+        console.error("Regex test error for rule:", rule.name, err);
+      }
+    }
+
+    // Check standard blacklist / whitelist lines
+    const lines = virtualLocalCf.split("\n");
+    for (const l of lines) {
+      const line = l.trim();
+      if (line.startsWith("blacklist_from ")) {
+        const blVal = line.replace("blacklist_from ", "").trim();
+        const blDomain = blVal.replace("*@", "");
+        if (testFrom.toLowerCase().includes(blDomain) || (testReplyTo && testReplyTo.toLowerCase().includes(blDomain))) {
+          triggered.push({
+            name: "USER_IN_BLACKLIST",
+            target: "From",
+            pattern: blVal,
+            score: 100.0,
+            describe: `Remetente ou domínio presente na Blacklist (${blVal})`,
+            matched_value: testFrom
+          });
+          totalScore += 100.0;
+        }
+      } else if (line.startsWith("whitelist_from ")) {
+        const wlVal = line.replace("whitelist_from ", "").trim();
+        const wlDomain = wlVal.replace("*@", "");
+        if (testFrom.toLowerCase().includes(wlDomain)) {
+          triggered.push({
+            name: "USER_IN_WHITELIST",
+            target: "From",
+            pattern: wlVal,
+            score: -100.0,
+            describe: `Remetente ou domínio presente na Whitelist (${wlVal})`,
+            matched_value: testFrom
+          });
+          totalScore -= 100.0;
+        }
+      }
+    }
+
+    const isSpam = totalScore >= 5.0;
+    const breakdown = triggered.length > 0
+      ? `Pontuação Total: ${totalScore.toFixed(1)} / 5.0 (${isSpam ? "DETECTADO COMO SPAM" : "MENSAGEM LIBERADA"}). ${triggered.length} regra(s) acionada(s).`
+      : `Pontuação Total: 0.0 / 5.0 (Nenhuma regra heurística ativada). Mensagem limpa.`;
+
+    res.json({
+      success: true,
+      matched: triggered.length > 0,
+      total_score: Number(totalScore.toFixed(1)),
+      is_spam: isSpam,
+      rules_triggered: triggered,
+      breakdown_text: breakdown
+    });
+  });
+
   app.post("/api/services/spamassassin/lint", (req, res) => {
     res.json({ success: true, message: "Sintaxe OK! O arquivo de regras local.cf é válido." });
   });
@@ -2253,6 +2737,376 @@ blacklist_from *@spammerdomain.net
     }
 
     res.json({ success: true, logs: mockLogs });
+  });
+
+  // ==========================================================
+  // SERVERS & DAEMONS ENDPOINTS (Postfix, Amavis, ClamAV, AntiSpam)
+  // ==========================================================
+
+  let serverFeaturesState = {
+    // Postfix
+    smtpd_sasl_auth_enable: 'yes',
+    smtpd_sasl_type: 'dovecot',
+    smtpd_sasl_security_options: 'noanonymous, noplaintext',
+    smtpd_tls_security_level: 'may',
+    message_size_limit_mb: 50,
+    submission_port_enabled: true,
+    smtps_port_enabled: true,
+    relay_restrictions: 'permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination',
+
+    // Amavis
+    bypass_virus_checks: false,
+    bypass_spam_checks: false,
+    sa_tag_level_deflt: 2.0,
+    sa_tag2_level_deflt: 5.0,
+    sa_kill_level_deflt: 8.0,
+    max_servers: 4,
+    virus_quarantine_to: 'virus-quarantine@empresa.com.br',
+    spam_quarantine_to: 'spam-quarantine@empresa.com.br',
+
+    // ClamAV
+    scan_archive: true,
+    scan_ole2: true,
+    scan_pdf: true,
+    scan_html: true,
+    alert_encrypted: false,
+    max_file_size: 25,
+    max_scan_size: 100,
+    max_recursion: 16,
+
+    // SpamAssassin
+    required_score: 5.0,
+    rewrite_header_subject: '***SPAM (_SCORE_)***',
+    use_bayes: true,
+    bayes_auto_learn: true,
+    use_pyzor: true,
+    use_razor2: true,
+    skip_rbl_checks: false
+  };
+
+  let sslCertState = {
+    domain: 'mail.empresa.com.br',
+    valid: true,
+    issuer: "Let's Encrypt Authority X3 (ISRG Root X1)",
+    subject: 'CN=mail.empresa.com.br, O=ZRTI Infraestrutura',
+    valid_from: '2026-05-17 00:00:00',
+    valid_to: '2026-11-15 23:59:59',
+    days_remaining: 88,
+    auto_renew_active: true,
+    cert_path: '/etc/letsencrypt/live/mail.empresa.com.br/fullchain.pem',
+    key_path: '/etc/letsencrypt/live/mail.empresa.com.br/privkey.pem'
+  };
+
+  // GET /api/servers/overview
+  app.get("/api/servers/overview", (req, res) => {
+    const servicesOverview = {
+      postfix: {
+        id: 'postfix',
+        name: 'postfix',
+        service_unit: 'postfix.service',
+        display_name: 'Postfix Mail Transfer Agent (MTA)',
+        status: virtualServices.postfix?.active ? 'active' : 'inactive',
+        pid: 14010,
+        memory_mb: 48,
+        cpu_percent: 0.8,
+        uptime: '14 dias, 6 horas',
+        ports: [25, 465, 587],
+        config_file: '/etc/postfix/main.cf'
+      },
+      amavis: {
+        id: 'amavis',
+        name: 'amavis',
+        service_unit: 'amavis.service',
+        display_name: 'Amavisd-new Content Router & Filter',
+        status: virtualServices.amavis?.active ? 'active' : 'inactive',
+        pid: 1204,
+        memory_mb: 384,
+        cpu_percent: 1.4,
+        uptime: '14 dias, 6 horas',
+        ports: [10024, 10025],
+        config_file: '/etc/amavis/conf.d/50-user'
+      },
+      "clamav-daemon": {
+        id: 'clamav-daemon',
+        name: 'clamav-daemon',
+        service_unit: 'clamav-daemon.service',
+        display_name: 'ClamAV Antivirus Daemon (clamd)',
+        status: virtualServices["clamav-daemon"]?.active ? 'active' : 'inactive',
+        pid: 890,
+        memory_mb: 1024,
+        cpu_percent: 0.5,
+        uptime: '14 dias, 6 horas',
+        ports: [3310],
+        config_file: '/etc/clamav/clamd.conf'
+      },
+      spamassassin: {
+        id: 'spamassassin',
+        name: 'spamassassin',
+        service_unit: 'spamassassin.service',
+        display_name: 'SpamAssassin Daemon (spamd)',
+        status: virtualServices.spamassassin?.active ? 'active' : 'inactive',
+        pid: 1350,
+        memory_mb: 128,
+        cpu_percent: 0.9,
+        uptime: '14 dias, 6 horas',
+        ports: [783],
+        config_file: '/etc/spamassassin/local.cf'
+      }
+    };
+
+    res.json({
+      success: true,
+      services: servicesOverview,
+      features: serverFeaturesState,
+      ssl_info: sslCertState
+    });
+  });
+
+  // POST /api/servers/service-action (restart, reload, stop, start, check)
+  app.post("/api/servers/service-action", (req, res) => {
+    const { service, action } = req.body || {};
+    const sName = service === "clamav" ? "clamav-daemon" : (service || "postfix");
+    const act = action || "restart";
+
+    if (act === "check") {
+      addAuditLog("SERVER_SYNTAX_CHECK", sName, { action: "check" }, "normal", req);
+      return res.json({
+        success: true,
+        message: `Sintaxe e configurações do serviço ${sName} testadas e validadas com sucesso! (Código 0 - OK)`
+      });
+    }
+
+    if (act === "restart" || act === "reload") {
+      if (virtualServices[sName]) {
+        virtualServices[sName].active = true;
+        virtualServices[sName].state = "active";
+      }
+      addAuditLog(`SERVER_${act.toUpperCase()}`, sName, { action: act }, "normal", req);
+      return res.json({
+        success: true,
+        message: `Serviço '${sName}' ${act === 'restart' ? 'reiniciado' : 'recarregado'} com sucesso via systemctl!`
+      });
+    }
+
+    if (act === "stop") {
+      if (virtualServices[sName]) {
+        virtualServices[sName].active = false;
+        virtualServices[sName].state = "inactive";
+      }
+      addAuditLog("SERVER_STOP", sName, { action: "stop" }, "suspicious", req);
+      return res.json({
+        success: true,
+        message: `Serviço '${sName}' finalizado com sucesso.`
+      });
+    }
+
+    if (act === "start") {
+      if (virtualServices[sName]) {
+        virtualServices[sName].active = true;
+        virtualServices[sName].state = "active";
+      }
+      addAuditLog("SERVER_START", sName, { action: "start" }, "normal", req);
+      return res.json({
+        success: true,
+        message: `Serviço '${sName}' iniciado com sucesso.`
+      });
+    }
+
+    res.status(400).json({ success: false, message: "Ação não suportada." });
+  });
+
+  // GET /api/servers/config
+  app.get("/api/servers/config", (req, res) => {
+    const service = String(req.query.service || "postfix").toLowerCase();
+    const file = String(req.query.file || "").toLowerCase();
+
+    let content = virtualMainCf;
+    let resolvedFile = "/etc/postfix/main.cf";
+
+    if (file.includes("master.cf")) {
+      content = virtualMasterCf;
+      resolvedFile = "/etc/postfix/master.cf";
+    } else if (file.includes("50-user") || service === "amavis") {
+      content = virtualAmavis50User;
+      resolvedFile = "/etc/amavis/conf.d/50-user";
+    } else if (file.includes("clamd.conf") || service === "clamav") {
+      content = virtualClamdConf;
+      resolvedFile = "/etc/clamav/clamd.conf";
+    } else if (file.includes("freshclam.conf")) {
+      content = virtualFreshclamConf;
+      resolvedFile = "/etc/clamav/freshclam.conf";
+    } else if (file.includes("local.cf") || service === "spamassassin") {
+      content = virtualLocalCf;
+      resolvedFile = "/etc/spamassassin/local.cf";
+    }
+
+    res.json({ success: true, file: resolvedFile, content });
+  });
+
+  // POST /api/servers/config
+  app.post("/api/servers/config", (req, res) => {
+    const { service, file, content } = req.body || {};
+    if (typeof content !== "string") {
+      return res.status(400).json({ success: false, message: "Conteúdo inválido." });
+    }
+
+    const targetFile = String(file || "").toLowerCase();
+
+    if (targetFile.includes("master.cf")) {
+      virtualMasterCf = content;
+    } else if (targetFile.includes("main.cf")) {
+      virtualMainCf = content;
+    } else if (targetFile.includes("50-user") || service === "amavis") {
+      virtualAmavis50User = content;
+    } else if (targetFile.includes("clamd.conf")) {
+      virtualClamdConf = content;
+    } else if (targetFile.includes("freshclam.conf")) {
+      virtualFreshclamConf = content;
+    } else if (targetFile.includes("local.cf") || service === "spamassassin") {
+      virtualLocalCf = content;
+    }
+
+    addAuditLog("SERVER_CONFIG_SAVE", file || service, { file, size: content.length }, "normal", req);
+
+    res.json({
+      success: true,
+      message: `Arquivo de configuração '${file || targetFile}' salvo com sucesso! Backup automático gerado.`
+    });
+  });
+
+  // POST /api/servers/feature
+  app.post("/api/servers/feature", (req, res) => {
+    const { service, feature, value } = req.body || {};
+    if (!feature) {
+      return res.status(400).json({ success: false, message: "Nome do recurso não fornecido." });
+    }
+
+    serverFeaturesState = {
+      ...serverFeaturesState,
+      [feature]: value
+    };
+
+    addAuditLog("SERVER_FEATURE_CHANGE", `${service}:${feature}`, { feature, value }, "normal", req);
+
+    res.json({
+      success: true,
+      message: `Recurso '${feature}' atualizado para '${value}' com sucesso!`,
+      features: serverFeaturesState
+    });
+  });
+
+  // POST /api/servers/logs (Power Query das últimas 50 linhas)
+  app.post("/api/servers/logs", (req, res) => {
+    const { service, query, filter, limit } = req.body || {};
+    const sName = service === "clamav" ? "clamav-daemon" : (service || "postfix");
+    const count = limit || 50;
+    const term = String(query || "").trim().toLowerCase();
+    const flt = String(filter || "all").toLowerCase();
+
+    const now = new Date();
+    const resultLogs: string[] = [];
+
+    for (let i = count; i >= 1; i--) {
+      const ts = new Date(now.getTime() - i * 15000).toISOString().replace("T", " ").substring(0, 19);
+
+      if (sName === "postfix") {
+        if (i % 7 === 0) {
+          resultLogs.push(`${ts} mailserver postfix/smtpd[14010]: NOQUEUE: reject: RCPT from unknown[198.51.100.77]: 554 5.7.1 <test@external.org>: Relay access denied; from=<user@external.org> to=<test@external.org> proto=ESMTP helo=<external.org>`);
+        } else if (i % 5 === 0) {
+          resultLogs.push(`${ts} mailserver postfix/smtpd[14201]: warning: unknown[185.220.101.5]: SASL LOGIN authentication failed: U3Vwb3J0ZQ== (method=PLAIN)`);
+        } else if (i % 3 === 0) {
+          resultLogs.push(`${ts} mailserver postfix/qmgr[1820]: 4YtZ8b3K: from=<notificacao@empresa.com.br>, size=3512, nrcpt=1 (queue active)`);
+          resultLogs.push(`${ts} mailserver postfix/smtp[1825]: 4YtZ8b3K: to=<cliente@dominio.com.br>, relay=smtp.destino.com[203.0.113.5]:25, delay=0.8, dsn=2.0.0, status=sent (250 2.0.0 OK queued_as_8783)`);
+        } else {
+          resultLogs.push(`${ts} mailserver postfix/smtpd[14010]: connect from mail-out.google.com[209.85.220.41]`);
+          resultLogs.push(`${ts} mailserver postfix/smtpd[14010]: Anonymous TLS connection established from mail-out.google.com[209.85.220.41]: TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)`);
+          resultLogs.push(`${ts} mailserver postfix/lmtp[14220]: 4YtZ8b3K: to=<comercial@empresa.com.br>, relay=127.0.0.1[127.0.0.1]:24, status=sent (250 2.0.0 OK saved_to_mailbox)`);
+        }
+      } else if (sName === "amavis") {
+        if (i % 6 === 0) {
+          resultLogs.push(`${ts} mailserver amavis[1204]: (01204-03) Blocked SPAM {DiscardedInbound,Quarantined}, [198.51.100.12] <cobranca@rodovia-aviso.com> -> <diretoria@empresa.com.br>, quarantine: spam-01204-03.gz, Message-ID: <9832719@rodovia-aviso.com>, Hits: 17.500, tag=2.0, tag2=5.0, kill=8.0, Tests: [LOCAL_GOLPE_ASSUNTO=15.0, BAYES_99=4.5, SPF_FAIL=3.0]`);
+        } else if (i % 8 === 0) {
+          resultLogs.push(`${ts} mailserver amavis[1204]: (01204-05) Blocked INFECTED (Win.Trojan.Agent-9821), [185.220.101.99] <financeiro@falsobanco.biz> -> <contato@empresa.com.br>, quarantine: virus-01204-05.gz`);
+        } else {
+          resultLogs.push(`${ts} mailserver amavis[1204]: (01204-01) Passed CLEAN {RelayedInbound}, [209.85.220.41] <cliente@gmail.com> -> <comercial@empresa.com.br>, Hits: -0.150, tag=2.0, tag2=5.0, kill=8.0, Tests: [DKIM_SIGNED=-0.5, SPF_PASS=-0.5, BAYES_00=-1.5]`);
+        }
+      } else if (sName === "clamav-daemon") {
+        if (i % 6 === 0) {
+          resultLogs.push(`${ts} clamd[890]: /var/lib/amavis/tmp/amavis-20260818-1204/parts/p003: Win.Trojan.Agent-9821 FOUND`);
+          resultLogs.push(`${ts} clamd[890]: /var/lib/amavis/tmp/amavis-20260818-1204/parts/p004: Heuristics.Encrypted.Zip FOUND`);
+        } else {
+          resultLogs.push(`${ts} clamd[890]: SelfCheck: Database status OK. 8724190 signatures active.`);
+          resultLogs.push(`${ts} clamd[890]: ScanArchive: /var/lib/amavis/tmp/amavis-20260818-1204/parts/p001.zip OK (2 files scanned, 0 infected)`);
+          resultLogs.push(`${ts} clamd[890]: ScanPDF: /var/lib/amavis/tmp/amavis-20260818-1204/parts/fatura.pdf OK (No malicious scripts)`);
+        }
+      } else if (sName === "spamassassin") {
+        if (i % 5 === 0) {
+          resultLogs.push(`${ts} spamd[1350]: spamd: identified spam (17.5/5.0) for vmail:5000 in 0.2 seconds, 3510 bytes.`);
+          resultLogs.push(`${ts} spamd[1350]: spamd: result: Y 17 - LOCAL_GOLPE_ASSUNTO,LOCAL_GOLPE_REMETENTE,BAYES_99,SPF_FAIL scantime=0.2,size=3510,user=vmail,mid=<1892@spammer.net>,bayes=0.999`);
+        } else {
+          resultLogs.push(`${ts} spamd[1350]: spamd: clean message (-0.5/5.0) for vmail:5000 in 0.1 seconds, 1890 bytes.`);
+          resultLogs.push(`${ts} spamd[1350]: spamd: result: . 0 - DKIM_SIGNED,SPF_PASS,BAYES_00 scantime=0.1,size=1890,user=vmail,mid=<20260818@cliente.com>`);
+        }
+      }
+    }
+
+    let filtered = resultLogs;
+
+    // Apply Filter Types
+    if (flt === "errors") {
+      filtered = filtered.filter(l => {
+        const u = l.toUpperCase();
+        return u.includes("REJECT") || u.includes("ERROR") || u.includes("FAILED") || u.includes("FATAL") || u.includes("DENIED");
+      });
+    } else if (flt === "auth") {
+      filtered = filtered.filter(l => {
+        const u = l.toUpperCase();
+        return u.includes("SASL") || u.includes("AUTH") || u.includes("LOGIN") || u.includes("DOVECOT");
+      });
+    } else if (flt === "clean") {
+      filtered = filtered.filter(l => {
+        const u = l.toUpperCase();
+        return u.includes("CLEAN") || u.includes("STATUS=SENT") || u.includes("SAVED_TO_MAILBOX") || u.includes("250 2.0.0");
+      });
+    } else if (flt === "spam_virus") {
+      filtered = filtered.filter(l => {
+        const u = l.toUpperCase();
+        return u.includes("SPAM") || u.includes("INFECTED") || u.includes("VIRUS") || u.includes("FOUND") || u.includes("BLOCKED");
+      });
+    }
+
+    // Apply Text / Regex Search
+    if (term) {
+      filtered = filtered.filter(l => l.toLowerCase().includes(term));
+    }
+
+    res.json({
+      success: true,
+      service: sName,
+      count: filtered.length,
+      logs: filtered.slice(0, count)
+    });
+  });
+
+  // GET /api/servers/ssl-cert
+  app.get("/api/servers/ssl-cert", (req, res) => {
+    res.json({ success: true, ssl_info: sslCertState });
+  });
+
+  // POST /api/servers/ssl-cert/renew
+  app.post("/api/servers/ssl-cert/renew", (req, res) => {
+    sslCertState = {
+      ...sslCertState,
+      valid: true,
+      days_remaining: 90,
+      valid_to: '2026-11-17 23:59:59'
+    };
+    addAuditLog("SSL_CERT_RENEW", sslCertState.domain, { days: 90 }, "normal", req);
+    res.json({
+      success: true,
+      message: `Certificado SSL/TLS para '${sslCertState.domain}' verificado e renovado com sucesso via Certbot! Validade estendida para 90 dias.`,
+      ssl_info: sslCertState
+    });
   });
 
   // Database Settings (.env manager)

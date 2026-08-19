@@ -313,3 +313,38 @@ class CronJob(db.Model):
         }
 
 
+class SpamCustomRule(db.Model):
+    __tablename__ = 'spam_custom_rules'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    name = db.Column(db.String(100), unique=True, nullable=False, index=True) # ex: LOCAL_GOLPE_PEDAGIO
+    target = db.Column(db.String(50), default='Subject')                      # 'Subject', 'Body', 'From', 'Reply-To', 'To', 'URI'
+    match_mode = db.Column(db.String(30), default='regex')                   # 'regex', 'phrase', 'contains', 'obfuscated'
+    pattern = db.Column(db.Text, nullable=False)                             # regex ou texto chave
+    score = db.Column(db.Float, default=15.0)
+    describe = db.Column(db.String(255), default='')
+    category = db.Column(db.String(50), default='custom')                     # 'phishing', 'obfuscation', 'hijack', 'banking_pix', 'fake_invoice', 'custom'
+    action_type = db.Column(db.String(50), default='quarantine')              # 'quarantine', 'mark_spam', 'reject'
+    enabled = db.Column(db.Boolean, default=True)
+    hits_count = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'target': self.target,
+            'match_mode': self.match_mode or 'regex',
+            'pattern': self.pattern,
+            'score': self.score,
+            'describe': self.describe or '',
+            'category': self.category or 'custom',
+            'action_type': self.action_type or 'quarantine',
+            'enabled': bool(self.enabled),
+            'hits_count': self.hits_count or 0,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+            'updated_at': self.updated_at.strftime('%Y-%m-%d %H:%M:%S') if self.updated_at else None
+        }
+
+

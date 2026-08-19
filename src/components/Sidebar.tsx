@@ -7,8 +7,8 @@ import {
 } from 'lucide-react';
 
 interface SidebarProps {
-  activeTab: 'dashboard' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export';
-  setActiveTab: (tab: 'dashboard' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export') => void;
+  activeTab: 'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export';
+  setActiveTab: (tab: 'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export') => void;
   services: ServicesMap;
   onOpenMfa: () => void;
   collapsed: boolean;
@@ -35,9 +35,10 @@ export function Sidebar({
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Server, badge: 'Hardware & Status' },
+    { id: 'servers', label: 'Servidores', icon: Layers, badge: 'Postfix, Amavis, ClamAV, AntiSpam' },
     { id: 'vmail', label: 'Domínios & Contas', icon: Mail, badge: 'MariaDB vmail' },
     { id: 'troubleshooting', label: 'Troubleshooting', icon: Wrench, badge: 'Logs & DNS' },
-    { id: 'spam', label: 'Regras Spam', icon: Shield, badge: 'SpamAssassin' },
+    { id: 'spam', label: 'AntiSpam & Regras', icon: Shield, badge: 'Inteligência & Blacklist' },
     { id: 'logs', label: 'Audit Logs', icon: Terminal, badge: 'Tempo Real' },
     { id: 'export', label: 'Código Python', icon: Download, badge: 'Flask Suite' },
   ] as const;

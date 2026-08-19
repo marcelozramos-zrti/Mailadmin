@@ -5,6 +5,7 @@ import { DashboardTab } from './components/DashboardTab';
 import { VmailTab } from './components/VmailTab';
 import { TroubleshootingTab } from './components/TroubleshootingTab';
 import { SpamRulesTab } from './components/SpamRulesTab';
+import { ServersTab } from './components/ServersTab';
 import { LogAuditTab } from './components/LogAuditTab';
 import { PythonExportTab } from './components/PythonExportTab';
 import { MfaModal } from './components/MfaModal';
@@ -12,7 +13,7 @@ import { ServicesMap, LayoutPosition } from './types';
 import { CheckCircle, AlertTriangle, X } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export'>('dashboard');
   const [services, setServices] = useState<ServicesMap>({});
   const [loadingStatus, setLoadingStatus] = useState<boolean>(true);
   const [isMfaOpen, setIsMfaOpen] = useState<boolean>(false);
@@ -146,6 +147,17 @@ export default function App() {
               loading={loadingStatus}
               onRefresh={fetchStatus}
               onRestartService={handleRestartService}
+              onNavigateToServers={() => setActiveTab('servers')}
+              onNavigateToSpam={() => setActiveTab('spam')}
+            />
+          )}
+
+          {activeTab === 'servers' && (
+            <ServersTab
+              services={services}
+              onShowAlert={showAlert}
+              onRefreshStatus={fetchStatus}
+              onNavigateToSpamIntelligence={() => setActiveTab('spam')}
             />
           )}
 

@@ -13,13 +13,17 @@ interface DashboardTabProps {
   loading: boolean;
   onRefresh: () => void;
   onRestartService: (serviceName: string) => Promise<void>;
+  onNavigateToServers?: () => void;
+  onNavigateToSpam?: () => void;
 }
 
 export const DashboardTab: React.FC<DashboardTabProps> = ({
   services,
   loading,
   onRefresh,
-  onRestartService
+  onRestartService,
+  onNavigateToServers,
+  onNavigateToSpam
 }) => {
   const [restarting, setRestarting] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
@@ -516,9 +520,58 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         </div>
       </div>
 
+      {/* Quick Action Navigation Banners */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {onNavigateToServers && (
+          <div 
+            onClick={onNavigateToServers}
+            className="cursor-pointer bg-gradient-to-r from-blue-900 to-indigo-900 text-white rounded-2xl p-5 border border-blue-800 shadow-md hover:border-blue-500 hover:shadow-lg transition-all group flex items-center justify-between"
+          >
+            <div className="flex items-center gap-3.5">
+              <div className="p-3 bg-blue-600/30 border border-blue-500/40 rounded-xl group-hover:scale-110 transition-transform">
+                <Layers className="w-6 h-6 text-blue-400" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="font-bold text-sm text-white">Painel dos Servidores & Daemons</h4>
+                  <span className="bg-blue-500/30 text-blue-300 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">Novo</span>
+                </div>
+                <p className="text-xs text-blue-200/80 mt-0.5">
+                  Gerencie Postfix, Amavis, ClamAV e SpamAssassin: configs raw, drop-downs e SSL Let's Encrypt.
+                </p>
+              </div>
+            </div>
+            <ArrowUpRight className="w-5 h-5 text-blue-300 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform shrink-0" />
+          </div>
+        )}
+
+        {onNavigateToSpam && (
+          <div 
+            onClick={onNavigateToSpam}
+            className="cursor-pointer bg-gradient-to-r from-amber-950 to-slate-900 text-white rounded-2xl p-5 border border-amber-900/60 shadow-md hover:border-amber-500 hover:shadow-lg transition-all group flex items-center justify-between"
+          >
+            <div className="flex items-center gap-3.5">
+              <div className="p-3 bg-amber-600/30 border border-amber-500/40 rounded-xl group-hover:scale-110 transition-transform">
+                <ShieldAlert className="w-6 h-6 text-amber-400" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="font-bold text-sm text-white">Inteligência AntiSPAM & Regras</h4>
+                  <span className="bg-amber-500/30 text-amber-300 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">ZRTI v2</span>
+                </div>
+                <p className="text-xs text-amber-200/80 mt-0.5">
+                  Crie regras no Banco de Dados / local.cf para palavras no Assunto, Corpo, Remetente e Reply-To.
+                </p>
+              </div>
+            </div>
+            <ArrowUpRight className="w-5 h-5 text-amber-300 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform shrink-0" />
+          </div>
+        )}
+      </div>
+
       {/* Services Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {['postfix', 'amavis', 'clamav-daemon'].map((svcKey) => {
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {['postfix', 'amavis', 'clamav-daemon', 'spamassassin'].map((svcKey) => {
           const info = getServiceInfo(svcKey);
           const status = services[svcKey] || { active: false, state: 'desconhecido' };
           const isBusy = restarting === svcKey;
