@@ -6,6 +6,7 @@ import platform
 import time
 import re
 from blueprints.audit_helper import log_audit_action
+import spamassassin_engine as sa_engine
 
 try:
     import psutil
@@ -293,50 +294,42 @@ def handle_rules():
 def handle_visual_rules():
     if request.method == 'GET':
         try:
-            if not os.path.exists(LOCAL_CF_PATH):
-                return jsonify({'success': True, 'rules': []})
+            content = ""
+            if os.path.exists(LOCAL_CF_PATH):
+                with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
+                    content = f.read()
 
-            with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
+            rules = sa_engine.parse_all_rules(content)
+            audit_data = sa_engine.audit_rules_integrity(rules)
 
-            rules = []
-            rule_id = 0
-            # Suporta blacklist_from, whitelist_from, spam_from e diretivas comentadas # SPAM_FROM / # SPAM:
-            pattern = re.compile(r'^\s*(?:#\s*)?(blacklist_from|whitelist_from|spam_from|score_spam|spam)\s*(?::|\s)\s*(.+)$', re.IGNORECASE)
-
-            for line in lines:
-                clean_line = line.strip()
-                match = pattern.match(clean_line)
-                if match:
-                    raw_type = match.group(1).lower()
-                    val = match.group(2).strip()
-                    if raw_type in ['spam_from', 'score_spam', 'spam']:
-                        action_type = 'spam_from'
-                        action_label = 'Marcar como SPAM'
-                    elif raw_type == 'blacklist_from':
-                        action_type = 'blacklist_from'
-                        action_label = 'Bloquear (Blacklist)'
-                    else:
-                        action_type = 'whitelist_from'
-                        action_label = 'Liberar (Whitelist)'
-
-                    rules.append({
-                        'id': rule_id,
-                        'type': action_type,
-                        'action_label': action_label,
-                        'value': val,
-                        'raw': clean_line
-                    })
-                    rule_id += 1
-
-            return jsonify({'success': True, 'rules': rules})
+            return jsonify({
+                'success': True,
+                'rules': rules,
+                'stats': {
+                    'total_rules': audit_data['total_rules'],
+                    'unique_rules': audit_data['unique_rules'],
+                    'active_rules': audit_data['active_rules'],
+                    'blacklist_rules': audit_data['blacklist_rules'],
+                    'whitelist_rules': audit_data['whitelist_rules'],
+                    'spam_score_rules': audit_data['spam_score_rules'],
+                    'duplicate_rules': audit_data['duplicates_count'],
+                    'overlapping_rules': audit_data['redundant_rules_count'],
+                    'conflicting_rules': audit_data['conflicts_count'],
+                    'is_fully_optimized': audit_data['is_fully_optimized']
+                },
+                'audit': audit_data
+            })
         except Exception as e:
             return jsonify({'success': False, 'message': str(e)}), 500
 
     elif request.method == 'POST':
         data = request.get_json(silent=True) or request.form or {}
-        action = data.get('action')
+        action = data.get('action') or 'blacklist_from'
         value = (data.get('value') or '').strip()
+        reason = (data.get('reason') or '').strip()
+        origin = data.get('origin') or 'manual'
+        active = data.get('active', True)
+        force = data.get('force', False)
 
         if not action or action not in ['blacklist_from', 'whitelist_from', 'spam_from']:
             return jsonify({'success': False, 'message': 'Ação inválida. Escolha Bloquear (blacklist_from), Marcar como SPAM (spam_from) ou Liberar (whitelist_from).'}), 400
@@ -344,7 +337,15 @@ def handle_visual_rules():
         if not value:
             return jsonify({'success': False, 'message': 'Forneça um endereço ou padrão válido (ex: *@dominio.com).'}), 400
 
-        new_rule_line = f"{action} {value}"
+        # Normaliza e valida com o motor
+        parsed_target = sa_engine.parse_rule_target(value, action)
+        if not parsed_target['is_valid']:
+            return jsonify({'success': False, 'message': 'Endereço ou domínio inválido.'}), 400
+
+        standard_value = parsed_target['normalized_value']
+        directive_line = f"{action} {standard_value}"
+        if not active:
+            directive_line = f"# {directive_line}"
 
         try:
             content = ""
@@ -352,34 +353,63 @@ def handle_visual_rules():
                 with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
                     content = f.read()
 
-            lines = [l.strip() for l in content.splitlines()]
-            if new_rule_line not in lines:
-                if content and not content.endswith('\n'):
-                    content += '\n'
-                content += new_rule_line + '\n'
+            existing_rules = sa_engine.parse_all_rules(content)
 
-                tmp_file = '/tmp/local.cf.tmp'
-                with open(tmp_file, 'w', encoding='utf-8') as f:
-                    f.write(content)
+            # Verifica duplicidade semântica
+            if not force:
+                for r in existing_rules:
+                    if r.get('action') == action and r.get('canonical_pattern') == parsed_target['canonical_pattern']:
+                        return jsonify({
+                            'success': False,
+                            'duplicate_detected': True,
+                            'existing_rule': r.get('raw'),
+                            'message': f"A regra equivalente '{r.get('raw')}' já está cadastrada no servidor."
+                        }), 409
 
-                cp_res = run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
-                if os.path.exists(tmp_file):
-                    os.remove(tmp_file)
+            lines = content.splitlines()
+            # Anexa metadados em comentário se fornecido
+            new_block = []
+            if reason:
+                new_block.append(f"# Motivo: {reason} | Origem: {origin}")
+            new_block.append(directive_line)
 
-                if cp_res['returncode'] != 0:
+            lines.extend(new_block)
+            new_content = "\n".join(lines) + "\n"
+
+            tmp_file = '/tmp/local.cf.tmp'
+            with open(tmp_file, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+
+            cp_res = run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
+            if os.path.exists(tmp_file):
+                os.remove(tmp_file)
+
+            if cp_res['returncode'] != 0:
+                # Tenta gravação direta se sudo falhar (em ambiente não-root sem sudo)
+                try:
+                    with open(LOCAL_CF_PATH, 'w', encoding='utf-8') as f:
+                        f.write(new_content)
+                except Exception:
                     return jsonify({'success': False, 'message': f'Erro ao atualizar local.cf: {cp_res["stderr"]}'}), 500
 
             run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
             run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
 
             try:
-                log_audit_action("SPAM_RULE_CREATE", target=value, details={"action": action, "rule": new_rule_line}, severity_level="normal")
+                log_audit_action("SPAM_RULE_CREATE", target=standard_value, details={"action": action, "rule": directive_line, "reason": reason}, severity_level="normal")
             except Exception:
                 pass
 
             return jsonify({
                 'success': True,
-                'message': f'Regra "{new_rule_line}" adicionada com sucesso! Serviço SpamAssassin reiniciado.'
+                'message': f'Regra "{directive_line}" adicionada com sucesso! Serviço SpamAssassin reiniciado.',
+                'rule': {
+                    'raw': directive_line,
+                    'value': standard_value,
+                    'action': action,
+                    'active': active,
+                    'interpretation': parsed_target['interpretation']
+                }
             })
         except Exception as e:
             return jsonify({'success': False, 'message': str(e)}), 500
@@ -406,6 +436,9 @@ def edit_visual_rule_logic():
     old_raw = (data.get('old_raw') or '').strip()
     new_action = (data.get('new_action') or data.get('action') or '').strip()
     new_value = (data.get('new_value') or data.get('value') or '').strip()
+    reason = (data.get('reason') or '').strip()
+    origin = data.get('origin') or 'manual'
+    active = data.get('active', True)
 
     if not new_action or new_action not in ['blacklist_from', 'whitelist_from', 'spam_from']:
         return jsonify({'success': False, 'message': 'Tipo de ação inválido. Escolha Bloquear, SPAM ou Liberar.'}), 400
@@ -413,7 +446,11 @@ def edit_visual_rule_logic():
     if not new_value:
         return jsonify({'success': False, 'message': 'Endereço ou domínio alvo não pode ficar vazio.'}), 400
 
-    new_rule_line = f"{new_action} {new_value}"
+    parsed_target = sa_engine.parse_rule_target(new_value, new_action)
+    standard_value = parsed_target['normalized_value']
+    new_rule_line = f"{new_action} {standard_value}"
+    if not active:
+        new_rule_line = f"# {new_rule_line}"
 
     try:
         content = ""
@@ -428,18 +465,19 @@ def edit_visual_rule_logic():
 
         for line in lines:
             if not replaced and target_clean and line.strip().lower() == target_clean:
+                if reason:
+                    new_lines.append(f"# Motivo: {reason} | Origem: {origin}\n")
                 new_lines.append(new_rule_line + '\n')
                 replaced = True
             else:
                 new_lines.append(line)
 
         if not replaced:
-            # Se não encontrou a linha antiga exatamente, anexa a nova regra
+            if reason:
+                new_lines.append(f"# Motivo: {reason} | Origem: {origin}\n")
             new_lines.append(new_rule_line + '\n')
 
         content = "".join(new_lines)
-        
-        # Tenta salvar diretamente, ou via tmp + sudo cp se necessário
         try:
             with open(LOCAL_CF_PATH, 'w', encoding='utf-8') as f:
                 f.write(content)
@@ -458,7 +496,7 @@ def edit_visual_rule_logic():
             log_audit_action(
                 'UPDATE_SPAM_RULE',
                 target=new_rule_line,
-                details={'old_raw': old_raw, 'new_rule': new_rule_line},
+                details={'old_raw': old_raw, 'new_rule': new_rule_line, 'reason': reason},
                 severity_level='normal'
             )
         except Exception:
@@ -543,6 +581,62 @@ def delete_visual_rule_logic():
         return jsonify({'success': False, 'message': f'Erro ao excluir regra: {str(e)}'}), 500
 
 
+@services_bp.route('/spamassassin/visual-rules/toggle', methods=['POST'])
+@login_required
+def toggle_visual_rule():
+    data = request.get_json(silent=True) or request.form or {}
+    raw = (data.get('raw') or '').strip()
+    active = data.get('active', True)
+
+    if not raw:
+        return jsonify({'success': False, 'message': 'Regra não fornecida.'}), 400
+
+    try:
+        if not os.path.exists(LOCAL_CF_PATH):
+            return jsonify({'success': False, 'message': 'Arquivo local.cf não encontrado.'}), 404
+
+        with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        new_lines = []
+        target_clean = raw.lower()
+        replaced = False
+
+        for line in lines:
+            clean = line.strip().lower()
+            if not replaced and (clean == target_clean or clean.lstrip('#').strip() == target_clean.lstrip('#').strip()):
+                base_line = line.strip().lstrip('#').strip()
+                if active:
+                    new_lines.append(f"{base_line}\n")
+                else:
+                    new_lines.append(f"# {base_line}\n")
+                replaced = True
+            else:
+                new_lines.append(line)
+
+        content = "".join(new_lines)
+        try:
+            with open(LOCAL_CF_PATH, 'w', encoding='utf-8') as f:
+                f.write(content)
+        except Exception:
+            tmp_file = '/tmp/local.cf.tmp'
+            with open(tmp_file, 'w', encoding='utf-8') as f:
+                f.write(content)
+            run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
+            if os.path.exists(tmp_file):
+                os.remove(tmp_file)
+
+        run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
+        run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
+
+        return jsonify({
+            'success': True,
+            'message': f'Regra {"ativada" if active else "desativada"} com sucesso no SpamAssassin.'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 @services_bp.route('/spamassassin/visual-rules/analyze', methods=['POST'])
 @login_required
 def analyze_visual_rule():
@@ -553,26 +647,72 @@ def analyze_visual_rule():
     if not target:
         return jsonify({'success': False, 'message': 'Alvo não informado.'}), 400
 
-    clean = target.strip().lower()
-    is_wildcard = '*' in clean and not clean.startswith('*@')
-    target_type = 'wildcard' if is_wildcard else ('email' if '@' in clean and not clean.startswith('@') and not clean.startswith('*@') else ('subdomain' if clean.count('.') >= 2 else 'domain'))
-    
-    dom = clean.replace('*@', '').replace('@', '').strip()
-    norm = clean if target_type in ['wildcard', 'email'] else f"*@{dom}"
-    
+    parsed = sa_engine.parse_rule_target(target, action)
+
+    # Verifica contra regras existentes
+    content = ""
+    if os.path.exists(LOCAL_CF_PATH):
+        try:
+            with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except Exception:
+            pass
+
+    existing_rules = sa_engine.parse_all_rules(content)
+    exact_dup = None
+    normalized_dup = None
+    overlapping_rule = None
+    conflict_rule = None
+
+    for r in existing_rules:
+        if r.get('canonical_pattern') == parsed['canonical_pattern']:
+            if r.get('action') == action:
+                if r.get('raw_value', '').lower() == target.lower():
+                    exact_dup = r
+                else:
+                    normalized_dup = r
+            else:
+                conflict_rule = r
+        elif r.get('action') == action and parsed['pattern_type'] in ['SUBDOMAIN', 'EMAIL'] and r.get('pattern_type') == 'DOMAIN':
+            if parsed['domain'].endswith('.' + r.get('domain', '')) or parsed['domain'] == r.get('domain', ''):
+                overlapping_rule = r
+
+    has_duplicate = bool(exact_dup or normalized_dup)
+
     return jsonify({
         'success': True,
         'target': target,
-        'normalized_target': norm,
-        'target_type': target_type,
-        'target_type_label': 'Domínio Completo' if target_type == 'domain' else ('E-mail Específico' if target_type == 'email' else ('Subdomínio' if target_type == 'subdomain' else 'Padrão Wildcard')),
-        'interpretation': f"Bloqueia mensagens associadas a {norm}",
-        'duplicates': {'has_exact_duplicate': False, 'has_normalized_duplicate': False},
-        'conflicts': {'has_conflict': False},
+        'normalized_target': parsed['normalized_value'],
+        'canonical_pattern': parsed['canonical_pattern'],
+        'pattern_type': parsed['pattern_type'],
+        'pattern_type_label': parsed['pattern_type_label'],
+        'scope': parsed['scope'],
+        'scope_label': parsed['scope_label'],
+        'domain': parsed['domain'],
+        'interpretation': parsed['interpretation'],
+        'is_high_impact': parsed['is_high_impact'],
+        'impact_severity': parsed['impact_severity'],
+        'impact_message': parsed['impact_message'],
+        'duplicates': {
+            'has_exact_duplicate': bool(exact_dup),
+            'has_normalized_duplicate': bool(normalized_dup),
+            'has_duplicate': has_duplicate,
+            'existing_rule': (exact_dup or normalized_dup or {}).get('raw')
+        },
+        'overlapping': {
+            'has_overlapping': bool(overlapping_rule),
+            'broader_rule': (overlapping_rule or {}).get('raw'),
+            'message': f"O domínio já está coberto pela regra mais abrangente '{(overlapping_rule or {}).get('raw')}'." if overlapping_rule else ""
+        },
+        'conflicts': {
+            'has_conflict': bool(conflict_rule),
+            'conflicting_rule': (conflict_rule or {}).get('raw')
+        },
         'suggestion': {
             'recommended_action': action,
-            'recommended_target': norm,
-            'recommended_reason': 'Domínio identificado como origem de spam.'
+            'recommended_target': parsed['normalized_value'],
+            'recommended_rule': f"{action} {parsed['normalized_value']}",
+            'recommended_reason': 'Bloqueio preventivo de segurança.'
         }
     })
 
@@ -580,54 +720,145 @@ def analyze_visual_rule():
 @services_bp.route('/spamassassin/visual-rules/audit-duplicates', methods=['GET', 'POST'])
 @login_required
 def audit_visual_rules():
-    return jsonify({
-        'success': True,
-        'duplicates_count': 0,
-        'duplicate_groups': [],
-        'redundant_rules_count': 0,
-        'redundant_rules': [],
-        'conflicts_count': 0,
-        'conflicts': []
-    })
+    content = ""
+    if os.path.exists(LOCAL_CF_PATH):
+        try:
+            with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except Exception as e:
+            return jsonify({'success': False, 'message': str(e)}), 500
+
+    rules = sa_engine.parse_all_rules(content)
+    audit_data = sa_engine.audit_rules_integrity(rules)
+
+    return jsonify(audit_data)
 
 
 @services_bp.route('/spamassassin/visual-rules/clean-duplicates', methods=['POST'])
 @login_required
 def clean_visual_rules():
-    return jsonify({
-        'success': True,
-        'message': 'Higienização de regras executada com sucesso.',
-        'deduplicated_count': 0
-    })
+    if not os.path.exists(LOCAL_CF_PATH):
+        return jsonify({'success': False, 'message': 'Arquivo local.cf não encontrado.'}), 404
 
+    try:
+        with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
+            content = f.read()
 
-@services_bp.route('/spamassassin/visual-rules/toggle', methods=['POST'])
-@login_required
-def toggle_visual_rule():
-    data = request.get_json(silent=True) or request.form or {}
-    raw = data.get('raw')
-    active = data.get('active', True)
-    return jsonify({
-        'success': True,
-        'message': f'Regra {"ativada" if active else "desativada"} com sucesso.'
-    })
+        new_content, deduplicated_count = sa_engine.consolidate_and_clean_rules(content)
+
+        tmp_file = '/tmp/local.cf.tmp'
+        with open(tmp_file, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+
+        cp_res = run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
+        if os.path.exists(tmp_file):
+            os.remove(tmp_file)
+
+        if cp_res['returncode'] != 0:
+            with open(LOCAL_CF_PATH, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+
+        run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
+        run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
+
+        return jsonify({
+            'success': True,
+            'message': f'Higienização concluída com sucesso! {deduplicated_count} regra(s) duplicada(s) ou equivalentes foram consolidadas no padrão oficial SpamAssassin.',
+            'deduplicated_count': deduplicated_count
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 
 @services_bp.route('/spamassassin/visual-rules/test-target', methods=['POST'])
 @login_required
 def test_visual_rule_target():
     data = request.get_json(silent=True) or request.form or {}
-    target = data.get('target', '')
-    action = data.get('action', 'blacklist_from')
+    action = data.get('action') or 'blacklist_from'
+    target = (data.get('target') or '').strip()
+    custom_emails = data.get('custom_emails') or []
+
+    content = ""
+    if os.path.exists(LOCAL_CF_PATH):
+        try:
+            with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except Exception:
+            pass
+
+    rules = sa_engine.parse_all_rules(content)
+
+    # Caso A: Checagem Rápida de Status (Consultar e-mail contra todas as regras)
+    if action == 'check_status':
+        res = sa_engine.evaluate_target_against_all_rules(target, rules)
+        return jsonify(res)
+
+    # Caso B: Simulação Preditiva para Regra Candidata / Amostra
+    parsed = sa_engine.parse_rule_target(target, action)
+    clean_domain = parsed['domain'] or 'spammer.com'
+
+    # Se o usuário não enviou amostra customizada, cria 5 cenários inteligentes
+    if not custom_emails:
+        test_emails = [
+            f"contato@{clean_domain}",
+            f"financeiro@{clean_domain}",
+            f"diretoria@{clean_domain}",
+            f"teste@{clean_domain}",
+            "usuario.legitimo@empresa-confiavel.com.br"
+        ]
+    else:
+        test_emails = custom_emails
+
+    candidate_rule = {
+        'action': action,
+        'score': 100.0 if action == 'blacklist_from' else (-100.0 if action == 'whitelist_from' else 20.0),
+        'canonical_pattern': parsed['canonical_pattern'],
+        'pattern_type': parsed['pattern_type'],
+        'domain': parsed['domain'],
+        'local_part': parsed['local_part'],
+        'value': parsed['normalized_value'],
+        'active': True
+    }
+
+    test_cases = []
+    for em in test_emails:
+        em_clean = em.strip()
+        if not em_clean:
+            continue
+        is_match, spec, detail = sa_engine.match_target_against_rule(em_clean, candidate_rule)
+        
+        if is_match:
+            if action == 'blacklist_from':
+                result = 'BLOQUEADO'
+                score_impact = 100.0
+            elif action == 'whitelist_from':
+                result = 'LIBERADO'
+                score_impact = -100.0
+            else:
+                result = 'MARCADO COMO SPAM'
+                score_impact = 20.0
+        else:
+            result = 'NÃO AFETADO'
+            score_impact = 0.0
+
+        test_cases.append({
+            'email': em_clean,
+            'matched': is_match,
+            'is_matched': is_match,
+            'result': result,
+            'verdict': result,
+            'score_impact': score_impact,
+            'points': score_impact,
+            'detail': detail
+        })
+
     return jsonify({
         'success': True,
         'target': target,
         'action': action,
-        'results': [
-            {'email': f'usuario@{target.replace("*@", "")}', 'is_matched': True, 'verdict': 'BLOQUEADO', 'points': 100.0, 'status_badge': 'bg-danger text-white'},
-            {'email': f'financeiro@{target.replace("*@", "")}', 'is_matched': True, 'verdict': 'BLOQUEADO', 'points': 100.0, 'status_badge': 'bg-danger text-white'},
-            {'email': 'contato@gmail.com', 'is_matched': False, 'verdict': 'NÃO AFETADO', 'points': 0, 'status_badge': 'bg-secondary text-white'}
-        ]
+        'normalized_target': parsed['normalized_value'],
+        'test_cases': test_cases,
+        'results': test_cases
     })
 
 
@@ -900,68 +1131,63 @@ def test_spam_rules_simulation():
     is_blacklisted = False
     is_whitelisted = False
 
-    # 1. Evaluate Access Lists (Blacklist, Whitelist, Spam List)
-    for line in content.split('\n'):
-        l = line.strip()
-        if not l or l.startswith('#'):
+    # 1. Evaluate Access Lists (Blacklist, Whitelist, Spam List) using Unified Engine
+    all_rules = sa_engine.parse_all_rules(content)
+    for rule in all_rules:
+        if not rule.get('active'):
             continue
-            
-        if l.lower().startswith('blacklist_from '):
-            pat = l[15:].strip()
-            from_m = match_access_pattern_py(pat, test_from)
-            reply_m = match_access_pattern_py(pat, test_reply_to) if test_reply_to else False
-            if from_m or reply_m:
+        
+        act = rule.get('action')
+        from_m, spec_from, det_from = sa_engine.match_target_against_rule(test_from, rule) if test_from else (False, '', '')
+        reply_m, spec_rep, det_rep = sa_engine.match_target_against_rule(test_reply_to, rule) if test_reply_to else (False, '', '')
+
+        if from_m or reply_m:
+            matched_target_label = 'From (Remetente)' if from_m else 'Reply-To'
+            matched_val = test_from if from_m else test_reply_to
+            rule_pattern = rule.get('value') or rule.get('canonical_pattern')
+
+            if act == 'blacklist_from':
                 is_blacklisted = True
                 triggered.append({
-                    'rule': f'BLACKLIST_FROM ({pat})',
+                    'rule': f'BLACKLIST_FROM ({rule_pattern})',
                     'name': 'BLACKLIST_FROM',
                     'type': 'blacklist',
                     'category_label': '🚫 Blacklist (Lista Negra)',
-                    'target': 'From (Remetente)' if from_m else 'Reply-To',
-                    'pattern': pat,
+                    'target': matched_target_label,
+                    'pattern': rule_pattern,
                     'score': 100.0,
                     'points': 100.0,
-                    'describe': f'Remetente ou domínio presente na Blacklist oficial ({pat})',
-                    'matched_value': test_from if from_m else test_reply_to
+                    'describe': f'Remetente ou domínio presente na Blacklist oficial ({rule_pattern})',
+                    'matched_value': matched_val
                 })
                 total_score += 100.0
-                
-        elif l.lower().startswith('whitelist_from '):
-            pat = l[15:].strip()
-            from_m = match_access_pattern_py(pat, test_from)
-            reply_m = match_access_pattern_py(pat, test_reply_to) if test_reply_to else False
-            if from_m or reply_m:
+            elif act == 'whitelist_from':
                 is_whitelisted = True
                 triggered.append({
-                    'rule': f'WHITELIST_FROM ({pat})',
+                    'rule': f'WHITELIST_FROM ({rule_pattern})',
                     'name': 'WHITELIST_FROM',
                     'type': 'whitelist',
                     'category_label': '🟢 Whitelist (Lista Confiável)',
-                    'target': 'From (Remetente)' if from_m else 'Reply-To',
-                    'pattern': pat,
+                    'target': matched_target_label,
+                    'pattern': rule_pattern,
                     'score': -100.0,
                     'points': -100.0,
-                    'describe': f'Remetente ou domínio liberado na Whitelist ({pat})',
-                    'matched_value': test_from if from_m else test_reply_to
+                    'describe': f'Remetente ou domínio liberado na Whitelist ({rule_pattern})',
+                    'matched_value': matched_val
                 })
                 total_score -= 100.0
-
-        elif l.lower().startswith('spam_from '):
-            pat = l[10:].strip()
-            from_m = match_access_pattern_py(pat, test_from)
-            reply_m = match_access_pattern_py(pat, test_reply_to) if test_reply_to else False
-            if from_m or reply_m:
+            elif act == 'spam_from':
                 triggered.append({
-                    'rule': f'SPAM_FROM ({pat})',
+                    'rule': f'SPAM_FROM ({rule_pattern})',
                     'name': 'SPAM_FROM',
                     'type': 'spam_list',
                     'category_label': '⚠️ Lista de SPAM Direto',
-                    'target': 'From (Remetente)' if from_m else 'Reply-To',
-                    'pattern': pat,
+                    'target': matched_target_label,
+                    'pattern': rule_pattern,
                     'score': 20.0,
                     'points': 20.0,
-                    'describe': f'Remetente ou domínio cadastrado como SPAM direto ({pat})',
-                    'matched_value': test_from if from_m else test_reply_to
+                    'describe': f'Remetente ou domínio cadastrado como SPAM direto ({rule_pattern})',
+                    'matched_value': matched_val
                 })
                 total_score += 20.0
 
