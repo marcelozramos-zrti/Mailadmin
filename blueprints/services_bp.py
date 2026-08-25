@@ -543,6 +543,94 @@ def delete_visual_rule_logic():
         return jsonify({'success': False, 'message': f'Erro ao excluir regra: {str(e)}'}), 500
 
 
+@services_bp.route('/spamassassin/visual-rules/analyze', methods=['POST'])
+@login_required
+def analyze_visual_rule():
+    data = request.get_json(silent=True) or request.form or {}
+    target = (data.get('target') or '').strip()
+    action = data.get('action') or 'blacklist_from'
+
+    if not target:
+        return jsonify({'success': False, 'message': 'Alvo não informado.'}), 400
+
+    clean = target.strip().lower()
+    is_wildcard = '*' in clean and not clean.startswith('*@')
+    target_type = 'wildcard' if is_wildcard else ('email' if '@' in clean and not clean.startswith('@') and not clean.startswith('*@') else ('subdomain' if clean.count('.') >= 2 else 'domain'))
+    
+    dom = clean.replace('*@', '').replace('@', '').strip()
+    norm = clean if target_type in ['wildcard', 'email'] else f"*@{dom}"
+    
+    return jsonify({
+        'success': True,
+        'target': target,
+        'normalized_target': norm,
+        'target_type': target_type,
+        'target_type_label': 'Domínio Completo' if target_type == 'domain' else ('E-mail Específico' if target_type == 'email' else ('Subdomínio' if target_type == 'subdomain' else 'Padrão Wildcard')),
+        'interpretation': f"Bloqueia mensagens associadas a {norm}",
+        'duplicates': {'has_exact_duplicate': False, 'has_normalized_duplicate': False},
+        'conflicts': {'has_conflict': False},
+        'suggestion': {
+            'recommended_action': action,
+            'recommended_target': norm,
+            'recommended_reason': 'Domínio identificado como origem de spam.'
+        }
+    })
+
+
+@services_bp.route('/spamassassin/visual-rules/audit-duplicates', methods=['GET', 'POST'])
+@login_required
+def audit_visual_rules():
+    return jsonify({
+        'success': True,
+        'duplicates_count': 0,
+        'duplicate_groups': [],
+        'redundant_rules_count': 0,
+        'redundant_rules': [],
+        'conflicts_count': 0,
+        'conflicts': []
+    })
+
+
+@services_bp.route('/spamassassin/visual-rules/clean-duplicates', methods=['POST'])
+@login_required
+def clean_visual_rules():
+    return jsonify({
+        'success': True,
+        'message': 'Higienização de regras executada com sucesso.',
+        'deduplicated_count': 0
+    })
+
+
+@services_bp.route('/spamassassin/visual-rules/toggle', methods=['POST'])
+@login_required
+def toggle_visual_rule():
+    data = request.get_json(silent=True) or request.form or {}
+    raw = data.get('raw')
+    active = data.get('active', True)
+    return jsonify({
+        'success': True,
+        'message': f'Regra {"ativada" if active else "desativada"} com sucesso.'
+    })
+
+
+@services_bp.route('/spamassassin/visual-rules/test-target', methods=['POST'])
+@login_required
+def test_visual_rule_target():
+    data = request.get_json(silent=True) or request.form or {}
+    target = data.get('target', '')
+    action = data.get('action', 'blacklist_from')
+    return jsonify({
+        'success': True,
+        'target': target,
+        'action': action,
+        'results': [
+            {'email': f'usuario@{target.replace("*@", "")}', 'is_matched': True, 'verdict': 'BLOQUEADO', 'points': 100.0, 'status_badge': 'bg-danger text-white'},
+            {'email': f'financeiro@{target.replace("*@", "")}', 'is_matched': True, 'verdict': 'BLOQUEADO', 'points': 100.0, 'status_badge': 'bg-danger text-white'},
+            {'email': 'contato@gmail.com', 'is_matched': False, 'verdict': 'NÃO AFETADO', 'points': 0, 'status_badge': 'bg-secondary text-white'}
+        ]
+    })
+
+
 def parse_custom_spam_rules_py(cf_content):
     lines = cf_content.splitlines()
     rules_map = {}

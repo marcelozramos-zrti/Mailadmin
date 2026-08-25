@@ -372,11 +372,22 @@ score HELO_DYNAMIC_IPADDR 2.5
 score SPF_FAIL 3.0
 score DKIM_SIGNED -0.5
 
-# Listas de Acesso Padrão
+# Listas de Acesso Padrão (White List & Blacklist)
 whitelist_from *@empresa.com.br
 whitelist_from *@parceiro.com.br
 whitelist_from *@zrti.com.br
 blacklist_from *@spammerdomain.net
+blacklist_from contato@sugardns.net
+
+# Regras de Amostra para Demonstração e Auditoria de Duplicidades
+blacklist_from *@sensoebs.com
+blacklist_from @sensoebs.com
+blacklist_from *@residuos3.com
+blacklist_from @residuos3.com
+blacklist_from *@neocomunicar1.com
+blacklist_from @neocomunicar1.com
+blacklist_from *@uraprods.com
+blacklist_from @uraprods.com
 
 # ==========================================================
 # BLOQUEIO ZRTI: PHISHING PEDAGIO / RECLAME AQUI (V2 - Sem Acentos)
@@ -2291,18 +2302,123 @@ Checks 12
     res.json({ success: true, message: "Regras salvas no local.cf e Amavis reiniciado!" });
   });
 
-  app.get("/api/services/spamassassin/visual-rules", (req, res) => {
-    const lines = virtualLocalCf.split("\n");
+  // =========================================================================
+  // GERENCIADOR INTELIGENTE DE REGRAS ANTISPAM (BLACK-LIST & LISTAS DE ACESSO)
+  // =========================================================================
+
+  // In-memory store for rich metadata (origin, description/reason, notes, audit info)
+  const virtualSpamRulesMetaStore = new Map<string, {
+    description?: string;
+    origin?: string;
+    notes?: string;
+    created_at?: string;
+    created_by?: string;
+  }>();
+
+  // Helper to identify target type (email, subdomain, domain, wildcard)
+  function identifyTargetType(val: string): 'email' | 'subdomain' | 'domain' | 'wildcard' {
+    const clean = val.trim().toLowerCase();
+    if ((clean.includes('*') && !clean.startsWith('*@') && !clean.startsWith('@')) || clean.includes('*@*.') || clean.includes('@*.')) {
+      return 'wildcard';
+    }
+    
+    let domainPart = clean;
+    if (clean.includes('@')) {
+      const parts = clean.split('@');
+      const userPart = parts[0].trim();
+      domainPart = parts[1].trim();
+      if (userPart && userPart !== '*' && !userPart.includes('*')) {
+        return 'email';
+      }
+    }
+
+    const cleanDom = domainPart.replace(/^\*@/, '').replace(/^@/, '').replace(/^\*\./, '');
+    const dotCount = (cleanDom.match(/\./g) || []).length;
+    const isCctldCompound = /\.(com|net|org|gov|edu|ind|art|srv|etc)\.[a-z]{2}$/i.test(cleanDom);
+    if ((isCctldCompound && dotCount >= 3) || (!isCctldCompound && dotCount >= 2)) {
+      return 'subdomain';
+    }
+
+    return 'domain';
+  }
+
+  // Helper to normalize target format to SpamAssassin standard
+  function normalizeTarget(val: string): { normalized: string; domain: string; isEmail: boolean; targetType: 'email' | 'subdomain' | 'domain' | 'wildcard' } {
+    let clean = (val || '').trim().toLowerCase().replace(/['"]/g, '');
+    const targetType = identifyTargetType(clean);
+
+    if (targetType === 'wildcard') {
+      return {
+        normalized: clean,
+        domain: clean.replace(/^.*@/, ''),
+        isEmail: false,
+        targetType
+      };
+    }
+
+    if (targetType === 'email') {
+      return {
+        normalized: clean,
+        domain: clean.split('@')[1] || '',
+        isEmail: true,
+        targetType
+      };
+    }
+
+    let dom = clean;
+    if (dom.startsWith('*@')) {
+      dom = dom.substring(2);
+    } else if (dom.startsWith('@')) {
+      dom = dom.substring(1);
+    }
+
+    return {
+      normalized: `*@${dom}`,
+      domain: dom,
+      isEmail: false,
+      targetType
+    };
+  }
+
+  // Helper to generate natural language Portuguese interpretation
+  function generateInterpretation(action: string, target: string): string {
+    const norm = normalizeTarget(target);
+    const actionVerb = action === 'blacklist_from' ? 'Bloqueia' : (action === 'whitelist_from' ? 'Libera na Whitelist' : 'Marca como SPAM');
+
+    if (norm.targetType === 'email') {
+      return `${actionVerb} exclusivamente o remetente individual "${norm.normalized}".`;
+    }
+    if (norm.targetType === 'subdomain') {
+      return `${actionVerb} todos os remetentes pertencentes ao subdomínio específico "${norm.domain}".`;
+    }
+    if (norm.targetType === 'domain') {
+      return `${actionVerb} todos os remetentes pertencentes ao domínio "${norm.domain}".`;
+    }
+    return `Regra avançada com padrão wildcard: ${actionVerb} mensagens que correspondam ao padrão "${target}".`;
+  }
+
+  // Helper to parse all visual access rules from virtualLocalCf
+  function parseAllVisualRules(cfContent: string) {
+    const lines = cfContent.split("\n");
     const rules: any[] = [];
-    const pattern = /^\s*(?:#\s*)?(blacklist_from|whitelist_from|spam_from|score_spam|spam)\s*(?::|\s)\s*(.+)$/i;
+    const pattern = /^\s*(#\s*)?(blacklist_from|whitelist_from|spam_from|score_spam|spam)\s*(?::|\s)\s*(.+)$/i;
 
     let id = 0;
-    for (const line of lines) {
-      const match = line.trim().match(pattern);
+    for (let i = 0; i < lines.length; i++) {
+      const rawLine = lines[i].trim();
+      if (!rawLine || rawLine.startsWith("# ==") || rawLine.startsWith("# --") || rawLine.startsWith("# Configurações")) continue;
+
+      const match = rawLine.match(pattern);
       if (match) {
-        const rawType = match[1].toLowerCase();
-        const val = match[2].trim();
-        let action_type = "whitelist_from";
+        const isCommented = Boolean(match[1]);
+        const rawType = match[2].toLowerCase();
+        const rawValWithComments = match[3].trim();
+        // Remove inline comment like # INACTIVE or # Motivo: ...
+        const valParts = rawValWithComments.split(/\s+#/);
+        const val = valParts[0].trim();
+        const inlineNote = valParts[1] ? valParts[1].trim() : "";
+
+        let action_type: 'blacklist_from' | 'whitelist_from' | 'spam_from' = "whitelist_from";
         let action_label = "Liberar (Whitelist)";
 
         if (["spam_from", "score_spam", "spam"].includes(rawType)) {
@@ -2313,59 +2429,508 @@ Checks 12
           action_label = "Bloquear (Blacklist)";
         }
 
+        const norm = normalizeTarget(val);
+        const targetType = norm.targetType;
+        let targetTypeLabel = "Domínio Completo";
+        if (targetType === "email") targetTypeLabel = "E-mail Específico";
+        else if (targetType === "subdomain") targetTypeLabel = "Subdomínio";
+        else if (targetType === "wildcard") targetTypeLabel = "Padrão / Wildcard";
+
+        const storedMeta = virtualSpamRulesMetaStore.get(rawLine) || virtualSpamRulesMetaStore.get(norm.normalized) || {};
+        const isActive = !isCommented && !inlineNote.toLowerCase().includes("inactive");
+
         rules.push({
           id: id++,
           type: action_type,
           action_label,
           value: val,
-          raw: line.trim()
+          normalized_value: norm.normalized,
+          domain: norm.domain,
+          target_type: targetType,
+          target_type_label: targetTypeLabel,
+          interpretation: generateInterpretation(action_type, val),
+          description: storedMeta.description || (inlineNote.replace(/^(INACTIVE\s*-?\s*|MOTIVO:\s*)/i, '') || "Regra de controle de acesso AntiSPAM"),
+          origin: storedMeta.origin || "manual",
+          origin_label: (storedMeta.origin === 'incident' ? 'Incidente' : (storedMeta.origin === 'spam_analysis' ? 'Análise de SPAM' : (storedMeta.origin === 'monitoring' ? 'Monitoramento' : 'Manual'))),
+          notes: storedMeta.notes || inlineNote || "",
+          active: isActive,
+          created_at: storedMeta.created_at || "2026-08-25 08:30:00",
+          created_by: storedMeta.created_by || "admin",
+          raw: rawLine,
+          line_index: i
         });
       }
     }
-    res.json({ success: true, rules });
-  });
+    return rules;
+  }
 
-  app.post("/api/services/spamassassin/visual-rules", (req, res) => {
-    const { action, value } = req.body || {};
-    if (!action || !["blacklist_from", "whitelist_from", "spam_from"].includes(action)) {
-      return res.status(400).json({ success: false, message: "Ação inválida. Escolha Bloquear, SPAM ou Liberar." });
+  // Deep Target & Duplicate Analyzer
+  function analyzeRuleTarget(target: string, proposedAction = "blacklist_from", existingRules: any[] = []) {
+    if (!target || !target.trim()) {
+      return {
+        is_valid_syntax: false,
+        syntax_error: "Endereço, domínio ou padrão não informado.",
+        target: "",
+        normalized_target: ""
+      };
     }
-    if (!value || !value.trim()) {
-      return res.status(400).json({ success: false, message: "Valor inválido." });
+
+    const clean = target.trim();
+    if (/[;&|`$<>{}\\]/.test(clean)) {
+      return {
+        is_valid_syntax: false,
+        syntax_error: "Caracteres inválidos ou suspeitos de injeção detectados no alvo.",
+        target: clean,
+        normalized_target: clean
+      };
     }
 
-    const newRuleLine = `${action} ${value.trim()}`;
-    const lines = virtualLocalCf.split("\n").map(l => l.trim());
+    const norm = normalizeTarget(clean);
+    const targetType = norm.targetType;
+    const normalizedTarget = norm.normalized;
+    const targetDomain = norm.domain;
 
-    if (!lines.includes(newRuleLine)) {
-      if (virtualLocalCf && !virtualLocalCf.endsWith("\n")) {
-        virtualLocalCf += "\n";
+    let hasExactDuplicate = false;
+    let exactRule: any = null;
+
+    let hasNormalizedDuplicate = false;
+    let normalizedRule: any = null;
+
+    let hasBroaderRule = false;
+    let broaderRule: any = null;
+
+    let hasNarrowerRule = false;
+    let narrowerRule: any = null;
+
+    let isInBlacklist = false;
+    let isInWhitelist = false;
+    let isInSpam = false;
+
+    const matchingRules: any[] = [];
+    const conflictingRules: any[] = [];
+
+    for (const r of existingRules) {
+      const rRaw = (r.raw || '').trim().toLowerCase();
+      const rVal = (r.value || '').trim().toLowerCase();
+      const rNorm = normalizeTarget(rVal);
+      const rType = r.type;
+
+      // Exact match
+      if (rVal === clean.toLowerCase() || rRaw === `${proposedAction} ${clean.toLowerCase()}` || rRaw === `# ${proposedAction} ${clean.toLowerCase()}`) {
+        hasExactDuplicate = true;
+        exactRule = r;
       }
-      virtualLocalCf += newRuleLine + "\n";
+
+      // Normalized match
+      if (rNorm.normalized === normalizedTarget) {
+        hasNormalizedDuplicate = true;
+        normalizedRule = r;
+      }
+
+      // Category matching
+      if (rType === 'blacklist_from' && (rNorm.normalized === normalizedTarget || rVal === clean.toLowerCase())) {
+        isInBlacklist = true;
+        matchingRules.push(r);
+      } else if (rType === 'whitelist_from' && (rNorm.normalized === normalizedTarget || rVal === clean.toLowerCase())) {
+        isInWhitelist = true;
+        matchingRules.push(r);
+      } else if (rType === 'spam_from' && (rNorm.normalized === normalizedTarget || rVal === clean.toLowerCase())) {
+        isInSpam = true;
+        matchingRules.push(r);
+      }
+
+      // Broader rule (e.g. existing is *@spammer.com and proposed is *@sub.spammer.com or user@spammer.com)
+      if (rNorm.targetType === 'domain' && targetDomain && targetDomain !== rNorm.domain) {
+        if (targetDomain.endsWith(`.${rNorm.domain}`)) {
+          hasBroaderRule = true;
+          broaderRule = r;
+          if (!matchingRules.includes(r)) matchingRules.push(r);
+        }
+      }
+      if (norm.isEmail && rNorm.targetType === 'domain' && norm.domain === rNorm.domain) {
+        hasBroaderRule = true;
+        broaderRule = r;
+        if (!matchingRules.includes(r)) matchingRules.push(r);
+      }
+
+      // Narrower rule (e.g. existing is user@spammer.com and proposed is *@spammer.com)
+      if (targetType === 'domain' && rNorm.domain && rNorm.domain !== targetDomain) {
+        if (rNorm.domain.endsWith(`.${targetDomain}`)) {
+          hasNarrowerRule = true;
+          narrowerRule = r;
+        }
+      }
+      if (targetType === 'domain' && rNorm.isEmail && rNorm.domain === targetDomain) {
+        hasNarrowerRule = true;
+        narrowerRule = r;
+      }
+
+      // Whitelist vs Blacklist Conflicts
+      if (proposedAction === 'blacklist_from' && rType === 'whitelist_from') {
+        if (rNorm.normalized === normalizedTarget || (targetDomain && rNorm.domain === targetDomain) || (rNorm.domain && targetDomain.endsWith(`.${rNorm.domain}`))) {
+          conflictingRules.push(r);
+        }
+      } else if (proposedAction === 'whitelist_from' && rType === 'blacklist_from') {
+        if (rNorm.normalized === normalizedTarget || (targetDomain && rNorm.domain === targetDomain) || (rNorm.domain && targetDomain.endsWith(`.${rNorm.domain}`))) {
+          conflictingRules.push(r);
+        }
+      }
     }
 
-    addAuditLog("SPAM_RULE_CREATE", value.trim(), { action, rule: newRuleLine }, "normal", req);
+    const hasConflict = conflictingRules.length > 0;
+    let conflictMessage = "";
+    if (hasConflict) {
+      if (proposedAction === 'blacklist_from') {
+        conflictMessage = `⚠️ Conflito de Regras: Existe uma regra de Whitelist ativa para "${conflictingRules[0].value}". O SpamAssassin prioriza Whitelists com -100 pontos.`;
+      } else {
+        conflictMessage = `⚠️ Conflito de Regras: Existe uma regra de Blacklist para "${conflictingRules[0].value}". Cadastrar esta Whitelist liberará o tráfego deste remetente.`;
+      }
+    }
+
+    let typeLabel = "Domínio Completo";
+    if (targetType === "email") typeLabel = "Endereço de E-mail Específico";
+    else if (targetType === "subdomain") typeLabel = "Subdomínio Específico";
+    else if (targetType === "wildcard") typeLabel = "Padrão Avançado (Wildcard)";
+
+    const interpretation = generateInterpretation(proposedAction, normalizedTarget);
+
+    let recommendedReason = "Domínio ou remetente identificado com padrão de spam/phishing recorrente.";
+    if (proposedAction === "whitelist_from") {
+      recommendedReason = "Remetente corporativo ou parceiro comercial homologado.";
+    }
+
+    return {
+      is_valid_syntax: true,
+      syntax_error: null,
+      target: clean,
+      normalized_target: normalizedTarget,
+      target_type: targetType,
+      target_type_label: typeLabel,
+      interpretation,
+      technical_rule: `${proposedAction} ${normalizedTarget}`,
+      existing_status: {
+        is_in_blacklist: isInBlacklist,
+        is_in_whitelist: isInWhitelist,
+        is_in_spam: isInSpam,
+        matching_rules: matchingRules
+      },
+      duplicates: {
+        has_exact_duplicate: hasExactDuplicate,
+        exact_rule: exactRule,
+        has_normalized_duplicate: hasNormalizedDuplicate,
+        normalized_rule: normalizedRule,
+        has_broader_rule: hasBroaderRule,
+        broader_rule: broaderRule,
+        has_narrower_rule: hasNarrowerRule,
+        narrower_rule: narrowerRule
+      },
+      conflicts: {
+        has_conflict: hasConflict,
+        conflict_message: conflictMessage,
+        conflict_rules: conflictingRules
+      },
+      suggestion: {
+        recommended_action: proposedAction,
+        recommended_target: normalizedTarget,
+        recommended_reason: recommendedReason,
+        explanation: `Recomenda-se utilizar a regra padronizada: "${proposedAction} ${normalizedTarget}".`
+      }
+    };
+  }
+
+  // Audit and Find All Duplicate Rules across local.cf
+  function auditAllRuleDuplicates(cfContent: string) {
+    const rules = parseAllVisualRules(cfContent);
+    const normalizedGroups: Record<string, any[]> = {};
+
+    for (const r of rules) {
+      const key = `${r.type}:${r.normalized_value}`;
+      if (!normalizedGroups[key]) normalizedGroups[key] = [];
+      normalizedGroups[key].push(r);
+    }
+
+    const duplicateGroups: any[] = [];
+    for (const [key, items] of Object.entries(normalizedGroups)) {
+      if (items.length > 1) {
+        duplicateGroups.push({
+          key,
+          type: items[0].type,
+          normalized_target: items[0].normalized_value,
+          count: items.length,
+          rules: items,
+          recommended_standard: items.find(i => i.value.startsWith('*@')) || items[0],
+          description: `Identificadas ${items.length} regras com grafias equivalentes ou duplicadas para "${items[0].normalized_value}"`
+        });
+      }
+    }
+
+    const redundantRules: any[] = [];
+    for (const r of rules) {
+      if (r.target_type === 'subdomain' || r.target_type === 'email') {
+        const broader = rules.find(other => other.id !== r.id && other.type === r.type && other.target_type === 'domain' && (r.domain === other.domain || r.domain.endsWith(`.${other.domain}`)));
+        if (broader) {
+          redundantRules.push({
+            rule: r,
+            encompassed_by: broader,
+            description: `A regra "${r.raw}" é redundante pois já é coberta pelo bloqueio geral de domínio "${broader.raw}"`
+          });
+        }
+      }
+    }
+
+    const conflicts: any[] = [];
+    const blacklists = rules.filter(r => r.type === 'blacklist_from');
+    const whitelists = rules.filter(r => r.type === 'whitelist_from');
+
+    for (const bl of blacklists) {
+      for (const wl of whitelists) {
+        if (bl.normalized_value === wl.normalized_value || bl.domain === wl.domain || (bl.domain && wl.domain && wl.domain.endsWith(`.${bl.domain}`))) {
+          conflicts.push({
+            blacklist_rule: bl,
+            whitelist_rule: wl,
+            description: `Conflito entre Lista Negra (${bl.raw}) e Whitelist (${wl.raw})`
+          });
+        }
+      }
+    }
+
+    return {
+      total_rules: rules.length,
+      duplicates_count: duplicateGroups.length,
+      duplicate_groups: duplicateGroups,
+      redundant_rules_count: redundantRules.length,
+      redundant_rules: redundantRules,
+      conflicts_count: conflicts.length,
+      conflicts: conflicts
+    };
+  }
+
+  // GET Visual Rules with rich analysis stats
+  app.get("/api/services/spamassassin/visual-rules", (req, res) => {
+    const rules = parseAllVisualRules(virtualLocalCf);
+    const audit = auditAllRuleDuplicates(virtualLocalCf);
 
     res.json({
       success: true,
-      message: `Regra '${newRuleLine}' adicionada com sucesso! Serviço SpamAssassin reiniciado.`
+      rules,
+      stats: {
+        total: rules.length,
+        blacklist_count: rules.filter(r => r.type === 'blacklist_from').length,
+        whitelist_count: rules.filter(r => r.type === 'whitelist_from').length,
+        spam_count: rules.filter(r => r.type === 'spam_from').length,
+        active_count: rules.filter(r => r.active).length,
+        inactive_count: rules.filter(r => !r.active).length,
+        duplicates_count: audit.duplicates_count,
+        redundant_count: audit.redundant_rules_count,
+        conflicts_count: audit.conflicts_count
+      }
     });
   });
 
+  // POST Analyze Target before creating rule
+  app.post("/api/services/spamassassin/visual-rules/analyze", (req, res) => {
+    const { target, action } = req.body || {};
+    const rules = parseAllVisualRules(virtualLocalCf);
+    const analysis = analyzeRuleTarget(target, action || "blacklist_from", rules);
+    res.json({ success: true, ...analysis });
+  });
+
+  // GET / POST Audit Duplicates
+  app.get("/api/services/spamassassin/visual-rules/audit-duplicates", (req, res) => {
+    const audit = auditAllRuleDuplicates(virtualLocalCf);
+    res.json({ success: true, ...audit });
+  });
+  app.post("/api/services/spamassassin/visual-rules/audit-duplicates", (req, res) => {
+    const audit = auditAllRuleDuplicates(virtualLocalCf);
+    res.json({ success: true, ...audit });
+  });
+
+  // POST Clean & Deduplicate Rules Automatically
+  app.post("/api/services/spamassassin/visual-rules/clean-duplicates", (req, res) => {
+    const lines = virtualLocalCf.split("\n");
+    const pattern = /^\s*(?:#\s*)?(blacklist_from|whitelist_from|spam_from|score_spam|spam)\s*(?::|\s)\s*(.+)$/i;
+
+    const seenStandardRules = new Set<string>();
+    const cleanedLines: string[] = [];
+    let deduplicatedCount = 0;
+
+    for (const rawLine of lines) {
+      const match = rawLine.trim().match(pattern);
+      if (match) {
+        const rawType = match[1].toLowerCase();
+        let actionType = 'whitelist_from';
+        if (rawType === 'blacklist_from') actionType = 'blacklist_from';
+        else if (['spam_from', 'score_spam', 'spam'].includes(rawType)) actionType = 'spam_from';
+
+        const val = match[2].trim().split(/\s+#/)[0].trim();
+        const norm = normalizeTarget(val);
+        const standardLine = `${actionType} ${norm.normalized}`;
+
+        if (seenStandardRules.has(standardLine)) {
+          deduplicatedCount++;
+          // Skip redundant duplicate line
+          continue;
+        } else {
+          seenStandardRules.add(standardLine);
+          cleanedLines.push(standardLine);
+        }
+      } else {
+        cleanedLines.push(rawLine);
+      }
+    }
+
+    virtualLocalCf = cleanedLines.join("\n");
+    addAuditLog("SPAM_RULES_DEDUPLICATE", "local.cf", { removed_duplicates: deduplicatedCount }, "normal", req);
+
+    res.json({
+      success: true,
+      message: `Higienização concluída com sucesso! ${deduplicatedCount} regra(s) duplicada(s) ou equivalentes foram consolidadas para o padrão oficial (*@dominio.com).`,
+      deduplicated_count: deduplicatedCount,
+      total_rules_remaining: seenStandardRules.size
+    });
+  });
+
+  // POST Test Target Rule against Simulated and Custom Emails
+  app.post("/api/services/spamassassin/visual-rules/test-target", (req, res) => {
+    const { target, action, custom_emails } = req.body || {};
+    const norm = normalizeTarget(target || "");
+    const testAction = action || "blacklist_from";
+
+    const simulatedList = [
+      `usuario@${norm.domain || 'exemplo.com'}`,
+      `financeiro@${norm.domain || 'exemplo.com'}`,
+      `contato@${norm.domain || 'exemplo.com'}`,
+      `suporte@empresa-parceira.com.br`,
+      `notificacao@gmail.com`
+    ];
+
+    const emailsToTest = Array.isArray(custom_emails) && custom_emails.length > 0
+      ? custom_emails
+      : simulatedList;
+
+    const results = emailsToTest.map(email => {
+      const isMatched = matchesAccessListPattern(norm.normalized, email);
+      let verdict = "NÃO AFETADO";
+      let statusBadge = "bg-secondary text-white";
+      let points = 0;
+
+      if (isMatched) {
+        if (testAction === 'blacklist_from') {
+          verdict = "BLOQUEIO IMEDIATO (Blacklist)";
+          statusBadge = "bg-danger text-white";
+          points = 100.0;
+        } else if (testAction === 'whitelist_from') {
+          verdict = "LIBERADO (Whitelist)";
+          statusBadge = "bg-success text-white";
+          points = -100.0;
+        } else {
+          verdict = "MARCADO COMO SPAM";
+          statusBadge = "bg-warning text-dark";
+          points = 20.0;
+        }
+      }
+
+      return {
+        email,
+        is_matched: isMatched,
+        verdict,
+        status_badge: statusBadge,
+        points: isMatched ? points : 0
+      };
+    });
+
+    res.json({
+      success: true,
+      target: norm.normalized,
+      action: testAction,
+      interpretation: generateInterpretation(testAction, norm.normalized),
+      results
+    });
+  });
+
+  // POST Create New Visual Rule with Duplicate Prevention and Validation
+  app.post("/api/services/spamassassin/visual-rules", (req, res) => {
+    const { action, value, description, origin, notes, active, force } = req.body || {};
+    const act = action || "blacklist_from";
+    const rawVal = (value || "").trim();
+
+    if (!act || !["blacklist_from", "whitelist_from", "spam_from"].includes(act)) {
+      return res.status(400).json({ success: false, message: "Classificação inválida. Escolha Blacklist, SPAM ou Whitelist." });
+    }
+    if (!rawVal) {
+      return res.status(400).json({ success: false, message: "Endereço, domínio ou padrão não pode ser vazio." });
+    }
+
+    const rules = parseAllVisualRules(virtualLocalCf);
+    const analysis = analyzeRuleTarget(rawVal, act, rules);
+
+    if (!analysis.is_valid_syntax) {
+      return res.status(400).json({ success: false, message: analysis.syntax_error || "Sintaxe inválida para regra." });
+    }
+
+    // Duplicate detection verification
+    const isDuplicate = analysis.duplicates.has_exact_duplicate || analysis.duplicates.has_normalized_duplicate;
+    if (isDuplicate && !force) {
+      const existing = analysis.duplicates.exact_rule || analysis.duplicates.normalized_rule;
+      return res.status(409).json({
+        success: false,
+        duplicate_detected: true,
+        message: `⚠️ Regra já cadastrada: A regra informada possui correspondência idêntica ou equivalente na lista (${existing ? existing.raw : ''}).`,
+        analysis
+      });
+    }
+
+    const targetToSave = analysis.normalized_target;
+    const ruleLine = (active === false) ? `# ${act} ${targetToSave} # INACTIVE` : `${act} ${targetToSave}`;
+
+    // Add to virtualLocalCf
+    if (virtualLocalCf && !virtualLocalCf.endsWith("\n")) {
+      virtualLocalCf += "\n";
+    }
+    virtualLocalCf += ruleLine + "\n";
+
+    // Store metadata
+    virtualSpamRulesMetaStore.set(ruleLine, {
+      description: description || analysis.suggestion.recommended_reason,
+      origin: origin || "manual",
+      notes: notes || "",
+      created_at: new Date().toISOString().replace("T", " ").substring(0, 19),
+      created_by: getAuditUser(req)
+    });
+    virtualSpamRulesMetaStore.set(targetToSave, virtualSpamRulesMetaStore.get(ruleLine));
+
+    addAuditLog("SPAM_RULE_CREATE", targetToSave, { action: act, rule: ruleLine, origin, description }, "normal", req);
+
+    res.json({
+      success: true,
+      message: `Regra '${ruleLine}' cadastrada e aplicada com sucesso no SpamAssassin!`,
+      rule: {
+        type: act,
+        value: targetToSave,
+        raw: ruleLine,
+        interpretation: analysis.interpretation
+      }
+    });
+  });
+
+  // POST / PUT Edit Visual Rule
   const editVisualRule = (req: express.Request, res: express.Response) => {
-    const { old_raw, new_action, action, new_value, value } = req.body || {};
-    const act = new_action || action;
+    const { old_raw, new_action, action, new_value, value, description, origin, notes, active } = req.body || {};
+    const act = new_action || action || "blacklist_from";
     const val = (new_value || value || "").trim();
     const oldRaw = (old_raw || "").trim().toLowerCase();
 
     if (!act || !["blacklist_from", "whitelist_from", "spam_from"].includes(act)) {
-      return res.status(400).json({ success: false, message: "Ação inválida. Escolha Bloquear, SPAM ou Liberar." });
+      return res.status(400).json({ success: false, message: "Classificação inválida." });
     }
     if (!val) {
       return res.status(400).json({ success: false, message: "Endereço ou domínio alvo não pode ficar vazio." });
     }
 
-    const newRuleLine = `${act} ${val}`;
+    const norm = normalizeTarget(val);
+    const targetToSave = norm.normalized;
+    const newRuleLine = (active === false) ? `# ${act} ${targetToSave} # INACTIVE` : `${act} ${targetToSave}`;
+
     const lines = virtualLocalCf.split("\n");
     let replaced = false;
 
@@ -2383,7 +2948,15 @@ Checks 12
 
     virtualLocalCf = newLines.join("\n");
 
-    addAuditLog("UPDATE_SPAM_RULE", val, { old_raw: old_raw, new_rule: newRuleLine, action: act }, "normal", req);
+    virtualSpamRulesMetaStore.set(newRuleLine, {
+      description: description || "Regra editada",
+      origin: origin || "manual",
+      notes: notes || "",
+      created_at: new Date().toISOString().replace("T", " ").substring(0, 19),
+      created_by: getAuditUser(req)
+    });
+
+    addAuditLog("SPAM_RULE_UPDATE", targetToSave, { old_raw, new_rule: newRuleLine, action: act, description }, "normal", req);
 
     res.json({
       success: true,
@@ -2394,6 +2967,41 @@ Checks 12
   app.put("/api/services/spamassassin/visual-rules", editVisualRule);
   app.post("/api/services/spamassassin/visual-rules/edit", editVisualRule);
 
+  // POST Toggle Active / Inactive
+  app.post("/api/services/spamassassin/visual-rules/toggle", (req, res) => {
+    const { raw, active } = req.body || {};
+    if (!raw) return res.status(400).json({ success: false, message: "Regra não informada." });
+
+    const rawClean = raw.trim();
+    const lines = virtualLocalCf.split("\n");
+    let updatedLine = "";
+
+    const newLines = lines.map(line => {
+      if (line.trim() === rawClean) {
+        if (active) {
+          // Reactivate by removing leading # and # INACTIVE
+          updatedLine = line.replace(/^#\s*/, '').replace(/\s+#\s*INACTIVE/i, '').trim();
+          return updatedLine;
+        } else {
+          // Deactivate
+          updatedLine = `# ${line.replace(/^#\s*/, '').trim()} # INACTIVE`;
+          return updatedLine;
+        }
+      }
+      return line;
+    });
+
+    virtualLocalCf = newLines.join("\n");
+    addAuditLog("SPAM_RULE_TOGGLE", rawClean, { active, new_line: updatedLine }, "normal", req);
+
+    res.json({
+      success: true,
+      message: `Regra ${active ? 'ativada' : 'desativada'} com sucesso!`,
+      new_raw: updatedLine
+    });
+  });
+
+  // DELETE Visual Rule
   const deleteVisualRule = (req: express.Request, res: express.Response) => {
     const { raw, action, value } = req.body || {};
     const targetLine = raw || (action && value ? `${action} ${value}` : req.query.raw as string || req.query.value as string);
@@ -2407,11 +3015,11 @@ Checks 12
     const filtered = lines.filter(l => l.trim().toLowerCase() !== targetClean);
     virtualLocalCf = filtered.join("\n");
 
-    addAuditLog("DELETE_SPAM_RULE", targetLine, { deleted_rule: targetLine }, "normal", req);
+    addAuditLog("SPAM_RULE_DELETE", targetLine, { deleted_rule: targetLine }, "normal", req);
 
     res.json({
       success: true,
-      message: "Regra removida com sucesso! Serviço SpamAssassin reiniciado."
+      message: "Regra removida com sucesso da lista e do arquivo local.cf!"
     });
   };
 
