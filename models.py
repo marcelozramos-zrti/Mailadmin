@@ -159,17 +159,45 @@ class MailRule(db.Model):
     __tablename__ = 'mail_rules'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    target = db.Column(db.String(255), nullable=False)
-    action_type = db.Column(db.String(50), nullable=False)  # 'block', 'spam', 'whitelist'
+    target = db.Column(db.String(255), nullable=False, index=True)
+    normalized_target = db.Column(db.String(255), nullable=True, index=True)
+    canonical_pattern = db.Column(db.String(255), nullable=True, index=True)
+    action_type = db.Column(db.String(50), nullable=False, default='blacklist_from')  # 'blacklist_from', 'whitelist_from', 'spam_from'
+    pattern_type = db.Column(db.String(50), default='DOMAIN') # 'DOMAIN', 'SUBDOMAIN', 'EMAIL', 'WILDCARD'
+    scope = db.Column(db.String(50), default='DOMAIN_AND_SUBDOMAINS')
+    score = db.Column(db.Float, default=100.0)
+    reason = db.Column(db.String(255), default='Regra ativa de segurança')
+    origin = db.Column(db.String(50), default='manual') # 'manual', 'soar', 'system'
+    active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
     def to_dict(self):
         return {
             'id': self.id,
             'target': self.target,
-            'action_type': self.action_type,
-            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None
+            'value': self.normalized_target or self.target,
+            'normalized_target': self.normalized_target or self.target,
+            'canonical_pattern': self.canonical_pattern or f"DOMAIN:{self.target}",
+            'action': self.action_type,
+            'type': self.action_type,
+            'pattern_type': self.pattern_type or 'DOMAIN',
+            'scope': self.scope or 'DOMAIN_AND_SUBDOMAINS',
+            'score': self.score or 100.0,
+            'reason': self.reason or 'Regra ativa de segurança',
+            'origin': self.origin or 'manual',
+            'active': self.active if self.active is not None else True,
+            'raw': f"{self.action_type} {self.normalized_target or self.target}" if self.active else f"# {self.action_type} {self.normalized_target or self.target}",
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+            'updated_at': self.updated_at.strftime('%Y-%m-%d %H:%M:%S') if self.updated_at else None
         }
+
+    def to_cf_line(self):
+        val = self.normalized_target or self.target
+        line = f"{self.action_type} {val}"
+        if not self.active:
+            line = f"# {line}"
+        return line
 
 
 class MailLogHistory(db.Model):

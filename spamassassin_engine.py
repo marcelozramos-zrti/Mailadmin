@@ -328,6 +328,18 @@ def evaluate_target_against_all_rules(test_target: str, rules: List[Dict[str, An
             })
 
     if not matched_rules:
+        diag = f"O endereço '{target}' não coincide com nenhuma regra ativa de Blacklist, Whitelist ou SPAM Score no local.cf. Ele segue a triagem padrão de reputação heurística."
+        test_case_obj = {
+            "email": target,
+            "matched": False,
+            "is_matched": False,
+            "result": "NÃO LISTADO (COMPORTAMENTO PADRÃO / NEUTRO)",
+            "verdict": "NÃO LISTADO (COMPORTAMENTO PADRÃO / NEUTRO)",
+            "score_impact": 0.0,
+            "points": 0.0,
+            "matched_rule": None,
+            "detail": diag
+        }
         return {
             "success": True,
             "target": target,
@@ -336,13 +348,18 @@ def evaluate_target_against_all_rules(test_target: str, rules: List[Dict[str, An
             "verdict_badge": "bg-secondary-subtle text-secondary border",
             "status": "neutral",
             "score_impact": 0.0,
+            "points": 0.0,
             "score_display": "0 pts (Neutro)",
             "is_blacklisted": False,
+            "is_blocked": False,
             "is_whitelisted": False,
             "is_spam": False,
             "matched_rule": None,
+            "matched_rule_str": None,
             "matched_rules_count": 0,
-            "diagnostic_message": f"O endereço '{target}' não coincide com nenhuma regra ativa de Blacklist, Whitelist ou SPAM Score no local.cf. Ele segue a triagem padrão de reputação heurística."
+            "diagnostic_message": diag,
+            "test_cases": [test_case_obj],
+            "results": [test_case_obj]
         }
 
     # Ordena matches: Maior especificidade primeiro. Em caso de empate, Whitelist prevalece (-100 pts)
@@ -355,6 +372,8 @@ def evaluate_target_against_all_rules(test_target: str, rules: List[Dict[str, An
     winning_match = matched_rules[0]
     win_rule = winning_match["rule"]
     win_action = winning_match["action"]
+
+    win_rule_raw = win_rule.get("raw") or f"{win_rule.get('action')} {win_rule.get('value')}"
 
     if win_action == "blacklist_from":
         verdict = "BLOQUEADO NA BLACKLIST"
@@ -387,6 +406,20 @@ def evaluate_target_against_all_rules(test_target: str, rules: List[Dict[str, An
         is_whitelisted = False
         is_spam = True
 
+    diag_msg = f"O endereço coincide com a regra ativa '{win_rule_raw}'. Motivo: {winning_match['detail']}."
+
+    test_case_obj = {
+        "email": target,
+        "matched": True,
+        "is_matched": True,
+        "result": verdict,
+        "verdict": verdict,
+        "score_impact": score_impact,
+        "points": score_impact,
+        "matched_rule": win_rule_raw,
+        "detail": diag_msg
+    }
+
     return {
         "success": True,
         "target": target,
@@ -395,14 +428,19 @@ def evaluate_target_against_all_rules(test_target: str, rules: List[Dict[str, An
         "verdict_badge": verdict_badge,
         "status": status,
         "score_impact": score_impact,
+        "points": score_impact,
         "score_display": score_display,
         "is_blacklisted": is_blacklisted,
+        "is_blocked": is_blacklisted,
         "is_whitelisted": is_whitelisted,
         "is_spam": is_spam,
         "matched_rule": win_rule,
+        "matched_rule_str": win_rule_raw,
         "matched_rules_count": len(matched_rules),
         "precedence_rank": f"Especificidade {winning_match['specificity']} pts ({win_rule.get('pattern_type_label')})",
-        "diagnostic_message": f"O endereço coincide com a regra ativa '{win_rule.get('raw') or (win_rule.get('action') + ' ' + win_rule.get('value'))}'. Motivo: {winning_match['detail']}."
+        "diagnostic_message": diag_msg,
+        "test_cases": [test_case_obj],
+        "results": [test_case_obj]
     }
 
 

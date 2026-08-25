@@ -6266,13 +6266,43 @@
 
             if (resContainer) {
                 const tc = (data.test_cases && data.test_cases.length > 0) ? data.test_cases[0] : null;
-                const isBlocked = tc && tc.result && tc.result.includes('BLOQUEADO');
-                const isWhitelisted = tc && tc.result && tc.result.includes('LIBERADO');
-                const isSpam = tc && tc.result && tc.result.includes('SPAM');
+                const isBlocked = Boolean(data.is_blacklisted || data.is_blocked || (data.status === 'blacklisted') || (data.verdict && data.verdict.includes('BLOQUEADO')) || (tc && (tc.is_matched || tc.matched) && tc.result && tc.result.includes('BLOQUEADO')));
+                const isWhitelisted = Boolean(data.is_whitelisted || (data.status === 'whitelisted') || (data.verdict && data.verdict.includes('LIBERADO')) || (tc && (tc.is_matched || tc.matched) && tc.result && tc.result.includes('LIBERADO')));
+                const isSpam = Boolean(data.is_spam || (data.status === 'spam') || (data.verdict && data.verdict.includes('SPAM')) || (tc && (tc.is_matched || tc.matched) && tc.result && tc.result.includes('SPAM')));
+
+                let scoreNum = 0;
+                if (typeof data.score_impact === 'number') {
+                    scoreNum = data.score_impact;
+                } else if (typeof data.points === 'number') {
+                    scoreNum = data.points;
+                } else if (tc && typeof tc.score_impact === 'number') {
+                    scoreNum = tc.score_impact;
+                } else if (isBlocked) {
+                    scoreNum = 100.0;
+                } else if (isWhitelisted) {
+                    scoreNum = -100.0;
+                } else if (isSpam) {
+                    scoreNum = 20.0;
+                }
+
+                const scoreText = (scoreNum > 0 ? '+' : '') + scoreNum + ' pts';
 
                 let cardClass = isBlocked ? 'border-danger-subtle bg-danger-subtle bg-opacity-25' : isWhitelisted ? 'border-success-subtle bg-success-subtle bg-opacity-25' : isSpam ? 'border-warning-subtle bg-warning-subtle bg-opacity-25' : 'border-secondary-subtle bg-light';
                 let iconClass = isBlocked ? 'bi-shield-x text-danger' : isWhitelisted ? 'bi-shield-check text-success' : isSpam ? 'bi-exclamation-triangle-fill text-warning' : 'bi-shield text-secondary';
                 let titleText = isBlocked ? 'BLOQUEADO NA BLACKLIST' : isWhitelisted ? 'LIBERADO NA WHITE LIST' : isSpam ? 'PONTUAÇÃO ELEVADA COMO SPAM' : 'NÃO LISTADO (COMPORTAMENTO PADRÃO / NEUTRO)';
+
+                // Extrai nome/string da regra correspondente
+                const matchedRuleObj = data.matched_rule || (tc && tc.matched_rule);
+                let matchedRuleStr = data.matched_rule_str || '';
+                if (!matchedRuleStr) {
+                    if (typeof matchedRuleObj === 'string') {
+                        matchedRuleStr = matchedRuleObj;
+                    } else if (matchedRuleObj && typeof matchedRuleObj === 'object') {
+                        matchedRuleStr = matchedRuleObj.raw || `${matchedRuleObj.action || matchedRuleObj.type} ${matchedRuleObj.value}`;
+                    }
+                }
+
+                let diagDetail = data.diagnostic_message || (matchedRuleStr ? `O endereço coincide com a regra ativa <code>${matchedRuleStr}</code>.` : `Nenhuma regra específica de Blacklist ou Whitelist foi encontrada para este endereço ou domínio.`);
 
                 let actionsHtml = '';
                 if (!isBlocked) {
@@ -6297,12 +6327,12 @@
                                 </div>
                             </div>
                             <div class="d-flex align-items-center gap-2">
-                                <span class="badge bg-dark font-monospace fs-6">${tc ? (tc.score_impact > 0 ? '+' : '') + tc.score_impact + ' pts' : '0 pts'}</span>
+                                <span class="badge bg-dark font-monospace fs-6">${scoreText}</span>
                                 <button type="button" class="btn btn-xs btn-outline-secondary" onclick="document.getElementById('quick-check-result-container').style.display='none'">Fechar</button>
                             </div>
                         </div>
                         <div class="small text-secondary mb-3">
-                            <strong>Diagnóstico Operacional:</strong> ${tc && tc.matched_rule ? `O endereço coincide com a regra ativa <code>${tc.matched_rule}</code>.` : `Nenhuma regra específica de Blacklist ou Whitelist foi encontrada para este endereço ou domínio.`}
+                            <strong>Diagnóstico Operacional:</strong> ${diagDetail}
                         </div>
                         <div class="d-flex flex-wrap align-items-center gap-2">
                             <span class="small text-muted fw-bold me-1">Ações Rápidas:</span>
