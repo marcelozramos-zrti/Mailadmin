@@ -378,16 +378,15 @@ whitelist_from *@parceiro.com.br
 whitelist_from *@zrti.com.br
 blacklist_from *@spammerdomain.net
 blacklist_from contato@sugardns.net
+blacklist_from *@suanotaemdia16.roxa.org
 
-# Regras de Amostra para Demonstração e Auditoria de Duplicidades
+# Regras de Demonstração e Auditoria de Duplicidades
 blacklist_from *@sensoebs.com
 blacklist_from @sensoebs.com
 blacklist_from *@residuos3.com
 blacklist_from @residuos3.com
 blacklist_from *@neocomunicar1.com
-blacklist_from @neocomunicar1.com
 blacklist_from *@uraprods.com
-blacklist_from @uraprods.com
 
 # ==========================================================
 # BLOQUEIO ZRTI: PHISHING PEDAGIO / RECLAME AQUI (V2 - Sem Acentos)
@@ -2317,7 +2316,7 @@ Checks 12
 
   // Helper to identify target type (email, subdomain, domain, wildcard)
   function identifyTargetType(val: string): 'email' | 'subdomain' | 'domain' | 'wildcard' {
-    const clean = val.trim().toLowerCase();
+    const clean = (val || '').trim().toLowerCase().replace(/['"]/g, '');
     if ((clean.includes('*') && !clean.startsWith('*@') && !clean.startsWith('@')) || clean.includes('*@*.') || clean.includes('@*.')) {
       return 'wildcard';
     }
@@ -2380,10 +2379,54 @@ Checks 12
     };
   }
 
+  // Robust Access List Pattern Matcher (Blacklist / Whitelist / Local.cf syntax)
+  function matchesAccessListPattern(pattern: string, testEmail: string): boolean {
+    if (!pattern || !testEmail) return false;
+    const p = pattern.trim().toLowerCase().replace(/['"]/g, '');
+    let email = testEmail.trim().toLowerCase().replace(/['"]/g, '');
+
+    if (p === email) return true;
+
+    let emailUser = '';
+    let emailDomain = email;
+    if (email.includes('@')) {
+      const parts = email.split('@');
+      emailUser = parts[0];
+      emailDomain = parts[1];
+    }
+
+    // Specific user email (e.g. user@domain.com)
+    if (p.includes('@') && !p.startsWith('*@') && !p.startsWith('@') && !p.includes('*')) {
+      return p === email;
+    }
+
+    // Domain or Subdomain Pattern
+    let targetDom = p;
+    if (targetDom.startsWith('*@')) targetDom = targetDom.substring(2);
+    else if (targetDom.startsWith('@')) targetDom = targetDom.substring(1);
+    else if (targetDom.startsWith('*.')) targetDom = targetDom.substring(2);
+
+    if (!targetDom.includes('*')) {
+      if (emailDomain === targetDom || emailDomain.endsWith('.' + targetDom) || email === targetDom) {
+        return true;
+      }
+    } else {
+      const regexPattern = '^' + p.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$';
+      try {
+        const re = new RegExp(regexPattern, 'i');
+        if (re.test(email) || re.test(emailDomain)) return true;
+      } catch {
+        // ignore regex compilation failure
+      }
+    }
+
+    return false;
+  }
+
   // Helper to generate natural language Portuguese interpretation
   function generateInterpretation(action: string, target: string): string {
     const norm = normalizeTarget(target);
-    const actionVerb = action === 'blacklist_from' ? 'Bloqueia' : (action === 'whitelist_from' ? 'Libera na Whitelist' : 'Marca como SPAM');
+    const actionVerb = action === 'blacklist_from' ? 'Bloqueia' : (action === 'whitelist_from' ? 'Libera na Whitelist' : 'Marca como SPAM (+20 pts)');
 
     if (norm.targetType === 'email') {
       return `${actionVerb} exclusivamente o remetente individual "${norm.normalized}".`;
@@ -2438,6 +2481,7 @@ Checks 12
 
         const storedMeta = virtualSpamRulesMetaStore.get(rawLine) || virtualSpamRulesMetaStore.get(norm.normalized) || {};
         const isActive = !isCommented && !inlineNote.toLowerCase().includes("inactive");
+        const reasonText = storedMeta.description || (inlineNote.replace(/^(INACTIVE\s*-?\s*|MOTIVO:\s*)/i, '').trim() || "Regra de controle de acesso AntiSPAM");
 
         rules.push({
           id: id++,
@@ -2449,7 +2493,8 @@ Checks 12
           target_type: targetType,
           target_type_label: targetTypeLabel,
           interpretation: generateInterpretation(action_type, val),
-          description: storedMeta.description || (inlineNote.replace(/^(INACTIVE\s*-?\s*|MOTIVO:\s*)/i, '') || "Regra de controle de acesso AntiSPAM"),
+          reason: reasonText,
+          description: reasonText,
           origin: storedMeta.origin || "manual",
           origin_label: (storedMeta.origin === 'incident' ? 'Incidente' : (storedMeta.origin === 'spam_analysis' ? 'Análise de SPAM' : (storedMeta.origin === 'monitoring' ? 'Monitoramento' : 'Manual'))),
           notes: storedMeta.notes || inlineNote || "",
@@ -2656,8 +2701,10 @@ Checks 12
           key,
           type: items[0].type,
           normalized_target: items[0].normalized_value,
+          target: items[0].normalized_value,
           count: items.length,
-          rules: items,
+          rules: items.map(i => i.raw || `${i.type} ${i.value}`),
+          rule_objects: items,
           recommended_standard: items.find(i => i.value.startsWith('*@')) || items[0],
           description: `Identificadas ${items.length} regras com grafias equivalentes ou duplicadas para "${items[0].normalized_value}"`
         });
@@ -2686,8 +2733,10 @@ Checks 12
       for (const wl of whitelists) {
         if (bl.normalized_value === wl.normalized_value || bl.domain === wl.domain || (bl.domain && wl.domain && wl.domain.endsWith(`.${bl.domain}`))) {
           conflicts.push({
+            target: bl.normalized_value || bl.value,
             blacklist_rule: bl,
             whitelist_rule: wl,
+            rules: [bl.raw, wl.raw],
             description: `Conflito entre Lista Negra (${bl.raw}) e Whitelist (${wl.raw})`
           });
         }
@@ -2698,6 +2747,7 @@ Checks 12
       total_rules: rules.length,
       duplicates_count: duplicateGroups.length,
       duplicate_groups: duplicateGroups,
+      duplicates: duplicateGroups,
       redundant_rules_count: redundantRules.length,
       redundant_rules: redundantRules,
       conflicts_count: conflicts.length,
@@ -2790,16 +2840,83 @@ Checks 12
     });
   });
 
-  // POST Test Target Rule against Simulated and Custom Emails
+  // POST Test Target Rule against Simulated and Custom Emails or Check Email Status in local.cf
   app.post("/api/services/spamassassin/visual-rules/test-target", (req, res) => {
     const { target, action, custom_emails } = req.body || {};
     const norm = normalizeTarget(target || "");
     const testAction = action || "blacklist_from";
+    const rules = parseAllVisualRules(virtualLocalCf);
 
+    // If this is a quick status check against existing active rules in local.cf
+    if (testAction === 'check_status' || action === 'check_status') {
+      const emailToTest = (Array.isArray(custom_emails) && custom_emails.length > 0 ? custom_emails[0] : target || "").trim();
+      
+      // Find matching rule in current active rules
+      let matchedRule: any = null;
+      let matchedType: string = "";
+      
+      for (const r of rules) {
+        if (!r.active) continue;
+        if (matchesAccessListPattern(r.value, emailToTest) || matchesAccessListPattern(r.normalized_value, emailToTest) || matchesAccessListPattern(r.domain, emailToTest)) {
+          matchedRule = r;
+          matchedType = r.type;
+          break;
+        }
+      }
+
+      let resultText = "NÃO LISTADO (NEUTRO)";
+      let scoreImpact = 0;
+      let isBlocked = false;
+      let isWhitelisted = false;
+      let isSpam = false;
+
+      if (matchedRule) {
+        if (matchedType === 'blacklist_from') {
+          resultText = "BLOQUEADO NA BLACKLIST";
+          scoreImpact = 100.0;
+          isBlocked = true;
+        } else if (matchedType === 'whitelist_from') {
+          resultText = "LIBERADO NA WHITE LIST";
+          scoreImpact = -100.0;
+          isWhitelisted = true;
+        } else if (matchedType === 'spam_from') {
+          resultText = "PONTUAÇÃO ELEVADA COMO SPAM";
+          scoreImpact = 20.0;
+          isSpam = true;
+        }
+      }
+
+      const singleResult = {
+        email: emailToTest,
+        matched: Boolean(matchedRule),
+        is_matched: Boolean(matchedRule),
+        result: resultText,
+        verdict: resultText,
+        score_impact: scoreImpact,
+        points: scoreImpact,
+        matched_rule: matchedRule ? matchedRule.raw : null,
+        matched_type: matchedType,
+        rule_details: matchedRule
+      };
+
+      return res.json({
+        success: true,
+        target: emailToTest,
+        action: 'check_status',
+        is_blacklisted: isBlocked,
+        is_whitelisted: isWhitelisted,
+        is_spam: isSpam,
+        test_cases: [singleResult],
+        results: [singleResult]
+      });
+    }
+
+    // Predictive impact simulation of a candidate rule against sample emails
+    const sampleDomain = norm.domain || (norm.isEmail ? norm.normalized.split('@')[1] : 'dominio-amostra.com');
     const simulatedList = [
-      `usuario@${norm.domain || 'exemplo.com'}`,
-      `financeiro@${norm.domain || 'exemplo.com'}`,
-      `contato@${norm.domain || 'exemplo.com'}`,
+      `usuario@${sampleDomain}`,
+      `financeiro@${sampleDomain}`,
+      `contato@${sampleDomain}`,
       `suporte@empresa-parceira.com.br`,
       `notificacao@gmail.com`
     ];
@@ -2808,19 +2925,19 @@ Checks 12
       ? custom_emails
       : simulatedList;
 
-    const results = emailsToTest.map(email => {
-      const isMatched = matchesAccessListPattern(norm.normalized, email);
+    const testCases = emailsToTest.map(email => {
+      const isMatched = matchesAccessListPattern(norm.normalized, email) || matchesAccessListPattern(target, email);
       let verdict = "NÃO AFETADO";
       let statusBadge = "bg-secondary text-white";
       let points = 0;
 
       if (isMatched) {
         if (testAction === 'blacklist_from') {
-          verdict = "BLOQUEIO IMEDIATO (Blacklist)";
+          verdict = "BLOQUEADO NA BLACKLIST";
           statusBadge = "bg-danger text-white";
           points = 100.0;
         } else if (testAction === 'whitelist_from') {
-          verdict = "LIBERADO (Whitelist)";
+          verdict = "LIBERADO NA WHITE LIST";
           statusBadge = "bg-success text-white";
           points = -100.0;
         } else {
@@ -2832,27 +2949,34 @@ Checks 12
 
       return {
         email,
+        matched: isMatched,
         is_matched: isMatched,
+        result: isMatched ? verdict : "Não Afetado",
         verdict,
         status_badge: statusBadge,
-        points: isMatched ? points : 0
+        score_impact: isMatched ? points : 0,
+        points: isMatched ? points : 0,
+        matched_rule: isMatched ? `${testAction} ${norm.normalized}` : null
       };
     });
 
     res.json({
       success: true,
       target: norm.normalized,
+      normalized_target: norm.normalized,
       action: testAction,
       interpretation: generateInterpretation(testAction, norm.normalized),
-      results
+      test_cases: testCases,
+      results: testCases
     });
   });
 
-  // POST Create New Visual Rule with Duplicate Prevention and Validation
+  // POST Create New Visual Rule with Smart In-Place Consolidation and Duplicate Prevention
   app.post("/api/services/spamassassin/visual-rules", (req, res) => {
-    const { action, value, description, origin, notes, active, force } = req.body || {};
+    const { action, value, reason, description, origin, notes, active, force } = req.body || {};
     const act = action || "blacklist_from";
     const rawVal = (value || "").trim();
+    const ruleReason = (reason || description || "").trim();
 
     if (!act || !["blacklist_from", "whitelist_from", "spam_from"].includes(act)) {
       return res.status(400).json({ success: false, message: "Classificação inválida. Escolha Blacklist, SPAM ou Whitelist." });
@@ -2868,30 +2992,48 @@ Checks 12
       return res.status(400).json({ success: false, message: analysis.syntax_error || "Sintaxe inválida para regra." });
     }
 
-    // Duplicate detection verification
-    const isDuplicate = analysis.duplicates.has_exact_duplicate || analysis.duplicates.has_normalized_duplicate;
-    if (isDuplicate && !force) {
-      const existing = analysis.duplicates.exact_rule || analysis.duplicates.normalized_rule;
-      return res.status(409).json({
-        success: false,
-        duplicate_detected: true,
-        message: `⚠️ Regra já cadastrada: A regra informada possui correspondência idêntica ou equivalente na lista (${existing ? existing.raw : ''}).`,
-        analysis
-      });
-    }
-
-    const targetToSave = analysis.normalized_target;
+    const targetToSave = analysis.normalized_target; // Always normalized, e.g. *@suanotaemdia16.roxa.org
     const ruleLine = (active === false) ? `# ${act} ${targetToSave} # INACTIVE` : `${act} ${targetToSave}`;
 
-    // Add to virtualLocalCf
-    if (virtualLocalCf && !virtualLocalCf.endsWith("\n")) {
-      virtualLocalCf += "\n";
+    // Check for existing rules with same normalized value or raw value in virtualLocalCf
+    const lines = virtualLocalCf.split("\n");
+    let alreadyExists = false;
+    let replacedLineIndex = -1;
+
+    // Pattern to match any variant of this rule (e.g. blacklist_from @dom, blacklist_from *@dom, # blacklist_from ...)
+    const newLines = lines.map((line, idx) => {
+      const trimmed = line.trim();
+      const match = trimmed.match(/^\s*(?:#\s*)?(blacklist_from|whitelist_from|spam_from|score_spam|spam)\s*(?::|\s)\s*(.+)$/i);
+      if (match) {
+        const lineVal = match[2].trim().split(/\s+#/)[0].trim();
+        const lineNorm = normalizeTarget(lineVal);
+        if (lineNorm.normalized === targetToSave) {
+          alreadyExists = true;
+          if (replacedLineIndex === -1) {
+            replacedLineIndex = idx;
+            return ruleLine; // Replace non-standard or previous variation with standard rule
+          } else {
+            return null; // Remove any additional duplicate line!
+          }
+        }
+      }
+      return line;
+    }).filter(l => l !== null) as string[];
+
+    if (alreadyExists) {
+      // Replaced existing duplicate / non-standard format cleanly in place
+      virtualLocalCf = newLines.join("\n");
+    } else {
+      // Add new line to local.cf
+      if (virtualLocalCf && !virtualLocalCf.endsWith("\n")) {
+        virtualLocalCf += "\n";
+      }
+      virtualLocalCf += ruleLine + "\n";
     }
-    virtualLocalCf += ruleLine + "\n";
 
     // Store metadata
     virtualSpamRulesMetaStore.set(ruleLine, {
-      description: description || analysis.suggestion.recommended_reason,
+      description: ruleReason || analysis.suggestion.recommended_reason,
       origin: origin || "manual",
       notes: notes || "",
       created_at: new Date().toISOString().replace("T", " ").substring(0, 19),
@@ -2899,11 +3041,14 @@ Checks 12
     });
     virtualSpamRulesMetaStore.set(targetToSave, virtualSpamRulesMetaStore.get(ruleLine));
 
-    addAuditLog("SPAM_RULE_CREATE", targetToSave, { action: act, rule: ruleLine, origin, description }, "normal", req);
+    addAuditLog(alreadyExists ? "SPAM_RULE_UPDATE_STANDARDIZED" : "SPAM_RULE_CREATE", targetToSave, { action: act, rule: ruleLine, origin, description: ruleReason, consolidated: alreadyExists }, "normal", req);
 
     res.json({
       success: true,
-      message: `Regra '${ruleLine}' cadastrada e aplicada com sucesso no SpamAssassin!`,
+      message: alreadyExists 
+        ? `Regra para '${targetToSave}' já existia e foi consolidada/padronizada com sucesso no SpamAssassin sem duplicações!`
+        : `Regra '${ruleLine}' cadastrada e aplicada com sucesso no SpamAssassin!`,
+      consolidated: alreadyExists,
       rule: {
         type: act,
         value: targetToSave,
@@ -2915,10 +3060,11 @@ Checks 12
 
   // POST / PUT Edit Visual Rule
   const editVisualRule = (req: express.Request, res: express.Response) => {
-    const { old_raw, new_action, action, new_value, value, description, origin, notes, active } = req.body || {};
+    const { old_raw, new_action, action, new_value, value, reason, description, origin, notes, active } = req.body || {};
     const act = new_action || action || "blacklist_from";
     const val = (new_value || value || "").trim();
     const oldRaw = (old_raw || "").trim().toLowerCase();
+    const ruleReason = (reason || description || "").trim();
 
     if (!act || !["blacklist_from", "whitelist_from", "spam_from"].includes(act)) {
       return res.status(400).json({ success: false, message: "Classificação inválida." });
@@ -2949,14 +3095,14 @@ Checks 12
     virtualLocalCf = newLines.join("\n");
 
     virtualSpamRulesMetaStore.set(newRuleLine, {
-      description: description || "Regra editada",
+      description: ruleReason || "Regra editada",
       origin: origin || "manual",
       notes: notes || "",
       created_at: new Date().toISOString().replace("T", " ").substring(0, 19),
       created_by: getAuditUser(req)
     });
 
-    addAuditLog("SPAM_RULE_UPDATE", targetToSave, { old_raw, new_rule: newRuleLine, action: act, description }, "normal", req);
+    addAuditLog("SPAM_RULE_UPDATE", targetToSave, { old_raw, new_rule: newRuleLine, action: act, description: ruleReason }, "normal", req);
 
     res.json({
       success: true,
