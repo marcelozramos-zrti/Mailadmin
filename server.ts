@@ -2290,13 +2290,49 @@ Checks 12
     res.json({ success: true, message: `Serviço ${service} reiniciado com sucesso via sudo systemctl!` });
   });
 
+  // File path for real SpamAssassin local.cf in Linux Debian/Ubuntu production
+  const SPAMASSASSIN_LOCAL_CF_PATH = "/etc/spamassassin/local.cf";
+
+  // Helper to load local.cf from real filesystem if present, otherwise use virtualLocalCf
+  function getSpamAssassinConfigContent(): string {
+    try {
+      if (fs.existsSync(SPAMASSASSIN_LOCAL_CF_PATH)) {
+        const fileContent = fs.readFileSync(SPAMASSASSIN_LOCAL_CF_PATH, "utf-8");
+        if (fileContent && fileContent.trim().length > 0) {
+          virtualLocalCf = fileContent;
+          return fileContent;
+        }
+      }
+    } catch (e: any) {
+      console.warn("Aviso ao ler /etc/spamassassin/local.cf físico:", e?.message || e);
+    }
+    return virtualLocalCf;
+  }
+
+  // Helper to save local.cf to virtual and real filesystem (with amavis reload) if in production
+  function saveSpamAssassinConfigContent(newContent: string): boolean {
+    virtualLocalCf = newContent;
+    try {
+      if (fs.existsSync("/etc/spamassassin")) {
+        fs.writeFileSync(SPAMASSASSIN_LOCAL_CF_PATH, newContent, "utf-8");
+        // Reload SpamAssassin and Amavis in background if systemd is available
+        exec("sudo systemctl reload amavis spamassassin || sudo systemctl restart amavis", () => {});
+        return true;
+      }
+    } catch (e: any) {
+      console.warn("Aviso ao gravar em /etc/spamassassin/local.cf físico:", e?.message || e);
+    }
+    return false;
+  }
+
   app.get("/api/services/spamassassin/rules", (req, res) => {
-    res.json({ success: true, content: virtualLocalCf });
+    const currentContent = getSpamAssassinConfigContent();
+    res.json({ success: true, content: currentContent });
   });
 
   app.post("/api/services/spamassassin/rules", (req, res) => {
     const { content } = req.body || {};
-    virtualLocalCf = content;
+    saveSpamAssassinConfigContent(content || "");
     addAuditLog("SPAM_RULES_RAW_UPDATE", "/etc/spamassassin/local.cf", { length: (content || "").length }, "suspicious", req);
     res.json({ success: true, message: "Regras salvas no local.cf e Amavis reiniciado!" });
   });
@@ -2757,8 +2793,9 @@ Checks 12
 
   // GET Visual Rules with rich analysis stats
   app.get("/api/services/spamassassin/visual-rules", (req, res) => {
-    const rules = parseAllVisualRules(virtualLocalCf);
-    const audit = auditAllRuleDuplicates(virtualLocalCf);
+    const currentCf = getSpamAssassinConfigContent();
+    const rules = parseAllVisualRules(currentCf);
+    const audit = auditAllRuleDuplicates(currentCf);
 
     res.json({
       success: true,
@@ -2780,24 +2817,28 @@ Checks 12
   // POST Analyze Target before creating rule
   app.post("/api/services/spamassassin/visual-rules/analyze", (req, res) => {
     const { target, action } = req.body || {};
-    const rules = parseAllVisualRules(virtualLocalCf);
+    const currentCf = getSpamAssassinConfigContent();
+    const rules = parseAllVisualRules(currentCf);
     const analysis = analyzeRuleTarget(target, action || "blacklist_from", rules);
     res.json({ success: true, ...analysis });
   });
 
   // GET / POST Audit Duplicates
   app.get("/api/services/spamassassin/visual-rules/audit-duplicates", (req, res) => {
-    const audit = auditAllRuleDuplicates(virtualLocalCf);
+    const currentCf = getSpamAssassinConfigContent();
+    const audit = auditAllRuleDuplicates(currentCf);
     res.json({ success: true, ...audit });
   });
   app.post("/api/services/spamassassin/visual-rules/audit-duplicates", (req, res) => {
-    const audit = auditAllRuleDuplicates(virtualLocalCf);
+    const currentCf = getSpamAssassinConfigContent();
+    const audit = auditAllRuleDuplicates(currentCf);
     res.json({ success: true, ...audit });
   });
 
   // POST Clean & Deduplicate Rules Automatically
   app.post("/api/services/spamassassin/visual-rules/clean-duplicates", (req, res) => {
-    const lines = virtualLocalCf.split("\n");
+    const currentCf = getSpamAssassinConfigContent();
+    const lines = currentCf.split("\n");
     const pattern = /^\s*(?:#\s*)?(blacklist_from|whitelist_from|spam_from|score_spam|spam)\s*(?::|\s)\s*(.+)$/i;
 
     const seenStandardRules = new Set<string>();
@@ -2829,7 +2870,8 @@ Checks 12
       }
     }
 
-    virtualLocalCf = cleanedLines.join("\n");
+    const newContent = cleanedLines.join("\n");
+    saveSpamAssassinConfigContent(newContent);
     addAuditLog("SPAM_RULES_DEDUPLICATE", "local.cf", { removed_duplicates: deduplicatedCount }, "normal", req);
 
     res.json({
@@ -2845,7 +2887,8 @@ Checks 12
     const { target, action, custom_emails } = req.body || {};
     const norm = normalizeTarget(target || "");
     const testAction = action || "blacklist_from";
-    const rules = parseAllVisualRules(virtualLocalCf);
+    const currentCf = getSpamAssassinConfigContent();
+    const rules = parseAllVisualRules(currentCf);
 
     // If this is a quick status check against existing active rules in local.cf
     if (testAction === 'check_status' || action === 'check_status') {
@@ -2985,7 +3028,8 @@ Checks 12
       return res.status(400).json({ success: false, message: "Endereço, domínio ou padrão não pode ser vazio." });
     }
 
-    const rules = parseAllVisualRules(virtualLocalCf);
+    const currentCf = getSpamAssassinConfigContent();
+    const rules = parseAllVisualRules(currentCf);
     const analysis = analyzeRuleTarget(rawVal, act, rules);
 
     if (!analysis.is_valid_syntax) {
@@ -2995,8 +3039,8 @@ Checks 12
     const targetToSave = analysis.normalized_target; // Always normalized, e.g. *@suanotaemdia16.roxa.org
     const ruleLine = (active === false) ? `# ${act} ${targetToSave} # INACTIVE` : `${act} ${targetToSave}`;
 
-    // Check for existing rules with same normalized value or raw value in virtualLocalCf
-    const lines = virtualLocalCf.split("\n");
+    // Check for existing rules with same normalized value or raw value in local.cf
+    const lines = currentCf.split("\n");
     let alreadyExists = false;
     let replacedLineIndex = -1;
 
@@ -3020,16 +3064,20 @@ Checks 12
       return line;
     }).filter(l => l !== null) as string[];
 
+    let updatedContent = "";
     if (alreadyExists) {
       // Replaced existing duplicate / non-standard format cleanly in place
-      virtualLocalCf = newLines.join("\n");
+      updatedContent = newLines.join("\n");
     } else {
       // Add new line to local.cf
-      if (virtualLocalCf && !virtualLocalCf.endsWith("\n")) {
-        virtualLocalCf += "\n";
+      let base = currentCf;
+      if (base && !base.endsWith("\n")) {
+        base += "\n";
       }
-      virtualLocalCf += ruleLine + "\n";
+      updatedContent = base + ruleLine + "\n";
     }
+
+    saveSpamAssassinConfigContent(updatedContent);
 
     // Store metadata
     virtualSpamRulesMetaStore.set(ruleLine, {
@@ -3077,7 +3125,8 @@ Checks 12
     const targetToSave = norm.normalized;
     const newRuleLine = (active === false) ? `# ${act} ${targetToSave} # INACTIVE` : `${act} ${targetToSave}`;
 
-    const lines = virtualLocalCf.split("\n");
+    const currentCf = getSpamAssassinConfigContent();
+    const lines = currentCf.split("\n");
     let replaced = false;
 
     const newLines = lines.map(line => {
@@ -3092,7 +3141,7 @@ Checks 12
       newLines.push(newRuleLine);
     }
 
-    virtualLocalCf = newLines.join("\n");
+    saveSpamAssassinConfigContent(newLines.join("\n"));
 
     virtualSpamRulesMetaStore.set(newRuleLine, {
       description: ruleReason || "Regra editada",
@@ -3119,7 +3168,8 @@ Checks 12
     if (!raw) return res.status(400).json({ success: false, message: "Regra não informada." });
 
     const rawClean = raw.trim();
-    const lines = virtualLocalCf.split("\n");
+    const currentCf = getSpamAssassinConfigContent();
+    const lines = currentCf.split("\n");
     let updatedLine = "";
 
     const newLines = lines.map(line => {
@@ -3137,7 +3187,7 @@ Checks 12
       return line;
     });
 
-    virtualLocalCf = newLines.join("\n");
+    saveSpamAssassinConfigContent(newLines.join("\n"));
     addAuditLog("SPAM_RULE_TOGGLE", rawClean, { active, new_line: updatedLine }, "normal", req);
 
     res.json({
@@ -3157,9 +3207,10 @@ Checks 12
     }
 
     const targetClean = targetLine.trim().toLowerCase();
-    const lines = virtualLocalCf.split("\n");
+    const currentCf = getSpamAssassinConfigContent();
+    const lines = currentCf.split("\n");
     const filtered = lines.filter(l => l.trim().toLowerCase() !== targetClean);
-    virtualLocalCf = filtered.join("\n");
+    saveSpamAssassinConfigContent(filtered.join("\n"));
 
     addAuditLog("SPAM_RULE_DELETE", targetLine, { deleted_rule: targetLine }, "normal", req);
 
