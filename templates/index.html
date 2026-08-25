@@ -2257,6 +2257,7 @@
                                         <table class="table table-hover align-middle mb-0">
                                             <thead class="table-light">
                                                 <tr>
+                                                    <th style="width: 50px;" class="text-center">#</th>
                                                     <th style="width: 70px;" class="text-center">Status</th>
                                                     <th style="width: 170px;">Classificação</th>
                                                     <th style="width: 220px;">Endereço / Domínio Alvo</th>
@@ -2267,7 +2268,7 @@
                                                 </tr>
                                             </thead>
                                             <tbody id="visual-rules-table-body">
-                                                <tr><td colspan="7" class="text-center text-muted py-4">Carregando regras da lista...</td></tr>
+                                                <tr><td colspan="8" class="text-center text-muted py-4">Carregando regras da lista...</td></tr>
                                             </tbody>
                                         </table>
                                     </div>
@@ -6294,6 +6295,8 @@
                 // Extrai nome/string da regra correspondente
                 const matchedRuleObj = data.matched_rule || (tc && tc.matched_rule);
                 let matchedRuleStr = data.matched_rule_str || '';
+                let matchedRuleNumber = data.matched_rule_number || (matchedRuleObj && matchedRuleObj.rule_number) || (matchedRuleObj && matchedRuleObj.id) || null;
+
                 if (!matchedRuleStr) {
                     if (typeof matchedRuleObj === 'string') {
                         matchedRuleStr = matchedRuleObj;
@@ -6302,7 +6305,24 @@
                     }
                 }
 
-                let diagDetail = data.diagnostic_message || (matchedRuleStr ? `O endereço coincide com a regra ativa <code>${matchedRuleStr}</code>.` : `Nenhuma regra específica de Blacklist ou Whitelist foi encontrada para este endereço ou domínio.`);
+                let ruleHitBanner = '';
+                if (matchedRuleStr) {
+                    const ruleBadge = matchedRuleNumber ? `<span class="badge bg-dark font-monospace me-1.5">Regra #${matchedRuleNumber}</span>` : '';
+                    const ruleActionBadge = isBlocked ? `<span class="badge bg-danger font-monospace me-1.5">Blacklist</span>` : (isWhitelisted ? `<span class="badge bg-success font-monospace me-1.5">Whitelist</span>` : `<span class="badge bg-warning text-dark font-monospace me-1.5">SPAM Score</span>`);
+                    ruleHitBanner = `
+                        <div class="p-2.5 rounded-3 bg-white border d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 mb-2.5 shadow-xs">
+                            <div class="d-flex align-items-center flex-wrap gap-1">
+                                <span class="small fw-bold text-dark me-1"><i class="bi bi-bullseye text-primary me-1"></i>Regra Aplicada:</span>
+                                ${ruleBadge}
+                                ${ruleActionBadge}
+                                <code class="fw-bold text-dark font-monospace fs-6 px-1 bg-light border rounded">${matchedRuleStr}</code>
+                            </div>
+                            <span class="small text-muted font-monospace"><i class="bi bi-file-earmark-code me-1"></i>/etc/spamassassin/local.cf</span>
+                        </div>
+                    `;
+                }
+
+                let diagDetail = data.diagnostic_message || (matchedRuleStr ? `O endereço coincide exatamente com o padrão da regra ativa <code>${matchedRuleStr}</code> configurada no SpamAssassin.` : `Nenhuma regra específica de Blacklist ou Whitelist foi encontrada para este endereço ou domínio. O fluxo segue a pontuação heurística padrão.`);
 
                 let actionsHtml = '';
                 if (!isBlocked) {
@@ -6331,6 +6351,7 @@
                                 <button type="button" class="btn btn-xs btn-outline-secondary" onclick="document.getElementById('quick-check-result-container').style.display='none'">Fechar</button>
                             </div>
                         </div>
+                        ${ruleHitBanner}
                         <div class="small text-secondary mb-3">
                             <strong>Diagnóstico Operacional:</strong> ${diagDetail}
                         </div>
@@ -6456,11 +6477,12 @@
             
             if (searchTerm) msg = `Nenhuma regra encontrada para a busca "${searchTerm}".`;
 
-            tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4 small font-monospace">${msg}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted py-4 small font-monospace">${msg}</td></tr>`;
             return;
         }
 
-        tbody.innerHTML = filtered.map(r => {
+        tbody.innerHTML = filtered.map((r, index) => {
+            const ruleNum = r.rule_number || r.id || (index + 1);
             let badgeHtml = '';
             if (r.type === 'blacklist_from') {
                 badgeHtml = `<span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2.5 py-1 font-monospace"><i class="bi bi-shield-x me-1"></i> Bloqueado (+100)</span>`;
@@ -6497,6 +6519,7 @@
 
             return `
                 <tr class="${!isActive ? 'opacity-50 bg-light' : ''}">
+                    <td class="text-center"><span class="badge bg-light text-dark border font-monospace fw-bold" style="font-size: 11px;">#${ruleNum}</span></td>
                     <td class="text-center">${toggleSwitch}</td>
                     <td>${badgeHtml}</td>
                     <td>

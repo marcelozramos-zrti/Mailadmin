@@ -2480,9 +2480,9 @@ Checks 12
   function parseAllVisualRules(cfContent: string) {
     const lines = cfContent.split("\n");
     const rules: any[] = [];
-    const pattern = /^\s*(#\s*)?(blacklist_from|whitelist_from|spam_from|score_spam|spam)\s*(?::|\s)\s*(.+)$/i;
+    const pattern = /^\s*(#\s*)?(blacklist_from|whitelist_from_spf|whitelist_from_dkim|whitelist_from_rcvd|whitelist_from|spam_from|spam)\s*(?::|\s)\s*(.+)$/i;
 
-    let id = 0;
+    let ruleCounter = 1;
     for (let i = 0; i < lines.length; i++) {
       const rawLine = lines[i].trim();
       if (!rawLine || rawLine.startsWith("# ==") || rawLine.startsWith("# --") || rawLine.startsWith("# Configurações")) continue;
@@ -2494,52 +2494,72 @@ Checks 12
         const rawValWithComments = match[3].trim();
         // Remove inline comment like # INACTIVE or # Motivo: ...
         const valParts = rawValWithComments.split(/\s+#/);
-        const val = valParts[0].trim();
+        const valString = valParts[0].trim();
         const inlineNote = valParts[1] ? valParts[1].trim() : "";
 
         let action_type: 'blacklist_from' | 'whitelist_from' | 'spam_from' = "whitelist_from";
         let action_label = "Liberar (Whitelist)";
 
-        if (["spam_from", "score_spam", "spam"].includes(rawType)) {
+        if (["spam_from", "spam"].includes(rawType)) {
           action_type = "spam_from";
-          action_label = "Marcar como SPAM";
+          action_label = "SPAM (+20 pts)";
         } else if (rawType === "blacklist_from") {
           action_type = "blacklist_from";
           action_label = "Bloquear (Blacklist)";
+        } else if (rawType === "whitelist_from_spf") {
+          action_type = "whitelist_from";
+          action_label = "White List (SPF)";
+        } else if (rawType === "whitelist_from_dkim") {
+          action_type = "whitelist_from";
+          action_label = "White List (DKIM)";
+        } else if (rawType === "whitelist_from_rcvd") {
+          action_type = "whitelist_from";
+          action_label = "White List (Rcvd)";
         }
 
-        const norm = normalizeTarget(val);
-        const targetType = norm.targetType;
-        let targetTypeLabel = "Domínio Completo";
-        if (targetType === "email") targetTypeLabel = "E-mail Específico";
-        else if (targetType === "subdomain") targetTypeLabel = "Subdomínio";
-        else if (targetType === "wildcard") targetTypeLabel = "Padrão / Wildcard";
+        // Suporte a múltiplos alvos separados por espaço
+        const targetTokens = valString.split(/\s+/).filter(t => t.trim().length > 0);
 
-        const storedMeta = virtualSpamRulesMetaStore.get(rawLine) || virtualSpamRulesMetaStore.get(norm.normalized) || {};
-        const isActive = !isCommented && !inlineNote.toLowerCase().includes("inactive");
-        const reasonText = storedMeta.description || (inlineNote.replace(/^(INACTIVE\s*-?\s*|MOTIVO:\s*)/i, '').trim() || "Regra de controle de acesso AntiSPAM");
+        for (const val of targetTokens) {
+          const norm = normalizeTarget(val);
+          const targetType = norm.targetType;
+          let targetTypeLabel = "Domínio Completo";
+          if (targetType === "email") targetTypeLabel = "E-mail Específico";
+          else if (targetType === "subdomain") targetTypeLabel = "Subdomínio";
+          else if (targetType === "wildcard") targetTypeLabel = "Padrão / Wildcard";
 
-        rules.push({
-          id: id++,
-          type: action_type,
-          action_label,
-          value: val,
-          normalized_value: norm.normalized,
-          domain: norm.domain,
-          target_type: targetType,
-          target_type_label: targetTypeLabel,
-          interpretation: generateInterpretation(action_type, val),
-          reason: reasonText,
-          description: reasonText,
-          origin: storedMeta.origin || "manual",
-          origin_label: (storedMeta.origin === 'incident' ? 'Incidente' : (storedMeta.origin === 'spam_analysis' ? 'Análise de SPAM' : (storedMeta.origin === 'monitoring' ? 'Monitoramento' : 'Manual'))),
-          notes: storedMeta.notes || inlineNote || "",
-          active: isActive,
-          created_at: storedMeta.created_at || "2026-08-25 08:30:00",
-          created_by: storedMeta.created_by || "admin",
-          raw: rawLine,
-          line_index: i
-        });
+          const rawRepr = targetTokens.length > 1 ? `${rawType} ${val}` : rawLine;
+          const storedMeta = virtualSpamRulesMetaStore.get(rawLine) || virtualSpamRulesMetaStore.get(rawRepr) || virtualSpamRulesMetaStore.get(norm.normalized) || {};
+          const isActive = !isCommented && !inlineNote.toLowerCase().includes("inactive");
+          const reasonText = storedMeta.description || (inlineNote.replace(/^(INACTIVE\s*-?\s*|MOTIVO:\s*)/i, '').trim() || "Regra ativa de segurança");
+
+          rules.push({
+            id: ruleCounter,
+            rule_number: ruleCounter,
+            type: action_type,
+            action: action_type,
+            action_label,
+            directive: rawType,
+            value: val,
+            normalized_value: norm.normalized,
+            domain: norm.domain,
+            target_type: targetType,
+            target_type_label: targetTypeLabel,
+            interpretation: generateInterpretation(action_type, val),
+            reason: reasonText,
+            description: reasonText,
+            origin: storedMeta.origin || "manual",
+            origin_label: (storedMeta.origin === 'incident' ? 'Incidente' : (storedMeta.origin === 'spam_analysis' ? 'Análise de SPAM' : (storedMeta.origin === 'monitoring' ? 'Monitoramento' : 'Manual'))),
+            notes: storedMeta.notes || inlineNote || "",
+            active: isActive,
+            created_at: storedMeta.created_at || "2026-08-25 08:30:00",
+            created_by: storedMeta.created_by || "admin",
+            raw: rawRepr,
+            original_line: rawLine,
+            line_index: i
+          });
+          ruleCounter++;
+        }
       }
     }
     return rules;
@@ -2947,8 +2967,18 @@ Checks 12
         target: emailToTest,
         action: 'check_status',
         is_blacklisted: isBlocked,
+        is_blocked: isBlocked,
         is_whitelisted: isWhitelisted,
         is_spam: isSpam,
+        status: isBlocked ? 'blacklisted' : (isWhitelisted ? 'whitelisted' : (isSpam ? 'spam' : 'neutral')),
+        score_impact: scoreImpact,
+        points: scoreImpact,
+        matched_rule: matchedRule,
+        matched_rule_str: matchedRule ? (matchedRule.raw || `${matchedRule.directive || matchedRule.type} ${matchedRule.value}`) : null,
+        matched_rule_number: matchedRule ? (matchedRule.rule_number || matchedRule.id) : null,
+        diagnostic_message: matchedRule 
+          ? `O endereço coincide com a regra ativa #${matchedRule.rule_number || matchedRule.id} ("${matchedRule.raw}").`
+          : `Nenhuma regra de acesso específica encontrada para "${emailToTest}". O tráfego segue fluxo neutro.`,
         test_cases: [singleResult],
         results: [singleResult]
       });
@@ -3417,52 +3447,6 @@ Checks 12
       emails.push(cleanRaw);
     }
     return emails;
-  }
-
-  // Helper to test if an email or header matches a SpamAssassin wildcard pattern (e.g. *@spammer.com, bad@domain.com, *@*.domain.com)
-  function matchesAccessListPattern(pattern: string, headerValue: string): boolean {
-    if (!pattern || !headerValue) return false;
-    const cleanPat = pattern.trim().toLowerCase();
-    const cleanHeader = headerValue.trim().toLowerCase();
-
-    // 1. Direct contains check
-    if (cleanHeader.includes(cleanPat)) return true;
-
-    // 2. Extract emails and domains from the header
-    const emails = extractEmails(cleanHeader);
-    const domains = emails.map(e => e.split("@")[1] || "").filter(Boolean);
-
-    // If pattern is wildcard like *@domain.com or *@*.domain.com
-    let regexStr = cleanPat
-      .replace(/\./g, "\\.")
-      .replace(/\*/g, ".*")
-      .replace(/\?/g, ".");
-    
-    try {
-      const reg = new RegExp(`^${regexStr}$`, "i");
-
-      // Check extracted emails
-      for (const email of emails) {
-        if (reg.test(email)) return true;
-        const dom = email.split("@")[1];
-        if (dom && cleanPat.endsWith(`@${dom}`)) return true;
-      }
-
-      // Check if raw pattern stripped of *@ matches domain
-      const patDomain = cleanPat.replace(/^\*@/, "").replace(/^\*/, "").replace(/^@/, "");
-      for (const dom of domains) {
-        if (dom === patDomain || dom.endsWith(`.${patDomain}`)) return true;
-      }
-
-      // Test raw header string directly
-      if (reg.test(cleanHeader)) return true;
-    } catch {
-      // fallback substring
-      const fallbackDomain = cleanPat.replace(/^\*@/, "").replace(/^\*/, "");
-      if (fallbackDomain && cleanHeader.includes(fallbackDomain)) return true;
-    }
-
-    return false;
   }
 
   // POST Simulator & Tester for E-mail Headers / Subject / From against local.cf (Blacklist, Whitelist, Inteligência AntiSPAM)

@@ -156,81 +156,120 @@ def parse_rule_target(raw_target: str, action: str = "blacklist_from") -> Dict[s
     }
 
 
-def parse_single_line(line_str: str, index: int = 0) -> Optional[Dict[str, Any]]:
-    """Analisa uma linha individual de local.cf e retorna sua estrutura detalhada."""
+def parse_single_line(line_str: str, index: int = 0) -> List[Dict[str, Any]]:
+    """
+    Analisa uma linha individual de local.cf e retorna uma lista de regras de acesso (remetentes/domínios).
+    Ignora diretivas do motor SpamAssassin como 'score', 'header', 'body', 'describe', 'bayes_*', etc.
+    Suporta linhas com múltiplos alvos (ex: whitelist_from_spf a@ex.com b@ex.com).
+    """
     raw = line_str.strip()
     if not raw:
-        return None
+        return []
 
     is_active = not raw.startswith("#")
     clean_line = raw.lstrip("#").strip()
 
-    # Identifica tipo de diretiva
-    directive = None
-    action_type = "blacklist_from"
-    action_label = "Bloquear (Blacklist)"
-    score = 100.0
+    # Identifica tipo de diretiva de remetente/domínio legítima do SpamAssassin
+    action_type = None
+    action_label = ""
+    score = 0.0
 
-    if clean_line.startswith("blacklist_from"):
-        directive = "blacklist_from"
+    lower_clean = clean_line.lower()
+
+    if lower_clean.startswith("blacklist_from"):
         action_type = "blacklist_from"
         action_label = "Bloquear (Blacklist)"
         score = 100.0
-    elif clean_line.startswith("whitelist_from"):
-        directive = "whitelist_from"
+    elif lower_clean.startswith("whitelist_from_spf"):
+        action_type = "whitelist_from"
+        action_label = "White List (SPF)"
+        score = -100.0
+    elif lower_clean.startswith("whitelist_from_dkim"):
+        action_type = "whitelist_from"
+        action_label = "White List (DKIM)"
+        score = -100.0
+    elif lower_clean.startswith("whitelist_from_rcvd"):
+        action_type = "whitelist_from"
+        action_label = "White List (Rcvd)"
+        score = -100.0
+    elif lower_clean.startswith("whitelist_from"):
         action_type = "whitelist_from"
         action_label = "Liberar (Whitelist)"
         score = -100.0
-    elif clean_line.startswith("spam_from") or clean_line.startswith("score"):
-        directive = "spam_from"
+    elif lower_clean.startswith("spam_from"):
         action_type = "spam_from"
         action_label = "SPAM (+20 pts)"
         score = 20.0
     else:
-        return None  # Não é regra visual de acesso/pontuação
+        # Linhas como 'score ...', 'header ...', 'body ...', 'describe ...', 'required_score ...'
+        # são diretivas heurísticas/configurações do SpamAssassin, NÃO são regras de remetente/domínio.
+        return []
 
-    # Extrai o valor do alvo
+    # Extrai a diretiva e os alvos
     parts = clean_line.split(None, 1)
     if len(parts) < 2:
-        return None
+        return []
 
-    raw_val = parts[1].strip()
-    parsed_target = parse_rule_target(raw_val, action_type)
+    directive_name = parts[0].strip()
+    raw_targets_str = parts[1].strip()
 
-    return {
-        "id": index + 1,
-        "active": is_active,
-        "type": action_type,
-        "action": action_type,
-        "action_label": action_label,
-        "score": score,
-        "value": parsed_target["normalized_value"] if parsed_target["normalized_value"] else raw_val,
-        "raw_value": raw_val,
-        "raw": raw,
-        "clean_line": clean_line,
-        "canonical_pattern": parsed_target["canonical_pattern"],
-        "pattern_type": parsed_target["pattern_type"],
-        "pattern_type_label": parsed_target["pattern_type_label"],
-        "scope": parsed_target["scope"],
-        "scope_label": parsed_target["scope_label"],
-        "domain": parsed_target["domain"],
-        "local_part": parsed_target["local_part"],
-        "interpretation": parsed_target["interpretation"],
-        "is_high_impact": parsed_target["is_high_impact"],
-        "impact_severity": parsed_target["impact_severity"],
-        "impact_message": parsed_target["impact_message"],
-        "reason": "Regra ativa de segurança" if is_active else "Regra desativada",
-        "origin": "manual"
-    }
+    # Separa múltiplos alvos na mesma linha (ex: 'joe@example.com fred@example.com')
+    raw_targets = raw_targets_str.split()
+    if not raw_targets:
+        return []
+
+    results = []
+    for sub_idx, raw_val in enumerate(raw_targets):
+        parsed_target = parse_rule_target(raw_val, action_type)
+        if not parsed_target["is_valid"]:
+            continue
+
+        raw_repr = f"{directive_name} {raw_val}" if len(raw_targets) > 1 else raw
+
+        results.append({
+            "id": index + 1,
+            "rule_number": index + 1,
+            "sub_id": f"{index + 1}.{sub_idx + 1}" if len(raw_targets) > 1 else str(index + 1),
+            "active": is_active,
+            "type": action_type,
+            "action": action_type,
+            "action_label": action_label,
+            "directive": directive_name,
+            "score": score,
+            "value": parsed_target["normalized_value"] if parsed_target["normalized_value"] else raw_val,
+            "raw_value": raw_val,
+            "raw": raw_repr,
+            "original_line": raw,
+            "clean_line": clean_line,
+            "canonical_pattern": parsed_target["canonical_pattern"],
+            "pattern_type": parsed_target["pattern_type"],
+            "pattern_type_label": parsed_target["pattern_type_label"],
+            "scope": parsed_target["scope"],
+            "scope_label": parsed_target["scope_label"],
+            "domain": parsed_target["domain"],
+            "local_part": parsed_target["local_part"],
+            "interpretation": parsed_target["interpretation"],
+            "is_high_impact": parsed_target["is_high_impact"],
+            "impact_severity": parsed_target["impact_severity"],
+            "impact_message": parsed_target["impact_message"],
+            "reason": "Regra ativa de segurança" if is_active else "Regra desativada",
+            "origin": "manual"
+        })
+
+    return results
 
 
 def parse_all_rules(cf_content: str) -> List[Dict[str, Any]]:
-    """Lê todas as regras visuais de acesso do arquivo local.cf."""
+    """Lê todas as regras visuais legítimas de acesso do arquivo local.cf com numeração sequencial."""
     rules = []
     lines = cf_content.splitlines()
+    rule_counter = 1
     for idx, line in enumerate(lines):
-        parsed = parse_single_line(line, idx)
-        if parsed:
+        parsed_list = parse_single_line(line, idx)
+        for parsed in parsed_list:
+            parsed["rule_number"] = rule_counter
+            parsed["id"] = rule_counter
+            rule_counter += 1
             rules.append(parsed)
     return rules
 
@@ -561,9 +600,9 @@ def audit_rules_integrity(rules: List[Dict[str, Any]]) -> Dict[str, Any]:
 def consolidate_and_clean_rules(cf_content: str) -> Tuple[str, int]:
     """
     Higieniza o conteúdo de local.cf:
-    - Normaliza regras para padrão canônico (*@dominio.com)
-    - Remove duplicatas exatas e normalizadas
-    - Mantém seções não relacionadas intactas
+    - Normaliza regras de remetentes para padrão canônico (*@dominio.com)
+    - Remove duplicatas exatas e equivalentes
+    - Mantém diretivas heurísticas (score, header, etc.) e comentários intactos
     - Retorna novo conteúdo e quantidade de regras deduplicadas
     """
     lines = cf_content.splitlines()
@@ -573,24 +612,37 @@ def consolidate_and_clean_rules(cf_content: str) -> Tuple[str, int]:
 
     for line in lines:
         raw = line.strip()
-        if not raw or raw.startswith("#"):
+        if not raw:
             cleaned_lines.append(line)
             continue
 
-        parsed = parse_single_line(raw)
-        if not parsed:
+        if raw.startswith("#"):
+            # Linha comentada de regra ou comentário geral
+            parsed_list = parse_single_line(raw)
+            if not parsed_list:
+                cleaned_lines.append(line)
+                continue
+            # Mantém linhas comentadas preservando
             cleaned_lines.append(line)
             continue
 
-        key = f"{parsed['action']}:{parsed['canonical_pattern']}"
-        if key in seen_keys:
-            deduplicated_count += 1
+        parsed_list = parse_single_line(raw)
+        if not parsed_list:
+            # Diretivas gerais (ex: score URIBL_SBL..., required_score, use_bayes, etc.)
+            cleaned_lines.append(line)
             continue
 
-        seen_keys.add(key)
-        # Salva linha formatada no padrão universal
-        formatted_rule = f"{parsed['action']} {parsed['value']}"
-        cleaned_lines.append(formatted_rule)
+        # Para cada regra legítima de remetente
+        for parsed in parsed_list:
+            key = f"{parsed['action']}:{parsed['canonical_pattern']}"
+            if key in seen_keys:
+                deduplicated_count += 1
+                continue
+
+            seen_keys.add(key)
+            # Salva linha formatada no padrão universal
+            formatted_rule = f"{parsed['action']} {parsed['value']}"
+            cleaned_lines.append(formatted_rule)
 
     new_content = "\n".join(cleaned_lines)
     if not new_content.endswith("\n"):
