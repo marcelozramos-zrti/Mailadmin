@@ -27,6 +27,7 @@ def get_current_user() -> str:
 def init_default_data_if_needed():
     """Garante que as regras e perfis padrão existam no banco de dados."""
     try:
+        db.create_all()
         if AntispamRule.query.count() == 0:
             for r in pe.DEFAULT_POLICY_RULES:
                 rule = AntispamRule(
@@ -65,7 +66,10 @@ def init_default_data_if_needed():
                 db.session.add(setting)
             db.session.commit()
     except Exception:
-        db.session.rollback()
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
 
 
 @antispam_bp.before_app_request
