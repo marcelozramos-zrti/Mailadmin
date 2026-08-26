@@ -5,7 +5,7 @@ class Config:
     
     # Conexão MariaDB/MySQL com o banco 'vmail' do iRedMail / Postfix
     DB_USER = os.environ.get('DB_USER', 'vmailadmin')
-    DB_PASS = os.environ.get('DB_PASS', 'senha_vmail_123')
+    DB_PASS = os.environ.get('DB_PASS', '8is1UW6bpCZAeVCZHJpiAx6QjJ0lQJp2')
     DB_HOST = os.environ.get('DB_HOST', '127.0.0.1')
     DB_PORT = os.environ.get('DB_PORT', '3306')
     DB_NAME = os.environ.get('DB_NAME', 'vmail')

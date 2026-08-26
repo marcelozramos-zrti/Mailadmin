@@ -4,7 +4,7 @@ MailAdmin Suite v1.1.0 - Painel Integrado de Administração de Servidores de E-
 Substituto Completo do iRedAdmin em Python Flask + MariaDB vmail
 """
 
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, send_from_directory, Response
 from flask_login import LoginManager
 from sqlalchemy import text
 import os
@@ -115,7 +115,11 @@ def create_app():
             
         # Se for a página inicial, tenta renderizar com segurança
         try:
-            return render_template('index.html')
+            template_path = os.path.join(app.root_path, 'templates', 'index.html')
+            if os.path.exists(template_path):
+                with open(template_path, 'r', encoding='utf-8', errors='replace') as f:
+                    return Response(f.read(), mimetype='text/html; charset=utf-8')
+            return send_from_directory(os.path.join(app.root_path, 'templates'), 'index.html', mimetype='text/html')
         except Exception:
             return f"""
             <!DOCTYPE html>
@@ -150,8 +154,13 @@ def create_app():
     app.register_blueprint(antispam_bp)
 
     @app.route('/')
+    @app.route('/index.html')
     def index():
-        return render_template('index.html')
+        template_path = os.path.join(app.root_path, 'templates', 'index.html')
+        if os.path.exists(template_path):
+            with open(template_path, 'r', encoding='utf-8', errors='replace') as f:
+                return Response(f.read(), mimetype='text/html; charset=utf-8')
+        return send_from_directory(os.path.join(app.root_path, 'templates'), 'index.html', mimetype='text/html')
 
     @app.route('/api/rules/add', methods=['POST'])
     def root_api_rules_add():
