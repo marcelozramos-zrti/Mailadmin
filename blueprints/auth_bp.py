@@ -23,53 +23,35 @@ def login():
     if not admin or not admin.check_password(password):
         return jsonify({'success': False, 'message': 'Usuário ou senha inválidos.'}), 401
 
-    # REGRA DE NEGÓCIO: MFA Obrigatório no Primeiro Acesso
-    # Se a senha estiver correta mas otp_enabled for False, o usuário NÃO é logado.
-    # A API retorna require_mfa_setup e o QR Code para o frontend forçar a configuração.
-    if not admin.otp_enabled:
-        if not admin.otp_secret:
-            admin.otp_secret = pyotp.random_base32()
-            db.session.commit()
+    # Se o usuário tiver 2FA (MFA) ativado, valida o token TOTP de 6 dígitos
+    if admin.otp_enabled:
+        if not token:
+            return jsonify({
+                'success': False,
+                'mfa_required': True,
+                'message': 'Código Autenticador TOTP de 6 dígitos é necessário.'
+            }), 200
 
         totp = pyotp.TOTP(admin.otp_secret)
-        provision_url = totp.provisioning_uri(
-            name=admin.username,
-            issuer_name="MailAdmin Suite"
-        )
+        if not totp.verify(str(token).strip(), valid_window=1):
+            return jsonify({'success': False, 'message': 'Código TOTP incorreto ou expirado.'}), 401
 
-        img = qrcode.make(provision_url)
-        buffered = io.BytesIO()
-        img.save(buffered, format="PNG")
-        qr_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
-
-        session['temp_mfa_user_id'] = admin.id
-
-        return jsonify({
-            'success': False,
-            'require_mfa_setup': True,
-            'temp_user_id': admin.id,
-            'username': admin.username,
-            'otp_secret': admin.otp_secret,
-            'provision_url': provision_url,
-            'qr_code_base64': f"data:image/png;base64,{qr_base64}",
-            'message': 'Configuração do Autenticador MFA é OBRIGATÓRIA no primeiro acesso ao painel.'
-        }), 200
-
-    # Se MFA ativado, verifica token de 6 dígitos
-    if not token:
-        return jsonify({
-            'success': False,
-            'mfa_required': True,
-            'message': 'Código Autenticador TOTP de 6 dígitos é necessário.'
-        }), 200
-
-    totp = pyotp.TOTP(admin.otp_secret)
-    if not totp.verify(token, valid_window=1):
-        return jsonify({'success': False, 'message': 'Código TOTP incorreto ou expirado.'}), 401
-
-    login_user(admin)
+    # Login direto com sucesso
+    login_user(admin, remember=True)
     session['user_id'] = admin.id
     session.pop('temp_mfa_user_id', None)
+
+    try:
+        log_audit_action(
+            user=admin.username,
+            action="LOGIN_SUCCESS",
+            target=f"Admin ID: {admin.id}",
+            status="SUCCESS",
+            ip=request.remote_addr,
+            details=f"Login efetuado no painel (MFA: {'Ativo' if admin.otp_enabled else 'Inativo'})"
+        )
+    except Exception:
+        pass
 
     return jsonify({
         'success': True,
@@ -78,7 +60,7 @@ def login():
             'id': admin.id,
             'username': admin.username,
             'role': admin.role or 'admin',
-            'mfa_enabled': admin.otp_enabled
+            'mfa_enabled': bool(admin.otp_enabled)
         }
     })
 

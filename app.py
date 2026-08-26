@@ -82,6 +82,7 @@ def create_app():
     login_manager = LoginManager()
     login_manager.init_app(app)
     login_manager.login_view = 'auth.login'
+    login_manager.session_protection = 'basic'
 
     @login_manager.user_loader
     def load_user(user_id):
@@ -90,6 +91,19 @@ def create_app():
         except Exception as e:
             print(f"[AUTH ERROR] Erro ao carregar usuário {user_id}: {e}", file=sys.stderr)
             return None
+
+    @login_manager.request_loader
+    def load_user_from_request(req):
+        # 1. Permite autenticação via header X-Admin-User enviado pela SPA
+        admin_header = req.headers.get('X-Admin-User')
+        if admin_header:
+            try:
+                user = AdminUser.query.filter_by(username=admin_header).first()
+                if user:
+                    return user
+            except Exception:
+                pass
+        return None
 
     @login_manager.unauthorized_handler
     def unauthorized():
