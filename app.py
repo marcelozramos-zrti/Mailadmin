@@ -6,7 +6,7 @@ Substituto Completo do iRedAdmin em Python Flask + MariaDB vmail
 
 from flask import Flask, render_template, jsonify, request, send_from_directory, Response
 from flask_login import LoginManager
-from sqlalchemy import text
+from sqlalchemy import text, func
 import os
 import sys
 import traceback
@@ -98,7 +98,7 @@ def create_app():
         admin_header = req.headers.get('X-Admin-User')
         if admin_header:
             try:
-                user = AdminUser.query.filter_by(username=admin_header).first()
+                user = AdminUser.query.filter(func.lower(AdminUser.username) == str(admin_header).strip().lower()).first()
                 if user:
                     return user
             except Exception:

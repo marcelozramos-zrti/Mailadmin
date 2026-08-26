@@ -1,10 +1,12 @@
 from flask import Blueprint, request, jsonify, session
 from flask_login import login_user, logout_user, login_required, current_user
+from sqlalchemy import func, or_
 import pyotp
 import qrcode
 import io
+import sys
 import base64
-from models import db, AdminUser, SystemAuditLog
+from models import db, AdminUser, Mailbox, SystemAuditLog
 from blueprints.audit_helper import log_audit_action
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
@@ -19,12 +21,50 @@ def login():
     if not username or not password:
         return jsonify({'success': False, 'message': 'Usuário e senha são obrigatórios.'}), 400
 
-    admin = AdminUser.query.filter_by(username=username).first()
-    if not admin or not admin.check_password(password):
+    u_clean = str(username).strip()
+    pwd_clean = str(password)
+
+    # 1. Busca por usuário administrador em vmail_admins (case-insensitive)
+    admin = AdminUser.query.filter(func.lower(AdminUser.username) == u_clean.lower()).first()
+    
+    # Se não encontrou e o usuário digitou e-mail completo, tenta pelo prefixo
+    if not admin and '@' in u_clean:
+        prefix = u_clean.split('@')[0].lower()
+        admin = AdminUser.query.filter(func.lower(AdminUser.username) == prefix).first()
+
+    authenticated = False
+
+    if admin and admin.check_password(pwd_clean):
+        authenticated = True
+    else:
+        # 2. Se não autenticou como vmail_admins, verifica na tabela mailbox (contas de e-mail do sistema)
+        try:
+            mbox = Mailbox.query.filter(func.lower(Mailbox.username) == u_clean.lower()).first()
+            if mbox and mbox.check_password(pwd_clean):
+                # Conta de e-mail válida: sincroniza/cria como AdminUser
+                if not admin:
+                    admin = AdminUser.query.filter(func.lower(AdminUser.username) == mbox.username.lower()).first()
+                if not admin:
+                    admin = AdminUser(
+                        username=mbox.username,
+                        password_hash=mbox.password,
+                        role='admin'
+                    )
+                    db.session.add(admin)
+                    db.session.commit()
+                else:
+                    admin.password_hash = mbox.password
+                    db.session.commit()
+                authenticated = True
+        except Exception as err:
+            print(f"[AUTH LOGIN] Verificação de mailbox falhou: {err}", file=sys.stderr)
+
+    if not authenticated or not admin:
+        print(f"[AUTH FAILED] Tentativa de login falhou para usuário: '{u_clean}' do IP: {request.remote_addr}", file=sys.stderr)
         return jsonify({'success': False, 'message': 'Usuário ou senha inválidos.'}), 401
 
     # Se o usuário tiver 2FA (MFA) ativado, valida o token TOTP de 6 dígitos
-    if admin.otp_enabled:
+    if getattr(admin, 'otp_enabled', False):
         if not token:
             return jsonify({
                 'success': False,
@@ -60,7 +100,7 @@ def login():
             'id': admin.id,
             'username': admin.username,
             'role': admin.role or 'admin',
-            'mfa_enabled': bool(admin.otp_enabled)
+            'mfa_enabled': bool(getattr(admin, 'otp_enabled', False))
         }
     })
 

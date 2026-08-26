@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import create_app
 from models import db, AdminUser
-from sqlalchemy import text
+from sqlalchemy import text, func
 
 def reset_password():
     print("================================================================")
@@ -50,7 +50,7 @@ def reset_password():
     with app.app_context():
         try:
             db.create_all()
-            user = AdminUser.query.filter_by(username=target_username).first()
+            user = AdminUser.query.filter(func.lower(AdminUser.username) == target_username.strip().lower()).first()
 
             if user:
                 user.set_password(new_password)
@@ -58,9 +58,9 @@ def reset_password():
                 if hasattr(user, 'otp_enabled'):
                     user.otp_enabled = False
                 db.session.commit()
-                print(f"\n✓ SUCESSO: A senha do usuário '{target_username}' foi atualizada!")
+                print(f"\n✓ SUCESSO: A senha do usuário '{user.username}' foi atualizada!")
             else:
-                new_user = AdminUser(username=target_username)
+                new_user = AdminUser(username=target_username.strip())
                 new_user.set_password(new_password)
                 if hasattr(new_user, 'role'):
                     new_user.role = 'admin'
