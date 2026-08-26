@@ -16,6 +16,7 @@ from blueprints.troubleshooting_bp import troubleshooting_bp
 from blueprints.services_bp import services_bp
 from blueprints.servers_bp import servers_bp
 from blueprints.automation_bp import automation_bp, sync_system_crontab
+from blueprints.antispam_bp import antispam_bp
 
 def create_app():
     app = Flask(__name__)
@@ -45,6 +46,7 @@ def create_app():
     app.register_blueprint(services_bp)
     app.register_blueprint(servers_bp)
     app.register_blueprint(automation_bp)
+    app.register_blueprint(antispam_bp)
 
     @app.route('/')
     def index():

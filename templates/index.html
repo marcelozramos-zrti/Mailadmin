@@ -1765,7 +1765,13 @@
                         <!-- Sub-abas (Bootstrap Nav-Tabs) -->
                         <ul class="nav nav-tabs mb-4" id="spamTabs" role="tablist">
                             <li class="nav-item" role="presentation">
-                                <button class="nav-link active fw-bold small text-dark d-flex align-items-center gap-2" id="spam-heuristics-tab" data-bs-toggle="tab" data-bs-target="#spam-tab-heuristics" type="button" role="tab">
+                                <button class="nav-link active fw-bold small text-dark d-flex align-items-center gap-2" id="spam-policy-engine-tab" data-bs-toggle="tab" data-bs-target="#spam-tab-policy-engine" type="button" role="tab" onclick="loadAntispamPolicyEngineData()">
+                                    <i class="bi bi-shield-lock-fill text-primary"></i> Policy Engine & Limiares (Escala 0-10)
+                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace ms-1">v1.1.1</span>
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link fw-bold small text-muted d-flex align-items-center gap-2" id="spam-heuristics-tab" data-bs-toggle="tab" data-bs-target="#spam-tab-heuristics" type="button" role="tab">
                                     <i class="bi bi-magic text-warning"></i> Intelig√™ncia AntiSPAM (Regras Locais)
                                     <span id="badge-custom-rules-count" class="badge bg-warning-subtle text-dark border border-warning-subtle font-monospace ms-1">0</span>
                                 </button>
@@ -1789,9 +1795,396 @@
                         </ul>
 
                         <div class="tab-content" id="spamTabsContent">
+
+                            <!-- TAB 0: POLICY ENGINE & LIMIARES (ESCALA 0 A 10) -->
+                            <div class="tab-pane fade show active" id="spam-tab-policy-engine" role="tabpanel">
+                                <div id="policy-engine-alert-container"></div>
+
+                                <!-- BANNER DO NOVO MOTOR COMPLEMENTAR -->
+                                <div class="alert alert-primary border border-primary-subtle bg-primary bg-opacity-10 d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-3 rounded-4 p-3 mb-4 shadow-sm">
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="p-2.5 rounded-3 bg-primary text-white fw-bold">
+                                            <i class="bi bi-shield-check fs-4"></i>
+                                        </div>
+                                        <div>
+                                            <h6 class="fw-bold text-dark mb-0">AntiSpam Policy Engine & Reputa√ß√£o Complementar</h6>
+                                            <small class="text-secondary">Motor avan√ßado de pesos (-10.0 a +10.0) para autentica√ß√£o SPF/DKIM/DMARC, valida√ß√£o de rDNS/FCrDNS, prote√ß√£o contra spoofing de marcas e ajuste din√¢mico da escala 0 a 10 do SpamAssassin / Amavis.</small>
+                                        </div>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <button class="btn btn-outline-primary btn-sm fw-bold rounded-3 px-3 py-2 text-nowrap" onclick="loadAntispamPolicyEngineData()">
+                                            <i class="bi bi-arrow-clockwise me-1"></i> Atualizar Painel
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- KPIS DO POLICY ENGINE -->
+                                <div class="row g-3 mb-4">
+                                    <div class="col-6 col-md-3">
+                                        <div class="card bg-white border shadow-xs p-3 rounded-4 h-100">
+                                            <div class="text-muted small fw-semibold mb-1">Limiar de SPAM Atual</div>
+                                            <div class="d-flex align-items-baseline gap-2">
+                                                <h3 class="fw-bold text-primary mb-0 fs-3" id="pe-kpi-spam-threshold">4.5</h3>
+                                                <small class="text-muted font-monospace" style="font-size: 11px;">Escala 0 a 10</small>
+                                            </div>
+                                            <small class="text-secondary d-block mt-1 font-monospace" style="font-size: 10px;" id="pe-kpi-spam-source">SpamAssassin local.cf</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <div class="card bg-white border border-info-subtle shadow-xs p-3 rounded-4 h-100">
+                                            <div class="text-info-emphasis small fw-semibold mb-1">Regras do Policy Engine</div>
+                                            <div class="d-flex align-items-baseline gap-2">
+                                                <h3 class="fw-bold text-dark mb-0 fs-3" id="pe-kpi-total-rules">19</h3>
+                                                <span class="badge bg-success-subtle text-success small" id="pe-kpi-active-rules">100% Ativas</span>
+                                            </div>
+                                            <small class="text-secondary d-block mt-1" style="font-size: 11px;">Autentica√ß√£o & rDNS</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <div class="card bg-white border border-danger-subtle shadow-xs p-3 rounded-4 h-100">
+                                            <div class="text-danger small fw-semibold mb-1">Marcas Protegidas (Anti-Spoof)</div>
+                                            <div class="d-flex align-items-baseline gap-2">
+                                                <h3 class="fw-bold text-danger mb-0 fs-3" id="pe-kpi-brands-count">13</h3>
+                                                <small class="text-muted font-monospace" style="font-size: 11px;">Bancos & Tech</small>
+                                            </div>
+                                            <small class="text-secondary d-block mt-1" style="font-size: 11px;">Impersonation Detection</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <div class="card bg-white border border-success-subtle shadow-xs p-3 rounded-4 h-100">
+                                            <div class="text-success small fw-semibold mb-1">Diagn√≥sticos Executados</div>
+                                            <div class="d-flex align-items-baseline gap-2">
+                                                <h3 class="fw-bold text-success mb-0 fs-3" id="pe-kpi-analyses-count">1</h3>
+                                                <small class="text-muted font-monospace" style="font-size: 11px;">Simula√ß√µes</small>
+                                            </div>
+                                            <small class="text-secondary d-block mt-1" style="font-size: 11px;">Score Consolidado</small>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- CARD 1: VISUALIZADOR & AJUSTE DA ESCALA DE 0 A 10 -->
+                                <div class="card border-0 shadow-sm bg-white rounded-4 p-4 mb-4">
+                                    <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between pb-3 mb-3 border-bottom gap-2">
+                                        <div>
+                                            <h6 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
+                                                <i class="bi bi-sliders2 text-primary fs-5"></i> Visualizador e Ajuste da Escala de Sensibilidade (0 a 10)
+                                            </h6>
+                                            <small class="text-muted">Veja graficamente como os e-mails s√£o classificados e ajuste com precis√£o os valores de corte do SpamAssassin e Amavis.</small>
+                                        </div>
+                                        <span class="badge bg-light text-dark border font-monospace px-3 py-1.5">
+                                            <i class="bi bi-gear-fill me-1 text-primary"></i> /etc/spamassassin/local.cf
+                                        </span>
+                                    </div>
+
+                                    <!-- ESCALA GRADUADA COLORIDA 0 A 10 -->
+                                    <div class="mb-4 bg-light p-3.5 rounded-4 border">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <span class="small fw-bold text-dark"><i class="bi bi-bar-chart-steps text-primary me-1"></i>Gradiente de Decis√£o Operacional (Escala de Pontos):</span>
+                                            <span class="small text-muted font-monospace">Limiar SPAM Atual: <strong class="text-danger" id="scale-current-threshold-label">4.5 pts</strong></span>
+                                        </div>
+
+                                        <div class="progress" style="height: 28px; border-radius: 8px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);">
+                                            <div class="progress-bar bg-success fw-bold text-white d-flex align-items-center justify-content-center" role="progressbar" style="width: 20%; font-size: 11px;" title="0.0 a 2.0: Mensagens Limpas">
+                                                LIMPO (0 - 2.0)
+                                            </div>
+                                            <div class="progress-bar bg-info text-dark fw-bold d-flex align-items-center justify-content-center" role="progressbar" style="width: 25%; font-size: 11px;" title="2.0 a 4.5: Alerta / Tag Level">
+                                                TAG / NEUTRO (2.0 - 4.5)
+                                            </div>
+                                            <div class="progress-bar bg-warning text-dark fw-bold d-flex align-items-center justify-content-center" role="progressbar" style="width: 35%; font-size: 11px;" title="4.5 a 8.0: Classificado como SPAM">
+                                                SPAM (4.5 - 8.0)
+                                            </div>
+                                            <div class="progress-bar bg-danger text-white fw-bold d-flex align-items-center justify-content-center" role="progressbar" style="width: 20%; font-size: 11px;" title="8.0 a 10.0+: Alto Risco / Cr√≠tico">
+                                                ALTO RISCO (8.0 - 10+)
+                                            </div>
+                                        </div>
+
+                                        <div class="d-flex justify-content-between text-muted font-monospace mt-1.5" style="font-size: 10.5px;">
+                                            <span>0.0 (Muito Seguro)</span>
+                                            <span>2.0 (Tag Level Amavis)</span>
+                                            <span>4.5 (Ponto de Corte Padr√£o)</span>
+                                            <span>8.0 (Quarentena Rigorosa)</span>
+                                            <span>10.0+ (Bloqueio Total)</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- FORMUL√ÅRIO DE AJUSTE MANUAL DOS VALORES -->
+                                    <form id="form-adjust-thresholds" onsubmit="saveAntispamThresholds(event)">
+                                        <div class="row g-3 align-items-end">
+                                            <div class="col-md-4">
+                                                <label class="form-label text-dark small fw-bold mb-1">
+                                                    Pontua√ß√£o de Corte SPAM (<code>required_score</code>):
+                                                </label>
+                                                <div class="input-group shadow-xs">
+                                                    <span class="input-group-text bg-light text-primary font-monospace fw-bold"><i class="bi bi-speedometer"></i></span>
+                                                    <input type="number" id="input-required-score" class="form-control font-monospace fw-bold fs-5 text-center text-primary" step="0.1" min="0.0" max="10.0" value="4.5" required oninput="syncScoreSlider(this.value)">
+                                                    <span class="input-group-text bg-light text-muted font-monospace">/ 10</span>
+                                                </div>
+                                                <input type="range" class="form-range mt-2" id="range-required-score" min="0.0" max="10.0" step="0.1" value="4.5" oninput="syncScoreInput(this.value)">
+                                            </div>
+
+                                            <div class="col-md-4">
+                                                <label class="form-label text-dark small fw-bold mb-1">
+                                                    Limiar de Alto Risco (Policy Engine):
+                                                </label>
+                                                <div class="input-group shadow-xs">
+                                                    <span class="input-group-text bg-light text-danger font-monospace fw-bold"><i class="bi bi-exclamation-octagon"></i></span>
+                                                    <input type="number" id="input-high-risk-threshold" class="form-control font-monospace fw-bold fs-5 text-center text-danger" step="0.1" min="0.0" max="10.0" value="8.0" required>
+                                                    <span class="input-group-text bg-light text-muted font-monospace">/ 10</span>
+                                                </div>
+                                                <small class="text-muted d-block mt-1" style="font-size: 11px;">Dispara quarentena estrita e alerta de seguran√ßa.</small>
+                                            </div>
+
+                                            <div class="col-md-4">
+                                                <div class="d-flex flex-column gap-2">
+                                                    <button type="button" class="btn btn-outline-secondary btn-sm fw-bold py-2 rounded-3" onclick="previewThresholdDiff()">
+                                                        <i class="bi bi-eye me-1"></i> Visualizar Altera√ß√µes (Diff)
+                                                    </button>
+                                                    <button type="submit" class="btn btn-primary btn-sm fw-bold py-2 rounded-3 shadow-xs">
+                                                        <i class="bi bi-check2-circle me-1"></i> Aplicar e Recarregar SpamAssassin
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </form>
+
+                                    <div id="pe-diff-preview-container" class="mt-3 d-none"></div>
+                                </div>
+
+                                <!-- SUB-SE√á√ïES EM P√çLULAS (REGRAS DO MOTOR, MARCAS, TESTE RDNS, SIMULA√á√ÉO, AUDITORIA) -->
+                                <div class="card border-0 shadow-sm bg-white rounded-4 p-4 mb-4">
+                                    <ul class="nav nav-pills mb-3 pb-2 border-bottom flex-wrap" id="peSubTabs" role="tablist">
+                                        <li class="nav-item" role="presentation">
+                                            <button class="nav-link active btn-sm fw-bold rounded-3 me-2" id="pe-tab-rules-link" data-bs-toggle="pill" data-bs-target="#pe-subtab-rules" type="button" role="tab">
+                                                <i class="bi bi-list-check me-1"></i> Pesos e Regras do Motor (-10 a +10)
+                                            </button>
+                                        </li>
+                                        <li class="nav-item" role="presentation">
+                                            <button class="nav-link btn-sm fw-bold rounded-3 me-2" id="pe-tab-brands-link" data-bs-toggle="pill" data-bs-target="#pe-subtab-brands" type="button" role="tab">
+                                                <i class="bi bi-shield-shaded me-1"></i> Prote√ß√£o de Marcas (Anti-Spoofing)
+                                            </button>
+                                        </li>
+                                        <li class="nav-item" role="presentation">
+                                            <button class="nav-link btn-sm fw-bold rounded-3 me-2" id="pe-tab-rdns-link" data-bs-toggle="pill" data-bs-target="#pe-subtab-rdns" type="button" role="tab">
+                                                <i class="bi bi-hdd-network me-1"></i> Testador rDNS / FCrDNS / HELO
+                                            </button>
+                                        </li>
+                                        <li class="nav-item" role="presentation">
+                                            <button class="nav-link btn-sm fw-bold rounded-3 me-2" id="pe-tab-sim-link" data-bs-toggle="pill" data-bs-target="#pe-subtab-sim" type="button" role="tab">
+                                                <i class="bi bi-calculator me-1"></i> Diagn√≥stico & Simula√ß√£o Completa
+                                            </button>
+                                        </li>
+                                        <li class="nav-item" role="presentation">
+                                            <button class="nav-link btn-sm fw-bold rounded-3" id="pe-tab-audit-link" data-bs-toggle="pill" data-bs-target="#pe-subtab-audit" type="button" role="tab">
+                                                <i class="bi bi-clock-history me-1"></i> Trilha de Auditoria
+                                            </button>
+                                        </li>
+                                    </ul>
+
+                                    <div class="tab-content" id="peSubTabsContent">
+                                        
+                                        <!-- SUBTAB 1: REGRAS E PESOS DO MOTOR -->
+                                        <div class="tab-pane fade show active" id="pe-subtab-rules" role="tabpanel">
+                                            <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 mb-3">
+                                                <div class="btn-group btn-group-sm" role="group">
+                                                    <button type="button" class="btn btn-secondary active fw-semibold" id="pe-filter-cat-all" onclick="filterPeRules('all')">Todas</button>
+                                                    <button type="button" class="btn btn-outline-secondary fw-semibold" id="pe-filter-cat-auth" onclick="filterPeRules('authentication')">Autentica√ß√£o (SPF/DKIM/DMARC)</button>
+                                                    <button type="button" class="btn btn-outline-secondary fw-semibold" id="pe-filter-cat-rdns" onclick="filterPeRules('rdns')">rDNS / FCrDNS / HELO</button>
+                                                    <button type="button" class="btn btn-outline-secondary fw-semibold" id="pe-filter-cat-imp" onclick="filterPeRules('impersonation')">Anti-Impersonation</button>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <input type="text" id="pe-rules-search-input" class="form-control form-control-sm" placeholder="Buscar regra por c√≥digo ou descri√ß√£o..." onkeyup="renderPeRulesTable()">
+                                                </div>
+                                            </div>
+
+                                            <div class="table-responsive bg-white rounded-3 border shadow-xs">
+                                                <table class="table table-hover align-middle mb-0" style="font-size: 0.88rem;">
+                                                    <thead class="table-light">
+                                                        <tr>
+                                                            <th style="width: 50px;" class="text-center">#</th>
+                                                            <th style="width: 80px;" class="text-center">Status</th>
+                                                            <th style="width: 220px;">C√≥digo da Regra</th>
+                                                            <th style="width: 110px;">Severidade</th>
+                                                            <th>Descri√ß√£o & Evid√™ncia T√©cnica</th>
+                                                            <th style="width: 140px;" class="text-center">Peso / Score</th>
+                                                            <th style="width: 110px;" class="text-center">A√ß√µes</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody id="pe-rules-table-body">
+                                                        <tr><td colspan="7" class="text-center text-muted py-3">Carregando cat√°logo de regras...</td></tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+
+                                        <!-- SUBTAB 2: PROTE√á√ÉO DE MARCAS -->
+                                        <div class="tab-pane fade" id="pe-subtab-brands" role="tabpanel">
+                                            <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 mb-3">
+                                                <div>
+                                                    <h6 class="fw-bold text-dark mb-0">Cat√°logo de Marcas e Dom√≠nios Oficiais Autorizados</h6>
+                                                    <small class="text-muted">Protege contra ataques de spoofing/impersonation simulando remetentes leg√≠timos.</small>
+                                                </div>
+                                                <button class="btn btn-primary btn-sm fw-bold rounded-3" onclick="openAddBrandProfileModal()">
+                                                    <i class="bi bi-plus-circle me-1"></i> Cadastrar Nova Marca
+                                                </button>
+                                            </div>
+
+                                            <div class="table-responsive bg-white rounded-3 border shadow-xs">
+                                                <table class="table table-hover align-middle mb-0" style="font-size: 0.88rem;">
+                                                    <thead class="table-light">
+                                                        <tr>
+                                                            <th style="width: 50px;" class="text-center">#</th>
+                                                            <th style="width: 200px;">Marca / Institui√ß√£o</th>
+                                                            <th style="width: 130px;">Categoria</th>
+                                                            <th>Dom√≠nios Oficiais Autorizados</th>
+                                                            <th style="width: 110px;">Severidade</th>
+                                                            <th style="width: 90px;" class="text-center">A√ß√µes</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody id="pe-brands-table-body">
+                                                        <tr><td colspan="6" class="text-center text-muted py-3">Carregando cat√°logo de marcas...</td></tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+
+                                        <!-- SUBTAB 3: TESTADOR RDNS -->
+                                        <div class="tab-pane fade" id="pe-subtab-rdns" role="tabpanel">
+                                            <div class="card bg-light border p-3.5 rounded-4 mb-3">
+                                                <h6 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
+                                                    <i class="bi bi-hdd-network-fill text-primary"></i> Testador Instant√¢neo de rDNS / FCrDNS / HELO
+                                                </h6>
+                                                <small class="text-muted d-block mb-3">Valide se o IP de origem possui PTR consistente, se o FCrDNS resolve de volta e se coincide com o hostname HELO.</small>
+
+                                                <form onsubmit="runRdnsDiagnoseTest(event)">
+                                                    <div class="row g-3 align-items-end">
+                                                        <div class="col-md-5">
+                                                            <label class="form-label small fw-bold text-dark mb-1">IP do Servidor de Envio (Client IP):</label>
+                                                            <input type="text" id="test-rdns-ip" class="form-control form-control-sm font-monospace" placeholder="Ex: 185.220.101.5 ou 200.147.96.1" value="185.220.101.5" required>
+                                                        </div>
+                                                        <div class="col-md-5">
+                                                            <label class="form-label small fw-bold text-dark mb-1">Hostname HELO / EHLO:</label>
+                                                            <input type="text" id="test-rdns-helo" class="form-control form-control-sm font-monospace" placeholder="Ex: mail.servidorremetente.com" value="mail.spammerhost.net">
+                                                        </div>
+                                                        <div class="col-md-2">
+                                                            <button type="submit" class="btn btn-primary btn-sm fw-bold w-100 py-1.5 rounded-3">
+                                                                <i class="bi bi-play-fill me-1"></i> Testar rDNS
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </form>
+
+                                                <div id="rdns-test-result-container" class="mt-3 d-none"></div>
+                                            </div>
+                                        </div>
+
+                                        <!-- SUBTAB 4: SIMULADOR & DIAGN√ìSTICO COMPLETO -->
+                                        <div class="tab-pane fade" id="pe-subtab-sim" role="tabpanel">
+                                            <div class="card bg-light border p-3.5 rounded-4 mb-3">
+                                                <div class="d-flex align-items-center justify-content-between mb-2">
+                                                    <h6 class="fw-bold text-dark mb-0 d-flex align-items-center gap-2">
+                                                        <i class="bi bi-calculator-fill text-primary"></i> Diagn√≥stico com Decomposi√ß√£o Matem√°tica de Scores
+                                                    </h6>
+                                                    <div class="d-flex gap-2">
+                                                        <button type="button" class="btn btn-outline-danger btn-xs rounded-pill font-monospace" onclick="loadPeScenario('phishing_caixa')">
+                                                            Phishing Caixa (Impersonation)
+                                                        </button>
+                                                        <button type="button" class="btn btn-outline-success btn-xs rounded-pill font-monospace" onclick="loadPeScenario('legitimate_google')">
+                                                            Google V√°lido (Pass)
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <small class="text-muted d-block mb-3">F√≥rmula Consolidada: <code>Score Final = Score SpamAssassin + Score Policy Engine</code></small>
+
+                                                <form onsubmit="runPeSimulation(event)">
+                                                    <div class="row g-2 mb-2">
+                                                        <div class="col-md-4">
+                                                            <label class="form-label text-dark small fw-bold mb-0">De: (Header From):</label>
+                                                            <input type="text" id="pe-sim-from" class="form-control form-control-sm font-monospace" value="notificacao@caixa.gov.br" required>
+                                                        </div>
+                                                        <div class="col-md-4">
+                                                            <label class="form-label text-dark small fw-bold mb-0">Envelope Return-Path:</label>
+                                                            <input type="text" id="pe-sim-envelope-from" class="form-control form-control-sm font-monospace" value="bounce@spammerhost.net">
+                                                        </div>
+                                                        <div class="col-md-4">
+                                                            <label class="form-label text-dark small fw-bold mb-0">Para (Recipient):</label>
+                                                            <input type="text" id="pe-sim-to" class="form-control form-control-sm font-monospace" value="cliente@meudominio.com.br">
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="row g-2 mb-3">
+                                                        <div class="col-md-3">
+                                                            <label class="form-label text-dark small fw-bold mb-0">IP Remetente:</label>
+                                                            <input type="text" id="pe-sim-ip" class="form-control form-control-sm font-monospace" value="185.220.101.5">
+                                                        </div>
+                                                        <div class="col-md-3">
+                                                            <label class="form-label text-dark small fw-bold mb-0">Score SpamAssassin:</label>
+                                                            <input type="number" id="pe-sim-sa-score" class="form-control form-control-sm font-monospace" step="0.001" value="1.471">
+                                                        </div>
+                                                        <div class="col-md-2">
+                                                            <label class="form-label text-dark small fw-bold mb-0">SPF:</label>
+                                                            <select id="pe-sim-spf" class="form-select form-select-sm font-monospace">
+                                                                <option value="PASS">PASS</option>
+                                                                <option value="FAIL" selected>FAIL</option>
+                                                                <option value="SOFTFAIL">SOFTFAIL</option>
+                                                                <option value="NONE">NONE</option>
+                                                            </select>
+                                                        </div>
+                                                        <div class="col-md-2">
+                                                            <label class="form-label text-dark small fw-bold mb-0">DKIM:</label>
+                                                            <select id="pe-sim-dkim" class="form-select form-select-sm font-monospace">
+                                                                <option value="PASS">PASS</option>
+                                                                <option value="FAIL">FAIL</option>
+                                                                <option value="NONE" selected>NONE</option>
+                                                            </select>
+                                                        </div>
+                                                        <div class="col-md-2">
+                                                            <label class="form-label text-dark small fw-bold mb-0">DMARC:</label>
+                                                            <select id="pe-sim-dmarc" class="form-select form-select-sm font-monospace">
+                                                                <option value="PASS">PASS</option>
+                                                                <option value="FAIL" selected>FAIL</option>
+                                                                <option value="NONE">NONE</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="text-end">
+                                                        <button type="submit" class="btn btn-primary btn-sm fw-bold px-4 rounded-3">
+                                                            <i class="bi bi-lightning-fill me-1"></i> Executar Diagn√≥stico
+                                                        </button>
+                                                    </div>
+                                                </form>
+
+                                                <div id="pe-sim-result-container" class="mt-3 d-none"></div>
+                                            </div>
+                                        </div>
+
+                                        <!-- SUBTAB 5: TRILHA DE AUDITORIA -->
+                                        <div class="tab-pane fade" id="pe-subtab-audit" role="tabpanel">
+                                            <div class="table-responsive bg-white rounded-3 border shadow-xs">
+                                                <table class="table table-hover align-middle mb-0" style="font-size: 0.85rem;">
+                                                    <thead class="table-light">
+                                                        <tr>
+                                                            <th style="width: 140px;">Data / Hora</th>
+                                                            <th style="width: 110px;">Usu√°rio</th>
+                                                            <th style="width: 150px;">A√ß√£o</th>
+                                                            <th style="width: 180px;">Alvo</th>
+                                                            <th>Altera√ß√£o de Valor</th>
+                                                            <th>Justificativa / Motivo</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody id="pe-audit-table-body">
+                                                        <tr><td colspan="6" class="text-center text-muted py-3">Carregando trilha de auditoria...</td></tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+
+                                    </div>
+                                </div>
+                            </div>
                             
                             <!-- TAB 1: INTELIG√äNCIA ANTISPAM (REGRAS LOCAIS NO ASSUNTO/CORPO) -->
-                            <div class="tab-pane fade show active" id="spam-tab-heuristics" role="tabpanel">
+                            <div class="tab-pane fade" id="spam-tab-heuristics" role="tabpanel">
                                 
                                 <!-- Alert Container para mensagens da Intelig√™ncia AntiSPAM -->
                                 <div id="custom-spam-alert-container"></div>
@@ -3451,6 +3844,131 @@
                     <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Cancelar</button>
                     <button type="submit" id="btn-save-custom-rule" class="btn btn-warning text-dark btn-sm fw-bold rounded-3 px-3">
                         <i class="bi bi-check-lg me-1"></i> Salvar Regra no Banco & Ativar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+
+<!-- MODAL: EDITAR REGRA DO POLICY ENGINE -->
+<div class="modal fade" id="editPeRuleModal" tabindex="-1" aria-labelledby="editPeRuleModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content shadow-lg border-0 rounded-4">
+            <div class="modal-header bg-light rounded-top-4 border-bottom">
+                <h5 class="modal-title fw-bold text-dark fs-6 d-flex align-items-center gap-2" id="editPeRuleModalLabel">
+                    <i class="bi bi-sliders text-primary"></i> Ajustar Peso / Score da Regra
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <form id="form-edit-pe-rule" onsubmit="savePeRuleScore(event)">
+                <div class="modal-body p-4">
+                    <input type="hidden" id="edit-pe-rule-id" value="">
+                    
+                    <div class="mb-3">
+                        <label class="form-label text-dark small fw-bold mb-1">Identificador da Regra:</label>
+                        <input type="text" id="edit-pe-rule-code" class="form-control form-control-sm font-monospace fw-bold bg-light" readonly>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label text-dark small fw-bold mb-1">Nome / Descri√ß√£o:</label>
+                        <input type="text" id="edit-pe-rule-name" class="form-control form-control-sm" readonly>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label text-dark small fw-bold mb-1">Pontua√ß√£o / Peso (Score):</label>
+                            <input type="number" id="edit-pe-rule-score" class="form-control form-control-sm font-monospace fw-bold text-center fs-5 text-primary" step="0.1" min="-10.0" max="10.0" required>
+                            <div class="form-text small text-muted">Escala de -10.0 a +10.0 pts.</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label text-dark small fw-bold mb-1">Severidade:</label>
+                            <select id="edit-pe-rule-severity" class="form-select form-select-sm fw-semibold">
+                                <option value="LOW">LOW (Baixa)</option>
+                                <option value="MEDIUM">MEDIUM (M√©dia)</option>
+                                <option value="HIGH">HIGH (Alta)</option>
+                                <option value="CRITICAL">CRITICAL (Cr√≠tica)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label text-dark small fw-bold mb-1">Justificativa da Altera√ß√£o:</label>
+                        <input type="text" id="edit-pe-rule-reason" class="form-control form-control-sm" placeholder="Ex: Ajuste fino de sensibilidade para DMARC Fail no ambiente corporativo" required>
+                        <div class="form-text small text-muted">Gravado na trilha de auditoria imut√°vel do sistema.</div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light py-2 rounded-bottom-4">
+                    <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary btn-sm fw-bold rounded-3 px-3">
+                        <i class="bi bi-check2-circle me-1"></i> Salvar e Registrar Auditoria
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL: CADASTRAR NOVA MARCA / ANTI-IMPERSONATION -->
+<div class="modal fade" id="addBrandProfileModal" tabindex="-1" aria-labelledby="addBrandProfileModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content shadow-lg border-0 rounded-4">
+            <div class="modal-header bg-light rounded-top-4 border-bottom">
+                <h5 class="modal-title fw-bold text-dark fs-6 d-flex align-items-center gap-2" id="addBrandProfileModalLabel">
+                    <i class="bi bi-shield-shaded text-danger"></i> Proteger Nova Marca contra Impersonation / Spoofing
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <form id="form-add-brand-profile" onsubmit="saveBrandProfile(event)">
+                <div class="modal-body p-4">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-7">
+                            <label class="form-label text-dark small fw-bold mb-1">Nome da Marca / Institui√ß√£o:</label>
+                            <input type="text" id="brand-name" class="form-control form-control-sm fw-bold" placeholder="Ex: Banco Santander" required>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label text-dark small fw-bold mb-1">Categoria:</label>
+                            <select id="brand-category" class="form-select form-select-sm fw-semibold">
+                                <option value="banking">Financeiro / Bancos</option>
+                                <option value="government">Governo / √ìrg√£os P√∫blicos</option>
+                                <option value="ecommerce">E-Commerce / Varejo</option>
+                                <option value="logistics">Log√≠stica / Entregas</option>
+                                <option value="telecom">Telecom & Servi√ßos</option>
+                                <option value="technology">Tecnologia & Big Tech</option>
+                                <option value="corporate">Corporativo / Pr√≥prio</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label text-dark small fw-bold mb-1">Dom√≠nios Oficiais Autorizados (separados por v√≠rgula):</label>
+                        <input type="text" id="brand-domains" class="form-control form-control-sm font-monospace" placeholder="Ex: santander.com.br, emailsantander.com.br" required>
+                        <div class="form-text small text-muted">Qualquer e-mail que afirme ser esta marca fora desses dom√≠nios receber√° pontua√ß√£o imediata de Phishing Impersonation (+8.0 pts).</div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label text-dark small fw-bold mb-1">N√≠vel de Severidade:</label>
+                            <select id="brand-severity" class="form-select form-select-sm fw-semibold">
+                                <option value="CRITICAL">CRITICAL (Bloqueio Imediato)</option>
+                                <option value="HIGH" selected>HIGH (Quarentena Rigorosa)</option>
+                                <option value="MEDIUM">MEDIUM (Alerta)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label text-dark small fw-bold mb-1">Status Inicial:</label>
+                            <div class="form-check form-switch mt-2">
+                                <input class="form-check-input" type="checkbox" id="brand-is-active" checked>
+                                <label class="form-check-label small fw-semibold" for="brand-is-active">Ativar Prote√ß√£o Imediatamente</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light py-2 rounded-bottom-4">
+                    <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary btn-sm fw-bold rounded-3 px-3">
+                        <i class="bi bi-shield-plus me-1"></i> Cadastrar Marca Protegida
                     </button>
                 </div>
             </form>
@@ -6553,6 +7071,7 @@
     }
 
     async function loadSpamRules() {
+        loadAntispamPolicyEngineData();
         // 1. Atualizar Badge de Status do SpamAssassin
         const badge = document.getElementById('spam-status-badge');
         if (badge) {
@@ -7768,356 +8287,41 @@
                         </td>
                         <td class="text-end">
                             <div class="btn-group btn-group-sm">
-                                <button class="btn btn-outline-dark" title="Ver Logs Consolidados do Evento" onclick="openIncidentLogsModal(${inc.id})">
-                                    <i class="bi bi-terminal"></i>
-                                </button>
-                                <button class="btn btn-outline-danger" title="Aplicar Mitiga√ß√£o SOAR" onclick="openIncidentMitigateModal(${inc.id})">
-                                    <i class="bi bi-shield-lock"></i> Mitigar
-                                </button>
-                                <button class="btn btn-outline-primary" title="Registrar A√ß√£o / Observa√ß√£o Manual" onclick="openIncidentNoteModal(${inc.id})">
-                                    <i class="bi bi-pencil-square"></i>
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
-
-        } catch (e) {
-            console.error("Erro ao carregar incidentes:", e);
-            tableBody.innerHTML = `<tr><td colspan="6" class="text-center text-danger py-4">Erro ao carregar incidentes: ${e.message}</td></tr>`;
-        }
-    }
-
-    function openIncidentLogsModal(incId) {
-        const inc = currentIncidents.find(i => i.id === incId);
-        if (!inc) return;
-        document.getElementById('modal-inc-id-badge').textContent = `#${inc.id}`;
-        document.getElementById('modal-inc-timestamp').textContent = `Registrado em: ${inc.timestamp}`;
-        document.getElementById('modal-inc-raw-logs').textContent = inc.raw_logs || 'Nenhum log bruto dispon√≠vel.';
-        const modal = new bootstrap.Modal(document.getElementById('incidentLogsModal'));
-        modal.show();
-    }
-
-    function copyIncidentLogs() {
-        const logsText = document.getElementById('modal-inc-raw-logs').textContent;
-        navigator.clipboard.writeText(logsText);
-        showAlert('Logs copiados para a √°rea de transfer√™ncia!', 'success');
-    }
-
-    function openIncidentMitigateModal(incId) {
-        const inc = currentIncidents.find(i => i.id === incId);
-        if (!inc) return;
-        document.getElementById('mitigate-inc-id').value = inc.id;
-        document.getElementById('mitigate-target-input').value = inc.affected_target && inc.affected_target !== '-' ? inc.affected_target : '';
-        const modal = new bootstrap.Modal(document.getElementById('incidentMitigateModal'));
-        modal.show();
-    }
-
-    async function submitIncidentMitigation() {
-        const incId = document.getElementById('mitigate-inc-id').value;
-        const target = document.getElementById('mitigate-target-input').value;
-        const actionType = document.getElementById('mitigate-action-type').value;
-
-        try {
-            const data = await fetchJson(`/api/troubleshooting/incidents/${incId}/mitigate`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ target, action_type: actionType })
-            });
-            showAlert(data.message, 'success');
-            closeModal('incidentMitigateModal');
-            loadIncidents();
-        } catch (e) {
-            showAlert(`Erro ao aplicar mitiga√ß√£o: ${e.message}`, 'danger');
-        }
-    }
-
-    function openIncidentNoteModal(incId) {
-        const inc = currentIncidents.find(i => i.id === incId);
-        if (!inc) return;
-        document.getElementById('note-inc-id').value = inc.id;
-        document.getElementById('note-action-text').value = '';
-        document.getElementById('note-status-select').value = inc.status || 'Em An√°lise';
-        const modal = new bootstrap.Modal(document.getElementById('incidentNoteModal'));
-        modal.show();
-    }
-
-    async function submitIncidentNote() {
-        const incId = document.getElementById('note-inc-id').value;
-        const actionNote = document.getElementById('note-action-text').value;
-        const status = document.getElementById('note-status-select').value;
-
-        try {
-            const data = await fetchJson(`/api/troubleshooting/incidents/${incId}/status`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status, action_note: actionNote })
-            });
-            showAlert(data.message, 'success');
-            closeModal('incidentNoteModal');
-            loadIncidents();
-        } catch (e) {
-            showAlert(`Erro ao registrar a√ß√£o: ${e.message}`, 'danger');
-        }
-    }
-
-    async function changeIncidentStatus(incId, newStatus) {
-        try {
-            const data = await fetchJson(`/api/troubleshooting/incidents/${incId}/status`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: newStatus })
-            });
-            showAlert(data.message, 'success');
-            loadIncidents();
-        } catch (e) {
-            showAlert(`Erro ao atualizar status: ${e.message}`, 'danger');
-        }
-    }
-
-    async function loadAuditLogs() {
-        const tableBody = document.getElementById('audit-table-body');
-        const oldBody = document.getElementById('audit-logs-table-body');
-
-        const severityFilter = document.getElementById('audit-severity-filter')?.value || 'all';
-        const dateFilter = document.getElementById('audit-date-filter')?.value || 'all';
-        const searchVal = document.getElementById('audit-search-input')?.value || '';
-
-        if (tableBody) {
-            tableBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm me-2 text-primary"></div>Carregando logs de auditoria...</td></tr>';
-        }
-
-        try {
-            const data = await fetchJson(`/api/troubleshooting/audit-logs?severity=${encodeURIComponent(severityFilter)}&date_preset=${encodeURIComponent(dateFilter)}&search=${encodeURIComponent(searchVal)}`);
-
-            if (data.counts) {
-                if (document.getElementById('audit-count-normal')) document.getElementById('audit-count-normal').textContent = data.counts.normal || 0;
-                if (document.getElementById('audit-count-suspicious')) document.getElementById('audit-count-suspicious').textContent = data.counts.suspicious || 0;
-                if (document.getElementById('audit-count-potential')) document.getElementById('audit-count-potential').textContent = data.counts.potential || 0;
-                if (document.getElementById('audit-count-critical')) document.getElementById('audit-count-critical').textContent = data.counts.critical || 0;
-            }
-
-            const logs = data.logs || [];
-
-            if (tableBody) {
-                if (logs.length === 0) {
-                    tableBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4"><i class="bi bi-journal-check text-success fs-4 d-block mb-1"></i>Nenhum registro de auditoria encontrado com os filtros informados.</td></tr>';
-                } else {
-                    tableBody.innerHTML = logs.map(log => {
-                        let sevBadge = '<span class="badge bg-success mb-1">üü¢ Normal</span>';
-                        if (log.severity_level === 'critical') {
-                            sevBadge = '<span class="badge bg-danger text-white mb-1">üî¥ Cr√≠tico</span>';
-                        } else if (log.severity_level === 'potential') {
-                            sevBadge = '<span class="badge bg-warning text-dark mb-1">üü† Potencial</span>';
-                        } else if (log.severity_level === 'suspicious') {
-                            sevBadge = '<span class="badge bg-warning text-dark mb-1">üü° Suspeito</span>';
-                        }
-
-                        let detailsPretty = log.details_json || '{}';
-                        try {
-                            const parsed = JSON.parse(log.details_json);
-                            detailsPretty = JSON.stringify(parsed, null, 2);
-                        } catch(e){}
-
-                        return `
-                            <tr>
-                                <td class="font-monospace small text-muted">${escapeHtml(log.timestamp) || '-'}</td>
-                                <td>${sevBadge}</td>
-                                <td>
-                                    <strong class="text-dark small">${escapeHtml(log.admin_user)}</strong><br>
-                                    <span class="font-monospace text-muted" style="font-size:11px;">${escapeHtml(log.ip_address)}</span>
-                                </td>
-                                <td><span class="badge bg-dark font-monospace">${escapeHtml(log.action)}</span></td>
-                                <td class="font-monospace small text-dark">${escapeHtml(log.target)}</td>
-                                <td style="max-width:280px;">
-                                    <pre class="mb-0 p-1.5 bg-light border rounded font-monospace text-secondary" style="font-size:11px; max-height:80px; overflow:auto;">${escapeHtml(detailsPretty)}</pre>
-                                </td>
-                            </tr>
-                        `;
-                    }).join('');
-                }
-            }
-
-            if (oldBody) {
-                const countSpan = document.getElementById('audit-logs-count');
-                if (countSpan) countSpan.textContent = logs.length;
-                oldBody.innerHTML = logs.map(l => {
-                    const detailsText = l.details_json ? l.details_json : '-';
-                    return `
-                        <tr>
-                            <td class="font-monospace text-muted small">${l.timestamp || '-'}</td>
-                            <td class="fw-bold text-dark font-monospace"><i class="bi bi-person-fill text-secondary me-1"></i> ${escapeHtml(l.admin_user)}</td>
-                            <td><span class="badge bg-dark border font-monospace px-2.5 py-1">${escapeHtml(l.action)}</span></td>
-                            <td class="font-monospace text-dark small">${escapeHtml(l.target || '-')}</td>
-                            <td class="font-monospace text-muted small">${escapeHtml(l.ip_address || '-')}</td>
-                            <td class="font-monospace text-muted small text-truncate" style="max-width: 220px;" title="${escapeHtml(detailsText)}">${escapeHtml(detailsText)}</td>
-                        </tr>
-                    `;
-                }).join('');
-            }
-
-        } catch (e) {
-            console.error("Erro ao carregar auditoria:", e);
-            if (tableBody) tableBody.innerHTML = `<tr><td colspan="6" class="text-danger font-monospace text-center py-4"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar auditoria: ${e.message}</td></tr>`;
-        }
-    }
-
-    // 12. GEST√ÉO DE M√ìDULOS, CRIA√á√ÉO DE TABELAS E INGEST√ÉO DE MAILLOG
-    async function checkModuleStatus() {
-        try {
-            const data = await fetchJson('/api/troubleshooting/module-status');
-            updateModuleUI(data.active, data.total_maillog_records, data.auto_ingest_cron);
-        } catch (e) {
-            console.error('Erro ao verificar status do m√≥dulo:', e);
-        }
-    }
-
-    function updateModuleUI(isActive, mailCount = null, autoCron = true) {
-        const badge = document.getElementById('module-status-badge');
-        const desc = document.getElementById('module-status-desc');
-        const btnActivate = document.getElementById('btn-activate-module');
-        const btnPurge = document.getElementById('btn-purge-module');
-
-        if (badge) {
-            if (isActive) {
-                badge.className = 'badge bg-success-subtle text-success border border-success-subtle font-monospace p-2';
-                badge.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> M√≥dulo Ativo no MariaDB';
-            } else {
-                badge.className = 'badge bg-warning-subtle text-warning-emphasis border border-warning-subtle font-monospace p-2';
-                badge.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1"></i> M√≥dulo Inativo';
-            }
-        }
-
-        if (desc) {
-            desc.textContent = isActive
-                ? 'Tabelas de Incidentes (`security_incidents`) e Auditoria (`system_audit_logs`) ativas no MariaDB.'
-                : 'Tabelas ainda n√£o foram criadas no MariaDB. Clique no bot√£o para inicializar o script de cria√ß√£o.';
-        }
-
-        if (btnActivate) {
-            if (isActive) {
-                btnActivate.disabled = true;
-                btnActivate.className = 'btn btn-sm btn-outline-secondary font-monospace opacity-75';
-                btnActivate.innerHTML = '<i class="bi bi-power me-1 text-success"></i> M√≥dulo Ativo';
-                btnActivate.onclick = null;
-            } else {
-                btnActivate.disabled = false;
-                btnActivate.className = 'btn btn-sm btn-primary fw-bold font-monospace';
-                btnActivate.innerHTML = '<i class="bi bi-play-circle-fill me-1"></i> Ativar M√≥dulo';
-                btnActivate.onclick = activateIncidentsModule;
-            }
-        }
-
-        if (btnPurge) {
-            btnPurge.disabled = !isActive;
-        }
-
-        if (mailCount !== null) {
-            const countEl = document.getElementById('maillog-stat-total-count');
-            if (countEl) countEl.textContent = mailCount;
-        }
-
-        const cronBadge = document.getElementById('maillog-cron-status-badge');
-        if (cronBadge) {
-            if (autoCron) {
-                cronBadge.className = 'badge bg-success-subtle text-success border border-success-subtle font-monospace ms-1';
-                cronBadge.innerHTML = 'üü¢ Cron Ativo (1h)';
-            } else {
-                cronBadge.className = 'badge bg-secondary-subtle text-secondary border border-secondary-subtle font-monospace ms-1';
-                cronBadge.innerHTML = '‚ö™ Cron Inativo';
-            }
-        }
-    }
-
-    async function activateIncidentsModule() {
-        const btnActivate = document.getElementById('btn-activate-module');
-        if (btnActivate) {
-            btnActivate.disabled = true;
-            btnActivate.innerHTML = '<div class="spinner-border spinner-border-sm me-1"></div> Criando Tabelas...';
-        }
-
-        try {
-            const data = await fetchJson('/api/troubleshooting/activate-module', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            showAlert(data.message || 'M√≥dulo e tabelas inicializados no MariaDB!', 'success');
-            await checkModuleStatus();
-            loadIncidents();
-            loadAuditLogs();
-        } catch (e) {
-            showAlert(`Erro ao ativar m√≥dulo: ${e.message}`, 'danger');
-            if (btnActivate) {
-                btnActivate.disabled = false;
-                btnActivate.innerHTML = '<i class="bi bi-play-circle-fill me-1"></i> Ativar M√≥dulo';
-            }
-        }
-    }
-
-    async function confirmPurgeData() {
-        if (!confirm("Tem certeza de que deseja expurgar todos os dados de incidentes e auditoria do MariaDB? As tabelas continuar√£o ativas.")) {
-            return;
-        }
-
-        try {
-            const data = await fetchJson('/api/troubleshooting/purge-data', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ target: 'all' })
-            });
-            showAlert(data.message || 'Dados expurgados com sucesso!', 'success');
-            loadIncidents();
-            loadAuditLogs();
-        } catch (e) {
-            showAlert(`Erro ao expurgar dados: ${e.message}`, 'danger');
-        }
-    }
-
-    async function triggerMailLogIngestion() {
-        const btn = document.getElementById('btn-ingest-maillog');
-        if (btn) {
-            btn.disabled = true;
-            btn.innerHTML = '<div class="spinner-border spinner-border-sm me-1"></div> Importando MailLog...';
-        }
-
-        try {
-            const data = await fetchJson('/api/troubleshooting/maillog/ingest', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            showAlert(data.message || 'Sincroniza√ß√£o do MailLog conclu√≠da!', 'success');
-            await checkModuleStatus();
-            loadIncidents();
-            loadAuditLogs();
-        } catch (e) {
-            showAlert(`Erro na importa√ß√£o do MailLog: ${e.message}`, 'danger');
-            loadAuditLogs();
-        } finally {
-            if (btn) {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="bi bi-database-add me-1"></i> Importar MailLog Agora';
-            }
-        }
-    }
-
-    async function toggleMailLogAuto() {
-        try {
-            const data = await fetchJson('/api/troubleshooting/maillog/toggle-auto', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            showAlert(data.message || 'Status da automa√ß√£o atualizado!', 'success');
-            await checkModuleStatus();
-        } catch (e) {
-            showAlert(`Erro ao alterar automa√ß√£o: ${e.message}`, 'danger');
-        }
-    }
-
-    // Inicializa√ß√£o ao carregar
-    document.addEventListener('DOMContentLoaded', () => {
-        checkModuleStatus();
-    });
-</script>
-</body>
-</html>
+                                <button class="btn btn-outline-dark" title="Ver Logs Consolidados do Evento" onclick="openIxú‰}€v„Híÿ{E∂\ní*©´{f’U™aIÍnÓÍ∂í™˜¯ÃôCÅDäB7p P*çÜ{ˆa?¿~ÚÀ∫◊>ûsÊiÏ/–ü¯¸	éàL âD‚Bä™.Ø9=%âHDFFFFDFDFcœÂArN‚„–u¸Óã/€ûªËmÏ}∆Z|^{lÏ;q¸fc‰±ëg%<özÅ„oÏΩﬁÚöAºﬁÕì$Z¥≥ﬁíÄ¡ˇ≠pû¯^¿-◊	&<⁄`âó¯¸ÕFÊ{c'b«^‚Mú«ˇ˛¯ﬂBvq⁄?ﬂ`a0ÜG?ΩŸg<Ç ¢Y¬◊DÑ¯∆„æk˘·¯'AâGÙÒË1ãº©›g9Á/N" I_Pcãùéb›J‚;¡fÕLûìpm§®cœ∑‚?ÃùàØïI^oπﬁmuì◊[âk~
+O¢Úì´o
+_-zˆè°t;ùﬁ7üeOlÏ$„÷Â=ˆPh?É8ÙπÕ£(å∫áÉ9!4è"å¿<IZÔnl2ﬁ+ˆñ8#üø›{€}y|ƒﬁ∞´◊ÄËÎƒ‡~<sÇ7_o§‘M¯áƒ#¿à—ÔbA∞ŸΩıjcØÆ{ˆ‚Å€S«ŒÑ/àJDe¸ãœƒøÙ„zåOeê\Ä ‡Å´	ë`0ÄÒ∫íÙ≠ÿæˆ∑Î±7{Ã¶boﬁºa@ﬁπwÕ∫ü√ó=Òd˘7œß ∆û‰–Á¯Îª˚Å€ÌLﬁ±<◊9ÓÑwz6e?Ñ	íÚﬂeú|µƒƒR%ŒtVô.17d|äd≈≤ˆKˆ9w ?&q©
+á¯ê˝ÈO¨s¬Éõ˘î¡ﬂlÕìêπ^<É«ø‹rﬂÓ|£Mı `~«Faò ¬3[Ã]%Zû>Õùû2C“éo¬ªÆ¸Vgïq8ªWY•[fŒ%P[ô:9JÅsãÚ<ålêf≥QËDÆ}y	«.∫i_ ˚æœ£§€Ac&2f3'rò√é∏√\ŒÄ\A|Õ£«?√xúœ;õ¨œ«cX>ùä¡WÎôOb≠Hå‰rÇﬁ:˛úKFÛ‹e@$Nœ “lûhÄúÎk>N∏;mÿ_ø˛’±:Ï≠ÒÈ.Î¨óü”—éßù¯¶'õ‹x>Ç·k”NìUÀﬁÊ©–G,â—êiBtp‰Ú~∆[ÅÕ≠⁄Á3êIto–É	sùƒŒù„%ÏöÉ ¸€àtµÂÃ<P6·‘;Lº`≤ïŒNºE"t‡.∂“ÓØ654W<π	]`é≥”ãÀŒfÈ˘w\Å¢{`)),o^qfd(‚ò∂~î:lQ0EºÀ˛ˆ‚ÙƒˆΩÎ˚ÓÉúàMI¡!ídW%Á¢ßYEüã§N™ÅÀÚ$£§∆RpT1pÒ?t‹L|tïá’VKé”Uj28“íûÊñt—dÄ9ÈcCE†Ÿf»ç OA·ìd ΩûÆP-
+Uf’øvB2è≠ò˚ ˆ4,ƒ3R¯áS÷ˆΩòØWf3≤Qà∞VÇÜy0K,Ï†êaFthí∞MêåsÛ$üË˜ìí{•LÓ!yv’I˘rO·‘ÁêyQ∂Y^Q‡iKc|ÉÕSº.à~BÍm‚J_®x˝«Mª9÷Õ?kRÉ…‹ÒΩ?K§?ç%´˛‹ı™ˆCô†N29¿¢¶íWÌ\Ä	}∑‹iêtA…o9l°Óøı|t24BL€[◊ÙBß˜V*4‘aéÔótL'o€∂s'ﬂ¸@ä±ilöZÃ*‡éB¥/≤	“ô«ÏªÈ,„ªôŒa◊#]7Ø]Ô6mœ$ÃPkëˇ¥‚),bkGÄH˝{¬-∂/?Å“Nw≤4‡0Ú€∂s∑OGeﬂı £ú—ﬁ¶ºÒQ0]˛˛|∞Nga TË9≠∑¯g{8ãxÃÛ9Î@k1áU†%+ÙW*ãß≥J"eŒATËÛö5©Á zŸ
+¬hJvT√õkæ[4AV|˘ÕÍx≈s`ö±Œ„÷∏©Ø‘‡ó7{*é≥¡{KêOy£√¨’SsÇ∫kè_˛Bzi#vãœkè÷±ë:˜{OWJ™¥æm˚<ò$7¥ùzijàüuã6-6c{5«∑∆7|¸ìh.u:ªé≠WÃµFRa”ëµ-B“˜)Ìµ∞ ÷.ˇ@¯c«·îÖ DD?Ω‡Wì∆f…ó—ùq?ÊKÉh9ufHT‹£öﬂ≈èœIßæCˇ4QióÑæM2à1ˇü˘óe'$	^oa{÷⁄‘⁄©8˙ãO3‹…9≤C¸4c(4]w7l R\ˇÛˇd˚—„_†£∞[IÎ:§ïe˛d¨Ôú( •î∆J¢ür
+ˇWvÜçΩ6DnÅ∂*@üÔüŸÙƒÅ˚[†˝Y-_∫<q<?>ãxí‹Æ∂ÂwC4…"zX‘tP∂Ùèêb3'ä9zhc@uıﬁz’›‡GGV€bà`£5˜˝M∂SLn`?PC·RbWı¡HSH±‹»MÁ˜$ï5É&nÃY‹WÊ∆X3ÒÿôÒÔì©O K=ö´≥®épjù∞î—ñx©±5D1Ï©ä‚Rëaé;ıÇ·<FÀÿñﬁﬁ{=jA=—ù≤F4*‘É=€=¡©EÏ˝ëÔnoœ>|c@«õ◊K3&tp5ß5	´(–ßàºâP¥oÃ∞j›i3áaˇ&#˜vØ=á§Tû:¨;œMnvw~Ûí»‹n.¡¿OëôˆíÕ¨m˚+$êÔMn&7=∞©\ê¶Ÿé9ó“Ã3Œ∑év	7Çºæˆ√ª]gûÑ:G$RP\?ò3“œïYB2JÎÏETN“`R@BìzÅ¸ŸŒW@ÌM®`o∞^W3}£≥Cb[aYU€UrW*¶MÜì˝¢Êz´±ã¬”LÚFQﬂ(Ê´†bg≤—œ•z{°ÆvqgçÄtäq†ãïr:N4@OäØ-!Ù%H+õeÉ&≥[‡W'¯‰≤÷®3˚`Ì¿‚á}¬∂.öñóÑìP≠ü§îs—r∞KÃw°Ø\ı<K‚ã$ö`‰ç≤∞f;;$≠”å1ì$§¨âÖYJägı(W>É–´xãu$`e˚DS˛ï∂m^1KÓåL#∑ƒÊ}0ˇ N∫Éâœ≈U÷dÕÄñÃË⁄⁄b€;6˚Ó‚ÚÒüNŸ¡!;~¸OÔèN/6Ÿ˛˘†ˇ¯œÚÎÀ˛ª√£˛;dÉµuptt˙ù9;˘„–ù˚\F=ûÂËΩäSÇ.„s:ßÃgÆàéCì˜·›CÒqÀ7Ö„$	«NÅAΩ#~ëÀgh°»√qTÿÜ¥eªN:K∏+º¶8∫å7∫!õ>˛
+w;E˛3GŒµëxq_qﬂGãQ_⁄‚ ﬁ˚Ä/|Àùóc#π≈¨K¥ iöf–ï‹ı ⁄¡÷e£$†q8ı±\Llud;K¿5¬:õGıC@3l§@)xıi¨˙ú‚Éî‡&ä^≤i	ü8S⁄ºÎ˛¯9©ZtjI’ó∫Ôã-uÖhÌå—s—ß	ZÇ÷ÿã∆!r,Xêıah!0»¡;≠´J?X›»•ß¢0ÚÙ;>ù›8±ßì@{e]$h%OSRâ°S¿!á1µŒ¯ùûµ)ŸßÑ˛[÷πtF–EÁÂ KÀe›+0≈Ê‰K πW=∆Y?spBì˚8·”!â~ Öà>@À'”Óîz›Õ{u<0˜XÄ9‡◊a‰LŸ^rã ÿæÔ˝aŒÒ´Qò`SJãÙùdY/ŒP,äõ€Êh-¥|Â/Ω‹ÚWm◊ãQ7ªR÷ÿCi\‰Sô0OyÛπ˝´q_ˇb4Û◊_ôòPÈ•ñg·∞;≤]AòñcC72Q_J˝∂Î’L∫köØN;kdÈˆ£Hπ'ëÀwÓ´d	Oxöµ¶V™G≤î °S[.˜T…Ë|ô~ØRıÛîâ+AÆª1ÒÁ—dN»Ω˘am¯Zö0§n-≤jÃ;Ùlw~Ë˜R∏ö¨ ∞2‚-1˚‚]£!q¬∆ï∆!îB3âÇ‘ú1∫.“üY˚Nck€¿ay˜.¶(Y`BØv∑ozm5j„àR˘TS&µ¥QÈ≠ü4Æˇ˝_˛,Ü’¨#¶—∂Îœê≥„∞AŸ¥V&’2k…çÌ4'hÈQFÜT≈∂]°/◊≤O“IÙr¿ä‹—*çã\©‰∏Ò&#%∑4LFnôòŒ_§A√¥ezX˙P…“Z9wå4U∫ﬂkë9Üü∆≈œÍÍ¸y¥n;	 Ã{ÌES“ó0˜Ö•O©€≤Ew„íÉ=
+¥‰§√7hÉÇqÕtˇÄ˚8¿$	ë%‡?óxZÂg€òö‡f\Ûñı„åµ0G¿ÊNÑf≠∞ùÌçûNm=è|›´SlJÒïè±0ó<‚∞+“ÍVKÃ§}@s#Á≈ÑX∑–$¨[√aqfåD¸Û‘¥N†›öÉÂX»yd>Ñ6tÉVæ'KöQ•fPfçJl] k0ùÖQB˙Kéˆyıó§¬ñ  ß¨æ.@ Åï J≠Œ)Ñ„˚Û«ø∏∆ìÉÈÁ—\Ï≈$Î„h´¬jê∏∆"æŒ|çç∑´u\Ωn√Ÿ91∑◊UıödÁ(õ™˛$åúïÙ[N&>óp˙∞{yß∑\¢+∑HüÙäê>oá|”S…OiJΩ[´Z,ÜÂå1Ã¶pIÜ…“Bk∂@©E*ìGb®I&ÿÅœoÒ‹≥yy‘ÌúKZ¡˙‡.8§”Æ.=√·Õ∫>)¿˛…Â‡‚¨ÃŒNè˚ˇëû|789d_∞Û√≥˜ó˝À¡È	€?=π<?=::<g›€m˛◊{|0M˛;„Á@	Ãv≈◊“√w®!˝ÈåﬁI·˚`Ú¬r∆‰0y@¿¥nIZÅ1[„ÈYºvPP∂QÀKCh6€OCqß∑<∫ı¯ÿü˚h NÊ≤…ˇ‚düySœâxløÂõõ,Ê	.ı¯˜ôP8ã¬©sF–˝]i)Î"√ë#ŸJAvzÂı_˘R⁄{ßhÚ˝ﬁî3üvPù[Ú”ÃªºâP|˘µáˇf‹Ç¶b`%È¶ìl M ÖG,¬÷µÑ√Æ@El1cŒ&à#jXùWì„öÛ>n5lG6mÇèü·é®(µ≤‰≤À'»ÚÒ≈éŒ9Ùàˇ·bFH÷åYÏÏıãæ∂ëÜŸﬂ‰"≈‘/∞∏€c•æÛ∂ „õª¨õÚº¯ŒΩàª√ò∞.t]Tµ€eØÏØLT¿E¢.Å^aAhﬁ◊ì˘tZ"•YœN¬oΩ‹ÌnW‰ZÂs◊SÊ±=Tˆ+÷a≥$6¯%‚¥»zŸr”@gßµ0åÁS
+º≠x CÓÙêl˚o*ª≠é Â¨Àpƒ‚≠≈!Ô}ñQÊ=Ãhÿœ{	 èù‰∆¶<«n∏ÖœzÏ?∞Ìó/{Ì•·Ù
+~2¢È•i^<@ã/º71Îæx ∏ã≠ x—3ÂﬁTMägΩ\≤Uql(∑å»·,
+Ø=§œ8w®K™›[0Ú/´πEä∫û*"+YïcŒ0èMXôõÔ‚1ù:`
+úEú`¬aÍO4ù˚è?GùMÒMö?Á/ò•r≤Ê¨˛lûX©‰±HÚTÀı(ò4Bå–÷m˙ˇﬁõú{ÒOÕXﬁxì+Ç¶Eenú¡tÏΩå
+Y˘É•%b:Í^6˛’aÂ„Ì)cœ‡-£œêC$GµR3Î/”ãªÏ7v˝)1`ƒ≈&=Áì»â7—:v‚BüR<ﬂÁ~X⁄æK”€‰^HoÛ3ﬂ5Kã¢ñiSYrõtÓÜLÊLXÊî:¿æ)¡ÕÄ€>\˙µfA≥8A≥Ë¬¸it»gPMj){®•	*>6j"¶ÈÅ";svoÌ¨+∞H#‹‹FëíàÓ;Ω∫ùyüõ◊ˆÄç-òﬂsa˝ ˚ó=ö∞ÿû"g÷jâ™sxë$»-¸,∂X∆Ñ¬°W[OïÑ†D4”ƒ S$˛≥—:&ôßOçœLJmì>ã8ä«Ãz>ÆØﬁueÀAÁøæ°î‘U¿1—X9˛/,˚bô†hÿàπÄ¢%Ò6Kó4Ë%û‰Uã‘≈3ëÄæ$0J¶†,∫◊
+¬@ÁŸ∫“◊?≥æT3ƒïú‰%+òäÄ“Ò«süb8xT0[<cæ˛¿¬^∞Âá¿ˆ¯ö ‡kù’ÀÈËﬁµ‰öÉO*≤V‹;ÓÊk≤ï¥9Xo0D©∞å±TÅô	ÃGY™4Tzÿ¥6KS»ÜB¶¬ì[5æ‘û\Î⁄Á†+oX^¬ßqöˇ„<NÄL¥Xê‡#û‹ÅIç¿wNìiK«‹JÈ±°+Vh!»M>bÈ±;‡	'î…±Ã¶‡⁄›Ï∞b:≠ÒnÏı's'ri…à⁄≈‰Vn:ÇÿTÛV9Róû∑°>≈â∫ù±©8P'(G”©ûëáÁÿŒÀ¬Ò9x<;AGÏI4•lé–•‘w·'Bçı;u«Í*∆ß[/ï…TkX≠“≈ñ[ç⁄Ö<5Ö/OôÌnCˆ˘vØZ®æﬁ¢Ï««üè¯7Œ¢íXüˆL*).J#†IFÈ‚Å)L≈Q~&◊~ µ›òf´ï˘,Hﬁ∆|6YŒä!«6ZÀuÅøÿπÂi !3P‚bT
+≈7|¡m4`¯µ3˜ìn…∫¯n,ÂVæ}∆]Ω“ÏKÉqb:ê2ã¬È,ÈvTÅÉ3G zR£∑Kˇ«8Ä?d››TãË≥pü†#ÉT∏˘ÎÙÒuL
+b1bo‰¡˛6öåú1Lä„„õXË‹sCzóSBE\⁄%H≥D‹í∂nõÕá˚O…(1Æ*C•î0+ª*v363ø"øõÚ™å≥Z>”–d8’ƒß”àúíF…LY_N†'˜◊≤úLÀÏ•ÍÄ¢…iÅ"®—g—fGÅ≤%¿^ZŸA8Æk⁄>‘…hC@=v|ÃL}õ∫]≠4^Êv*∆5‘≥õ…®\E]ºß≠bcº/5…—ÒGºâÄâ¡ —„ŸyÛ≤˚Z¬*óm/q0:”¥÷´µæµà<Éf_ÑU†Gbm<´ûÅ’Oy›[_.,êHñ‘≥·p´F£_FîLπhßéØ"u ZÂù¸é	Ä∑¡ÍΩ¡üëƒ¯”õŒ:ø∑Aª:„õÓ∏\´†M˙ﬂ’,≠nhAØ÷ãá1ï´”g¶"UJñ&Üx√á72Ò9 Ê_PÒò⁄À‡Hã‡¨»$‘k	ã®UÄEﬂ,È\ Pôò¶™z´g NQà !hä˘‘√CM<3ß_≤¢SZVr¢ÇSı⁄÷9’‘rÌBëPrùõúOÿè¶»MÕ]‘‘–DwﬂÅ€wbá∂«¥#¿Ã¡¯îÂWîó∂x“ç™ÕË>2D≈Œ÷`Ÿcı{”&M}\
+b|NDX] ˚-‰GÒõ6N”>]ê4¯BØ'_	êÈ¸≠’+x¥èY"g–õ ı äcëïM2Ç¨l`ﬂ8∂¿#È‘‘V\A-¥≠´"‡Ö‡á® Ë˝êó¸ìéf§®˙gWÍä∫‹˛“P2
+`%ön¥…<˜CØä…d>ôOã˚´»˘"XÁ—h“„}7ºò¡πùBe	q‡≤CŸ+iª◊Jª¨|bﬁ∞ìπTi;Ô˝[¨1ò$¥ª:
+ø"8tÿßè
+ÒÄ¢‹ÆÃa˝±∂çΩ£”0Wµ£Ω[VwO,Ò˝Û¡Â`ø(ÆPøpc/}ﬂ‹cVOÔˆ˚¡wﬂ/—ea®ã¢ó©–nc·/â“Ò·¡‡˝q+§LÁı’
+=FÔÔ∆ûË!GÀä%mzqÁ	É§ÏS]<Ëê@È◊XºÊÇ>!ù;∑™ôΩQ§s êÑ.⁄`xE«õ˙j~ÿ c2≤Ωx(µ=p6=‚bùtx9ÿAJQ¢µ–C2#ó^võE(∆ã—^≤+çRï•¶@t¶*°+÷3it·—U®r^}QEÆºxPçAn™EBˇvMµ3l|WÂÜz 5.‘¢óø≤™ìõ≤íıÚ¢ŸmˇZXEæÆÆÀJ	JÖNÜˆÉ`*oú´u´Íåı‰Q#xÂBE3Ò•‰Ù∑ÃBü
+∂:∫Ì¯≤owMÒÜ2È3je»LTï•Â%äÂ⁄»i‰¬öTîºé≠Ø´\;/Ú‚ÑXØå™ïe·!.ë‹EÖ∫¿w]\gù£1ﬂ˘!6]©Óa≤Ä∆év#‰°ÎIk<Ω2jsdÌ-êÖ»z˛jÓ…¨ø
+“L∫r—1’üØ3]Y§è˜9¶ã{”Æ%p≈û%J/,í ¥~kÿUÓ∏8cî€Æ‚ΩE¯Mªãã
+0PBÍPªe·†‘·§≤ë˛–ÂOõ+í
+=»¯F÷Öj^cäÖmLUiŸã¥•Ù±d6≈7Öâµ,l·Ó÷Óâ“¯âÆ^™Ø˚¡ã¨©oÍ%Ñ“A—‚’Pı4⁄î∞.,¿`Ã≥WW?â¢¨CLZI8´∆æhy4€¿˙Â¨®ˆ¥˛“vj≈˚PZ£©sSeêlzÍUTE˜»uöÉE√]AÔ?ÍUAw øôRÏ	ëa¯daß.¥cr=iÅ¶k"[§ÜeYZéoÌœÂ›“6ª)W7À«Õ»¥Ròá¸,OèÒˆSÇ·6SÌπ¶K±˛‡k£)ìÌÛvŸÁä‘QØ‰Q[9we°∂E∏wÏ_~8•‰‡D¸æ`∑˙Õ<t±›ÒQy/˙ÑÖñéäKÆ1Ç˙¨\ùûV.ıj‰Îƒö√öi ¸J.|yD9õÖËâïºiåt¶kÉù˘HıïÍÄßhˇåœ)ùÅx¶àßπÚOâ‰∫"ûF‚Æük#ITÎ≠»Oé$¥ºk(çUÅ»Æã8AÄ$Oˆ√…∫b˙)T0™
+–}+·ƒ.ee(«ÿU≤ı£»Å^b˙ŸŸ·ı5  WKãS[~…òFI ¥ZxmxCﬁhC ÀxõMıΩ/EdîÎ^É)ÀÜ¸nñV‡À0Ìt“ÌlÇ≈å„Lƒ2ŸKCãÔBêéÈ∆˝Üı/)h©#r‹â≥ŸB‘°ã^ô}Ôä˜∂¶(>ï◊˝ºxp”˙˜W™„£á^FøLËEÔˆΩË(˝¬°ó∫Ä¬/hÌÕØ…÷èo<ÓªÍq©Û2˜!æxŸ§¢ÜËrjp¯◊cº‚ÇA≤‹4~ø”Ô4_XA}ñOH‡?÷li›´RÅê,ﬂ2!Ø»É◊ˇx°®æáI‹Ïö0È÷_OT‚9<‘b1*ÆhóÉlÍıLòì]$:Ö„:tzŸïÁtd™¬Ic:∞‚¡[üò_∫Ô∫*ÑsZUê’ÂÂ5›O€ +ﬁî mµó”µ°æ=rÇü–¶hƒ‡õZ†5/ñU\ Ñ¸fEÛñwƒ:Üπ®Ù∆ÆÏ≠ˆ∫√jn◊|—‘V&,±Nñ∆U9w©’∏$?È†ÚL≠eykØ≠ô¡tHy$æîÅ”J,V∂¥Í∆+ŸíÆ§{1Ô+3eeπø⁄#ˆÛ:>°£
+/oñHªôÒìÍLŒÁÛ	nÆc}{ŸÚ®¿⁄ƒ~÷ÎSnU‰!£’rÓ∑îP“€Òtø≤¡0ÓO‡É *√W¢§0à__úâG´#Ê‡y•ÑÀH\:»•
+VÜ∞.ﬁ^ız%˜¿”\’ÊÂµÖv6˘≠ÛEupxtxyÿY™∏6çÅFËµÁœÁgÖîÊkbÑhúªA|‡9ÿπK'+jEØ∂:CÇz1w›Úf˙Ü˚a;Pÿ≤X´‚LÄÂ1Óì´>∞∆í@!†éN.«3≠û8Q˝Ì>~ıÖê¿ Rÿ'•ˇ`£†Üﬁlxìxè¥·Æ`√&óGs&©€^é“£MÁ√¬§æÆ«HèêÏ¯º`ãØÜ4&ÔÖ]RÔà˙~iúoõnH7ekÕ>‡ëÏ{ºH÷pÙøÓf,¡2Ïá«<ú¶;ÂVªÆ≠•ë˙–Ä–‡DC…@U
+uˆëy∏ã74jª3¸dU$(Îüª≤R]÷)|´öê7Ù÷|¬~ö k'ım%·¨6-ØÆ™CöÊIæQQGsﬂè˘}—ﬂó”Vî∆*Uób∏»—äã[T{PG'B# sg∞.¿¢lr8P˚¬À‚ Iív2ÃÇT¬¥¬âî+3(âî/ÌﬂÏÄpnsÎÚÎ•OiÚD∑Ω±πÕ%ÁJg{˚èuΩI¯z~_Í≈C∞UˇÄø¸ª‚Ω(™·.—w˝%ÕJ+$bb£§n◊µ,°Q\Ö∏Ô£,¬˙õÁã}.1A‚wèJKTﬁ(,Úá£°Ãß¶BÌ.	◊ªBP¸ÿè€ﬁD_¬∂.a∑à<˘˜~ı‚°|gË˘•&™â∫À·÷és£ƒn 7`õY·:^©dÃ´≠ò‘NSUïº¯#ï`Æ„Aöz«r|„—ØY  ˛#-yzÃ+ﬁ±Ÿ9üÕ≥K8ú·aıôì[ÉÖ·ï°V%d‘ÅéùH‘≈{Î≠WX"∆˛
+∂@ çÓ¨q’·åä8¿8ÙÁ”@¸>u≠(º+TPÇØä(MúR{Ñ
+xî+‡Qò$·¥°tSÔ›|]}πòŸs⁄á`bﬁ{≈eïö≥/»ÜáΩÖÙ¯˝i‰M¯Ùı÷Õ◊MUñ⁄ù;ÿú·Œ“õ-ÿüÿ˜áGß¯Ÿ√∏3>ŸÍ7ú€†æé@‡”äa[whB>jd úÂ	LòåÈ¥2BÄQêæn2>
+˚2,ï≈£Û™FÈaÜf•ZA˘<à†5ÿYöQÏÏÚÂ-:9vËô.h%4£ç™â6≥$fGqd¸+R˚ŒéâÜùTÅ5’˙9ofâOwRË$ãR†÷Â˜aú–^±Ì‹îw@r&ºxËﬁ(o<ú·Èó(†Ûˆ5axqŒæˆÊ∆ Ûl˙ßâ3«•+ø@x¡„ø¬„êm[∆dèxéœ.ÊÒå{IH8•DaáXN+≠˜√)è®Ìè?É~j°∆Îk∫â6´2\ùD…Ø™ä.c€pTÒóØﬂUY˛˝\ò†∫dπ*^ZÜÊËO'ÚBJÇ“=Ü¯ùHÔò›xÒçLÜc«˚‡îr°ÍËboj]G·T]°®Ç5v¬ﬂD{ﬁ⁄£H≥Nö¿Ú‡‘V—‡è@lå˘o—k,{Ãl<Yz™ Öãâˇv Án8ı/¥«·tyús«)B›˛ÕWˆŒŒK{˚%lÂóÑ;•ÉAùm˚’Øı;N·ÃÆUﬂˆGKBpÚ
+‰?9=9\z¬k––“ıW˙†ÊñN¬pÇW°>ï1˘]¸[ßwÕ¸∏2‡"+Œ„9.Ÿ5≥‚ŒÀø±%7æZöÖ¨hm€;/_>çœ˙O‰≈U@Ëº®¡hàƒÄPı¶sü˘äQòò“óá¬]ﬁê†¨≥qE%ÂÕ!∂m“»ÀUπ|ÏÕP<∂Äõ4∆zR_~`çQ(µ·pôÛqUåm>7ªä=Pú◊· Ô∂§rz	≤†Té/%k¥-˝çê˛Õáﬁ?Ò<ë’æùI¯◊òÃc‹⁄ÉûÖ±'∂®ñ¶d;„mº±8œ?G˝o!m>©àú—"/H5Û…ÆÇî™:¸%Öç˘q&>ÃèÀ°™]∫§Õœï•Z—@YÅ•Ìí∑<r=∫-â‰tâË0˝w˚ÔO˛Ó‰ÙN4ıÜA1Ÿ™)æm0Òhp|v ∫˚Gá˝ìû93úÓ(t"˜ùXMdÙäGÎ<î	ŸºÜóöW„,?tœÅÂËí∆éÒ4H;
+¨∏î©Ÿ‘≠Ÿª£”ø88eLUÔ_¡
+xVéÊ€D8È"®<∂í±ö¬X#∏c&Êâœ˜Bïä∏/O≥V˚€˝#∞µﬂ¬‰ú≤˝”„S™~º$Â$≤çænT›é©Ó4.7ÉÈP¨∞∞cÃjÛ@Ü˙U0È°ÔM0¥LZ˘U0ÖXh,QÓ¶‘aÂœdÌ˙Jg‰`9Ô‚∫òª6i1˜¬∑mbÓ≤√À°¬⁄∞‡3Ö ”pΩñ’)@iÛz-TˆÔ$]ñZ00-wg:®§π)’'ãR‘°≤,§∑híl>Ab=^Èá	“O},/Â„“ôÀW-Œ\Ó‰g.£¨∫î©Ks+î3ó)˜‚!ëãB\ÓUïã´aˇ6£r™ŸæOáßqñ¬RJÃCqÁ∞SB
+–e;x]18UçØÑ˚‹≤ÿ·ﬂøÔ?˛Û„?ù≤„˛Â·Ò„?¢%∆~\ºÔ1ÀjÊ’Ì-¢8ZP8ª7‰Àñ¡=‹)+/_§≥DîI¶Í˙œ^´ö‚¨⁄ﬁ;'.Vœﬂmú“∏öœ[_eq>Sëø¬°;i∏,÷`©†Œ6⁄tØTA'ë€ÿ˚’j◊CÔÅbD±-Ì˛øıì˛≈Éb“ïÀ“ÊUfïÄùÈù\˝Âœ~ôŸ{≥ƒWkôΩ3†Ó\F_øE”¶P‹H±˙‹Ω™û;≈tﬁ{£ÿæ≠&1π’DïP´Tij√`ò·¥fXU◊iÕ,fi∏≤”˜‚§˛ÄÚA—+Üã…‘B¬iï¶]1—tô$”ö‹“W-rKüíW⁄:eQ…'≈™BD¡%í;°·I8Eiôï]ÓÌ<%ï] Kãñ`‹ñ†(„vpö≥[Â¶ ºTôÄ&ˇ¢1—∞6…∞b¡µ®Åº¬A¢_2Á pòp4”:~“ÕaÖëØTî«¡wü•2An,E≠Ü~8!áFe•‹íµØ≠ î°Tdßº+mS	ËÀ¨ BñõQ'Ω
+ªz3ö~Ùì~˘Ïñæ*„¨è˝4Kπ&ê6OËÜvˆòNàªC'm;v vãOƒq`ºy˜ÇÇ¿âıÓº”CÖﬁAÁ‘é¨&ªºQ4+Œì±^(KÒ‚¡MZ§|Ø\Ö√‡ÑA:9Ó‘ÜÛ=HÙgã¬Etjœ¢TÙKÎ</F“≤+’g(‰çê'q0ƒê  Â;œÕäë∑L“„kπÉ}Åe4Å‡∑ÏJ˚j¡æàú(˙Ü]•Ü>>∆Êw¬≤n[ah Haà}(ó…ùŒ≤;i∫q’”eÉçæ√J{eXˇï.∂∂zå*÷°üﬁP∞.PÂöuôZRMÂ=¯M®o∞!ì)l˛/   ˇˇ ``°p

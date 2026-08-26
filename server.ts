@@ -4428,6 +4428,617 @@ Checks 12
     }
   });
 
+  // ==========================================================
+  // ANTISPAM POLICY ENGINE & REPUTATION REST ENDPOINTS
+  // ==========================================================
+
+  let virtualAntispamRules = [
+    { id: 1, codigo: "SPF_PASS", nome: "SPF Válido e Autorizado (Pass)", categoria: "authentication", descricao: "O IP do remetente está explicitamente autorizado no registro SPF do domínio.", score: -2.0, severidade: "LOW", ativo: true, origem: "system", data_criacao: "2026-08-26 11:00:00" },
+    { id: 2, codigo: "SPF_NONE", nome: "SPF Ausente / Não Configurado", categoria: "authentication", descricao: "O domínio remetente não possui registro TXT com política SPF definida no DNS.", score: 1.0, severidade: "LOW", ativo: true, origem: "system", data_criacao: "2026-08-26 11:00:00" },
+    { id: 3, codigo: "SPF_SOFTFAIL", nome: "SPF SoftFail (~all)", categoria: "authentication", descricao: "O IP do remetente não está na lista autorizada, porém a política SPF é suave (~all).", score: 2.0, severidade: "MEDIUM", ativo: true, origem: "system", data_criacao: "2026-08-26 11:00:00" },
+    { id: 4, codigo: "SPF_FAIL", nome: "SPF Falha Estrita (-all)", categoria: "authentication", descricao: "O IP do remetente falhou categoricamente no teste SPF e a política é restritiva (-all).", score: 4.0, severidade: "HIGH", ativo: true, origem: "system", data_criacao: "2026-08-26 11:00:00" },
+    { id: 5, codigo: "DKIM_PASS", nome: "Assinatura Criptográfica DKIM Válida (Pass)", categoria: "authentication", descricao: "Mensagem possui assinatura DKIM íntegra correspondente à chave pública no DNS.", score: -2.0, severidade: "LOW", ativo: true, origem: "system", data_criacao: "2026-08-26 11:00:00" },
+    { id: 6, codigo: "DKIM_NONE", nome: "Assinatura DKIM Ausente", categoria: "authentication", descricao: "A mensagem não possui cabeçalho DKIM-Signature assinado pelo remetente.", score: 1.0, severidade: "LOW", ativo: true, origem: "system", data_criacao: "2026-08-26 11:00:00" },
+    { id: 7, codigo: "DKIM_FAIL", nome: "Assinatura DKIM Inválida / Corrompida (Fail)", categoria: "authentication", descricao: "A assinatura DKIM falhou na validação de integridade ou chave do seletor é inválida.", score: 3.0, severidade: "HIGH", ativo: true, origem: "system", data_criacao: "2026-08-26 11:00:00" },
+    { id: 8, codigo: "DMARC_PASS", nome: "Conformidade DMARC Válida (Pass)", categoria: "authentication", descricao: "Mensagem atende aos requisitos de alinhamento DMARC com SPF ou DKIM aprovados.", score: -2.0, severidade: "LOW", ativo: true, origem: "system", data_criacao: "2026-08-26 11:00:00" },
+    { id: 9, codigo: "DMARC_NONE", nome: "DMARC Ausente / Política p=none", categoria: "authentication", descricao: "Domínio remetente não publica política DMARC ou opera sem imposição (p=none).", score: 2.0, severidade: "MEDIUM", ativo: true, origem: "system", data_criacao: "2026-08-26 11:00:00" },
+    { id: 10, codigo: "DMARC_FAIL", nome: "Violação DMARC (Fail)", categoria: "authentication", descricao: "Mensagem violou o alinhamento DMARC e falhou em ambos mecanismos (SPF e DKIM).", score: 4.0, severidade: "CRITICAL", ativo: true, origem: "system", data_criacao: "2026-08-26 11:00:00" },
+    { id: 11, codigo: "PTR_MISSING", nome: "rDNS / Registro PTR Inexistente", categoria: "rdns", descricao: "O IP do servidor de envio não possui ponteiro reverso (PTR) configurado no DNS.", score: 2.0, severidade: "MEDIUM", ativo: true, origem: "system", data_criacao: "2026-08-26 11:00:00" },
+    { id: 12, codigo: "PTR_FORWARD_FAIL", nome: "Falha no FCrDNS (Forward-Confirmed rDNS)", categoria: "rdns", descricao: "O nome apontado pelo PTR não resolve de volta para o IP de origem.", score: 2.0, severidade: "MEDIUM", ativo: true, origem: "system", data_criacao: "2026-08-26 11:00:00" },
+    { id: 13, codigo: "HELO_PTR_MISMATCH", nome: "Inconsistência entre HELO/EHLO e PTR", categoria: "rdns", descricao: "O hostname declarado no comando SMTP HELO/EHLO diverge do PTR reverso.", score: 1.0, severidade: "LOW", ativo: true, origem: "system", data_criacao: "2026-08-26 11:00:00" },
+    { id: 14, codigo: "HELO_NO_RESOLVE", nome: "HELO/EHLO Não Resolvível no DNS", categoria: "rdns", descricao: "O hostname informado no HELO/EHLO não possui registro A ou AAAA válido.", score: 3.0, severidade: "HIGH", ativo: true, origem: "system", data_criacao: "2026-08-26 11:00:00" },
+    { id: 15, codigo: "PTR_DYNAMIC", nome: "PTR com Padrão de Banda Larga / Dinâmico", categoria: "rdns", descricao: "O hostname reverso contém padrões de conexões residenciais (dsl, pool, dynamic).", score: 2.0, severidade: "MEDIUM", ativo: true, origem: "system", data_criacao: "2026-08-26 11:00:00" },
+    { id: 16, codigo: "IP_DYNAMIC", nome: "Origem em Faixa Residencial / Dinâmica", categoria: "rdns", descricao: "Conexão direta originada em bloco de IP residencial/dinâmico de alto risco.", score: 4.0, severidade: "HIGH", ativo: true, origem: "system", data_criacao: "2026-08-26 11:00:00" },
+    { id: 17, codigo: "HEADER_FROM_MISMATCH", nome: "Divergência entre Header From e Envelope From", categoria: "identity", descricao: "O endereço exibido no campo 'De:' é de domínio diferente do envelope Return-Path.", score: 2.0, severidade: "MEDIUM", ativo: true, origem: "system", data_criacao: "2026-08-26 11:00:00" },
+    { id: 18, codigo: "IMP_FROM_DMARC_FAIL", nome: "Falha DMARC com Identidade Forjada", categoria: "impersonation", descricao: "Envio utilizando cabeçalho From forjado sem autenticação válida em domínio protegido.", score: 3.0, severidade: "HIGH", ativo: true, origem: "system", data_criacao: "2026-08-26 11:00:00" },
+    { id: 19, codigo: "MARCA_CONHECIDA_DMARC_FAIL", nome: "Impersonation Crítico de Marca / Banco", categoria: "impersonation", descricao: "Uso não autorizado de marca bancária/governamental com falha em DMARC/SPF.", score: 5.0, severidade: "CRITICAL", ativo: true, origem: "system", data_criacao: "2026-08-26 11:00:00" }
+  ];
+
+  let virtualAntispamSettings: Record<string, string> = {
+    score_spam_threshold: "4.5",
+    score_high_risk_threshold: "8.0",
+    score_critical_threshold: "10.0",
+    enable_fcr_dns: "true",
+    enable_impersonation_check: "true",
+    enable_helo_validation: "true",
+    auto_sync_localcf: "false"
+  };
+
+  let virtualImpersonationProfiles = [
+    { id: 1, brand_name: "Caixa Econômica Federal", official_domains: ["caixa.gov.br", "cef.gov.br"], official_domains_raw: "caixa.gov.br,cef.gov.br", category: "finance", severity: "CRITICAL", active: true },
+    { id: 2, brand_name: "Banco do Brasil", official_domains: ["bb.com.br", "bancodobrasil.com.br"], official_domains_raw: "bb.com.br,bancodobrasil.com.br", category: "finance", severity: "CRITICAL", active: true },
+    { id: 3, brand_name: "Itaú Unibanco", official_domains: ["itau.com.br", "itau-unibanco.com.br"], official_domains_raw: "itau.com.br,itau-unibanco.com.br", category: "finance", severity: "CRITICAL", active: true },
+    { id: 4, brand_name: "Banco Bradesco", official_domains: ["bradesco.com.br", "bancobradesco.com.br"], official_domains_raw: "bradesco.com.br,bancobradesco.com.br", category: "finance", severity: "CRITICAL", active: true },
+    { id: 5, brand_name: "Nubank", official_domains: ["nubank.com.br", "nu.com.br"], official_domains_raw: "nubank.com.br,nu.com.br", category: "finance", severity: "CRITICAL", active: true },
+    { id: 6, brand_name: "Receita Federal / Gov.br", official_domains: ["gov.br", "receita.fazenda.gov.br"], official_domains_raw: "gov.br,receita.fazenda.gov.br", category: "gov", severity: "CRITICAL", active: true },
+    { id: 7, brand_name: "Correios", official_domains: ["correios.com.br"], official_domains_raw: "correios.com.br", category: "gov", severity: "HIGH", active: true },
+    { id: 8, brand_name: "Serasa Experian", official_domains: ["serasa.com.br", "serasaexperian.com.br"], official_domains_raw: "serasa.com.br,serasaexperian.com.br", category: "finance", severity: "HIGH", active: true },
+    { id: 9, brand_name: "Mercado Livre", official_domains: ["mercadolivre.com.br", "mercadolibre.com"], official_domains_raw: "mercadolivre.com.br,mercadolibre.com", category: "retail", severity: "HIGH", active: true },
+    { id: 10, brand_name: "Microsoft / Office 365", official_domains: ["microsoft.com", "office.com", "outlook.com"], official_domains_raw: "microsoft.com,office.com,outlook.com", category: "tech", severity: "HIGH", active: true },
+    { id: 11, brand_name: "Google Workspace / Gmail", official_domains: ["google.com", "gmail.com"], official_domains_raw: "google.com,gmail.com", category: "tech", severity: "HIGH", active: true },
+    { id: 12, brand_name: "Apple / iCloud", official_domains: ["apple.com", "icloud.com"], official_domains_raw: "apple.com,icloud.com", category: "tech", severity: "HIGH", active: true },
+    { id: 13, brand_name: "Netflix", official_domains: ["netflix.com"], official_domains_raw: "netflix.com", category: "retail", severity: "HIGH", active: true }
+  ];
+
+  let virtualAntispamAnalyses: any[] = [
+    {
+      id: 1,
+      message_id: "<20260826113000.82910@bancofake.xyz>",
+      queue_id: "4Z8bL39K",
+      sender_from: "notificacao@caixa.gov.br",
+      envelope_from: "bounce@spammerhost.net",
+      envelope_to: "cliente@meudominio.com.br",
+      client_ip: "185.220.101.5",
+      ptr: "dynamic-185-220-101-5.broadband.isp.net",
+      helo: "mail.spammerhost.net",
+      spf_status: "FAIL",
+      dkim_status: "NONE",
+      dmarc_status: "FAIL",
+      sa_score: 1.471,
+      intelligence_score: 9.000,
+      final_score: 10.471,
+      classification: "POSSIBLE_IMPERSONATION",
+      confidence_level: "HIGH",
+      created_at: "2026-08-26 11:30:15"
+    }
+  ];
+
+  let virtualAntispamAudit: any[] = [
+    {
+      id: 1,
+      usuario: "admin",
+      user: "admin",
+      acao: "INIT_ENGINE",
+      action: "INIT_ENGINE",
+      alvo: "Policy Engine v1.1.1",
+      target: "Policy Engine v1.1.1",
+      valor_anterior: null,
+      old_value: null,
+      valor_novo: "Threshold SPAM: 4.5, Alto Risco: 8.0, Crítico: 10.0",
+      new_value: "Threshold SPAM: 4.5, Alto Risco: 8.0, Crítico: 10.0",
+      motivo: "Inicialização do motor complementar de segurança",
+      reason: "Inicialização do motor complementar de segurança",
+      ip_origem: "127.0.0.1",
+      ip: "127.0.0.1",
+      data_hora: "2026-08-26 11:00:00",
+      timestamp: "2026-08-26 11:00:00"
+    }
+  ];
+
+  // GET /api/antispam/overview
+  app.get("/api/antispam/overview", (req, res) => {
+    res.json({
+      success: true,
+      stats: {
+        total_rules: virtualAntispamRules.length,
+        active_rules: virtualAntispamRules.filter(r => r.ativo).length,
+        total_analyses: virtualAntispamAnalyses.length,
+        total_protected_brands: virtualImpersonationProfiles.length
+      },
+      spamassassin_detected: {
+        required_score: 4.5,
+        required_score_source: "/etc/spamassassin/local.cf",
+        sa_tag_level_deflt: 2.0,
+        sa_tag2_level_deflt: 4.5,
+        sa_kill_level_deflt: 6.9,
+        amavis_source: "/etc/amavis/conf.d/20-debian_defaults",
+        files_found: ["/etc/spamassassin/local.cf", "/etc/amavis/conf.d/20-debian_defaults"]
+      },
+      policy_engine_thresholds: {
+        score_spam: parseFloat(virtualAntispamSettings.score_spam_threshold || "4.5"),
+        score_high_risk: parseFloat(virtualAntispamSettings.score_high_risk_threshold || "8.0"),
+        score_critical: parseFloat(virtualAntispamSettings.score_critical_threshold || "10.0"),
+        fcr_dns_enabled: virtualAntispamSettings.enable_fcr_dns === "true",
+        impersonation_enabled: virtualAntispamSettings.enable_impersonation_check === "true"
+      }
+    });
+  });
+
+  // GET /api/antispam/rules
+  app.get("/api/antispam/rules", (req, res) => {
+    const { category, search } = req.query;
+    let list = [...virtualAntispamRules];
+
+    if (category) {
+      list = list.filter(r => r.categoria === category);
+    }
+    if (search) {
+      const q = String(search).toLowerCase();
+      list = list.filter(r => r.codigo.toLowerCase().includes(q) || r.nome.toLowerCase().includes(q) || r.descricao.toLowerCase().includes(q));
+    }
+
+    res.json({ success: true, rules: list, count: list.length });
+  });
+
+  // PUT /api/antispam/rules/:id
+  app.put("/api/antispam/rules/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    const rule = virtualAntispamRules.find(r => r.id === id);
+    if (!rule) return res.status(404).json({ success: false, error: "Regra não encontrada" });
+
+    const { score, ativo, active, severidade, motivo } = req.body || {};
+    const oldScore = rule.score;
+    const oldActive = rule.ativo;
+
+    if (score !== undefined) {
+      const numScore = parseFloat(score);
+      if (isNaN(numScore) || numScore < -10.0 || numScore > 10.0) {
+        return res.status(400).json({ success: false, error: "O score deve estar entre -10.0 e +10.0" });
+      }
+      rule.score = Number(numScore.toFixed(2));
+    }
+
+    if (ativo !== undefined || active !== undefined) {
+      rule.ativo = Boolean(ativo !== undefined ? ativo : active);
+    }
+
+    if (severidade) rule.severidade = severidade;
+
+    virtualAntispamAudit.unshift({
+      id: virtualAntispamAudit.length + 1,
+      usuario: "admin",
+      user: "admin",
+      acao: "UPDATE_RULE",
+      action: "UPDATE_RULE",
+      alvo: `${rule.codigo} (#${rule.id})`,
+      target: `${rule.codigo} (#${rule.id})`,
+      valor_anterior: `Score: ${oldScore}, Ativo: ${oldActive}`,
+      old_value: `Score: ${oldScore}, Ativo: ${oldActive}`,
+      valor_novo: `Score: ${rule.score}, Ativo: ${rule.ativo}`,
+      new_value: `Score: ${rule.score}, Ativo: ${rule.ativo}`,
+      motivo: motivo || "Ajuste de política de pontuação do Policy Engine",
+      reason: motivo || "Ajuste de política de pontuação do Policy Engine",
+      ip_origem: "127.0.0.1",
+      ip: "127.0.0.1",
+      data_hora: new Date().toISOString().replace("T", " ").substring(0, 19),
+      timestamp: new Date().toISOString().replace("T", " ").substring(0, 19)
+    });
+
+    res.json({ success: true, message: "Regra atualizada com sucesso", rule });
+  });
+
+  // GET & PUT /api/antispam/settings
+  app.get("/api/antispam/settings", (req, res) => {
+    res.json({
+      success: true,
+      settings: Object.entries(virtualAntispamSettings).map(([k, v]) => ({
+        key: k,
+        value: v,
+        label: k.replace(/_/g, " ").toUpperCase(),
+        category: k.includes("threshold") ? "threshold" : "engine"
+      })),
+      detected_sa: {
+        required_score: 4.5,
+        required_score_source: "/etc/spamassassin/local.cf",
+        sa_tag_level_deflt: 2.0,
+        sa_tag2_level_deflt: 4.5,
+        sa_kill_level_deflt: 6.9
+      }
+    });
+  });
+
+  app.put("/api/antispam/settings", (req, res) => {
+    const data = req.body || {};
+    for (const [k, v] of Object.entries(data)) {
+      virtualAntispamSettings[k] = String(v);
+    }
+    res.json({ success: true, message: "Limiares atualizados com sucesso", settings: virtualAntispamSettings });
+  });
+
+  // Impersonation Profiles
+  const getProfilesHandler = (req: any, res: any) => {
+    res.json({
+      success: true,
+      profiles: virtualImpersonationProfiles.map(p => ({
+        id: p.id,
+        brand_name: p.brand_name,
+        official_domains: p.official_domains,
+        category: p.category,
+        severity: p.severity,
+        is_active: p.active !== false,
+        active: p.active !== false
+      }))
+    });
+  };
+  app.get("/api/antispam/impersonation/profiles", getProfilesHandler);
+  app.get("/api/antispam/impersonation-profiles", getProfilesHandler);
+
+  const addProfileHandler = (req: any, res: any) => {
+    const { brand_name, official_domains, category, severity, is_active } = req.body || {};
+    if (!brand_name || !official_domains) {
+      return res.status(400).json({ success: false, error: "Nome da marca e domínios oficiais são obrigatórios" });
+    }
+    const domList = Array.isArray(official_domains) 
+      ? official_domains 
+      : String(official_domains).split(",").map((d: string) => d.trim()).filter(Boolean);
+    const newProf = {
+      id: virtualImpersonationProfiles.length + 1,
+      brand_name: brand_name.trim(),
+      official_domains: domList,
+      official_domains_raw: domList.join(","),
+      category: category || "banking",
+      severity: severity || "HIGH",
+      active: is_active !== undefined ? Boolean(is_active) : true
+    };
+    virtualImpersonationProfiles.push(newProf);
+
+    virtualAntispamAudit.unshift({
+      id: virtualAntispamAudit.length + 1,
+      usuario: "admin",
+      user: "admin",
+      admin_user: "admin",
+      acao: "ADD_BRAND_PROFILE",
+      action: "ADD_BRAND_PROFILE",
+      alvo: newProf.brand_name,
+      target: newProf.brand_name,
+      target_type: "IMPERSONATION_BRAND",
+      target_id: newProf.brand_name,
+      valor_anterior: "",
+      old_value: "",
+      valor_novo: domList.join(", "),
+      new_value: domList.join(", "),
+      motivo: "Cadastro de marca protegida contra Phishing/Impersonation",
+      reason: "Cadastro de marca protegida contra Phishing/Impersonation",
+      ip_origem: "127.0.0.1",
+      ip: "127.0.0.1",
+      data_hora: new Date().toISOString().replace("T", " ").substring(0, 19),
+      created_at: new Date().toISOString().replace("T", " ").substring(0, 19),
+      timestamp: new Date().toISOString().replace("T", " ").substring(0, 19)
+    });
+
+    res.json({ success: true, message: "Marca cadastrada com sucesso", profile: newProf });
+  };
+  app.post("/api/antispam/impersonation/profiles", addProfileHandler);
+  app.post("/api/antispam/impersonation-profiles", addProfileHandler);
+
+  const deleteProfileHandler = (req: any, res: any) => {
+    const id = parseInt(req.params.id);
+    const idx = virtualImpersonationProfiles.findIndex(p => p.id === id);
+    if (idx === -1) return res.status(404).json({ success: false, error: "Perfil não encontrado" });
+    const removed = virtualImpersonationProfiles.splice(idx, 1)[0];
+
+    virtualAntispamAudit.unshift({
+      id: virtualAntispamAudit.length + 1,
+      usuario: "admin",
+      user: "admin",
+      admin_user: "admin",
+      acao: "DELETE_BRAND_PROFILE",
+      action: "DELETE_BRAND_PROFILE",
+      alvo: removed.brand_name,
+      target: removed.brand_name,
+      target_type: "IMPERSONATION_BRAND",
+      target_id: removed.brand_name,
+      valor_anterior: Array.isArray(removed.official_domains) ? removed.official_domains.join(", ") : String(removed.official_domains),
+      old_value: Array.isArray(removed.official_domains) ? removed.official_domains.join(", ") : String(removed.official_domains),
+      valor_novo: "REMOVIDO",
+      new_value: "REMOVIDO",
+      motivo: "Remoção de marca protegida do catálogo",
+      reason: "Remoção de marca protegida do catálogo",
+      ip_origem: "127.0.0.1",
+      ip: "127.0.0.1",
+      data_hora: new Date().toISOString().replace("T", " ").substring(0, 19),
+      created_at: new Date().toISOString().replace("T", " ").substring(0, 19),
+      timestamp: new Date().toISOString().replace("T", " ").substring(0, 19)
+    });
+
+    res.json({ success: true, message: `Marca '${removed.brand_name}' removida com sucesso` });
+  };
+  app.delete("/api/antispam/impersonation/profiles/:id", deleteProfileHandler);
+  app.delete("/api/antispam/impersonation-profiles/:id", deleteProfileHandler);
+
+  // POST /api/antispam/rdns/test e /api/antispam/rdns/diagnose
+  const rdnsTestHandler = (req: any, res: any) => {
+    const { client_ip, ip, helo, helo_name } = req.body || {};
+    const testIp = client_ip || ip || "127.0.0.1";
+    const testHelo = (helo || helo_name || "").trim().toLowerCase();
+
+    const isDynamic = /dynamic|dialup|dsl|pool|broadband|cable|\d+-\d+-\d+-\d+/i.test(testIp);
+    const hasPtr = testIp !== "127.0.0.1" && !testIp.startsWith("10.") && !testIp.startsWith("192.168.");
+    const ptrHost = hasPtr ? (isDynamic ? `dynamic-${testIp.replace(/\./g, "-")}.isp.telecom.net` : `mail.${testHelo || 'relay.net'}`) : "";
+    const fcrdnsValid = hasPtr && !isDynamic;
+    const heloMatches = Boolean(testHelo && ptrHost && (testHelo === ptrHost || ptrHost.includes(testHelo)));
+
+    const matchedRules: any[] = [];
+    if (!hasPtr) {
+      matchedRules.push({ rule_code: "PTR_MISSING", evidence: `IP ${testIp} sem registro PTR reverso`, score_applied: 2.0 });
+    }
+    if (hasPtr && !fcrdnsValid) {
+      matchedRules.push({ rule_code: "PTR_FORWARD_FAIL", evidence: `PTR ${ptrHost} não confirma resolução A`, score_applied: 2.0 });
+    }
+    if (isDynamic) {
+      matchedRules.push({ rule_code: "PTR_DYNAMIC", evidence: `Padrão de IP dinâmico/residencial detectado`, score_applied: 2.0 });
+    }
+    if (testHelo && !heloMatches && hasPtr) {
+      matchedRules.push({ rule_code: "HELO_PTR_MISMATCH", evidence: `HELO '${testHelo}' diverge de PTR '${ptrHost}'`, score_applied: 1.0 });
+    }
+
+    const diag = {
+      client_ip: testIp,
+      has_ptr: hasPtr,
+      ptr_name: ptrHost || "Nenhum PTR encontrado",
+      ptr_hostname: ptrHost,
+      fcrdns_valid: fcrdnsValid,
+      helo_matches_ptr: heloMatches,
+      is_dynamic_pattern: isDynamic,
+      is_dynamic: isDynamic,
+      details: `PTR: ${ptrHost || 'Inexistente'}. FCrDNS: ${fcrdnsValid ? 'Válido' : 'Falha'}. Dinâmico: ${isDynamic ? 'Sim' : 'Não'}.`
+    };
+
+    res.json({
+      success: true,
+      diagnosis: diag,
+      result: diag,
+      matched_rules: matchedRules
+    });
+  };
+  app.post("/api/antispam/rdns/test", rdnsTestHandler);
+  app.post("/api/antispam/rdns/diagnose", rdnsTestHandler);
+
+  // POST /api/antispam/simulate
+  app.post("/api/antispam/simulate", (req, res) => {
+    const { raw_eml, sender_from, from, envelope_from, envelope_to, to, client_ip, ip, helo, sa_score, spamassassin_score, spf_status, dkim_status, dmarc_status, message_id, queue_id } = req.body || {};
+
+    let sFrom = sender_from || from || "";
+    let eFrom = envelope_from || sFrom;
+    let eTo = envelope_to || to || "";
+    let cIp = client_ip || ip || "185.220.101.5";
+    let sHelo = helo || "mail.spammerhost.net";
+    let sScore = parseFloat(sa_score || spamassassin_score || 1.471);
+    let spf = (spf_status || "FAIL").toUpperCase();
+    let dkim = (dkim_status || "NONE").toUpperCase();
+    let dmarc = (dmarc_status || "FAIL").toUpperCase();
+    let msgId = message_id || `<${Date.now()}.sim@mailadmin.internal>`;
+    let qId = queue_id || `4Y${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+
+    if (raw_eml) {
+      const fromMatch = raw_eml.match(/^From:\s*(.+)$/im);
+      if (fromMatch) sFrom = fromMatch[1].trim();
+      const toMatch = raw_eml.match(/^To:\s*(.+)$/im);
+      if (toMatch) eTo = toMatch[1].trim();
+      const msgIdMatch = raw_eml.match(/^Message-ID:\s*(.+)$/im);
+      if (msgIdMatch) msgId = msgIdMatch[1].trim();
+      if (raw_eml.toLowerCase().includes("spf=pass")) spf = "PASS";
+      else if (raw_eml.toLowerCase().includes("spf=fail")) spf = "FAIL";
+      if (raw_eml.toLowerCase().includes("dkim=pass")) dkim = "PASS";
+      else if (raw_eml.toLowerCase().includes("dkim=fail")) dkim = "FAIL";
+      if (raw_eml.toLowerCase().includes("dmarc=pass")) dmarc = "PASS";
+      else if (raw_eml.toLowerCase().includes("dmarc=fail")) dmarc = "FAIL";
+    }
+
+    if (!sFrom) sFrom = "notificacao@caixa.gov.br";
+
+    // Impersonation check
+    let isImpersonation = false;
+    let matchedBrand = "";
+    let fromDomain = sFrom.includes("@") ? sFrom.split("@")[1].replace(">", "").trim().toLowerCase() : "";
+
+    for (const prof of virtualImpersonationProfiles) {
+      if (prof.official_domains.some(d => fromDomain === d || fromDomain.endsWith(`.${d}`))) {
+        matchedBrand = prof.brand_name;
+        if (dmarc === "FAIL" || spf === "FAIL" || dkim === "FAIL" || dmarc === "NONE") {
+          isImpersonation = true;
+        }
+        break;
+      }
+    }
+
+    // Dynamic PTR check
+    const isDynamicIp = /dynamic|dialup|dsl|pool|broadband|cable|\d+-\d+-\d+-\d+/i.test(cIp);
+    const ptrHost = `dynamic-${cIp.replace(/\./g, "-")}.broadband.isp.net`;
+
+    const triggeredRules: any[] = [];
+    let intScore = 0.0;
+
+    const addTrigger = (code: string, name: string, score: number, sev: string, evidence: string) => {
+      intScore += score;
+      triggeredRules.push({
+        rule_code: code,
+        rule_name: name,
+        category: code.startsWith("SPF") || code.startsWith("DKIM") || code.startsWith("DMARC") ? "authentication" : (code.startsWith("PTR") || code.startsWith("HELO") || code.startsWith("IP") ? "rdns" : "impersonation"),
+        score_applied: score,
+        severity: sev,
+        evidence
+      });
+    };
+
+    if (spf === "PASS") addTrigger("SPF_PASS", "SPF Válido e Autorizado (Pass)", -2.0, "LOW", `SPF autorizado para o IP ${cIp}.`);
+    else if (spf === "FAIL") addTrigger("SPF_FAIL", "SPF Falha Estrita (-all)", 4.0, "HIGH", `SPF falhou categoricamente (-all) para o IP ${cIp}.`);
+    else if (spf === "SOFTFAIL") addTrigger("SPF_SOFTFAIL", "SPF SoftFail (~all)", 2.0, "MEDIUM", `SPF retornou SoftFail (~all) para o IP ${cIp}.`);
+    else addTrigger("SPF_NONE", "SPF Ausente / Não Configurado", 1.0, "LOW", "Registro SPF ausente ou neutro.");
+
+    if (dkim === "PASS") addTrigger("DKIM_PASS", "Assinatura DKIM Válida (Pass)", -2.0, "LOW", "Assinatura DKIM íntegra e validada.");
+    else if (dkim === "FAIL") addTrigger("DKIM_FAIL", "Assinatura DKIM Inválida (Fail)", 3.0, "HIGH", "Assinatura DKIM corrompida.");
+    else addTrigger("DKIM_NONE", "Assinatura DKIM Ausente", 1.0, "LOW", "Mensagem sem cabeçalho assinado por chave DKIM.");
+
+    if (dmarc === "PASS") addTrigger("DMARC_PASS", "Conformidade DMARC Válida (Pass)", -2.0, "LOW", "Alinhamento DMARC aprovado.");
+    else if (dmarc === "FAIL") addTrigger("DMARC_FAIL", "Violação DMARC (Fail)", 4.0, "CRITICAL", "Mensagem violou a política DMARC do domínio.");
+    else addTrigger("DMARC_NONE", "DMARC Ausente / p=none", 2.0, "MEDIUM", "Domínio não publica registro DMARC.");
+
+    if (isDynamicIp) {
+      addTrigger("PTR_DYNAMIC", "PTR com Padrão de Banda Larga / Dinâmico", 2.0, "MEDIUM", `Nome reverso '${ptrHost}' apresenta padrão residencial.`);
+      addTrigger("IP_DYNAMIC", "Origem em Faixa Residencial / Dinâmica", 4.0, "HIGH", `IP ${cIp} pertencente a bloco dinâmico não corporativo.`);
+    }
+
+    if (sFrom && eFrom && sFrom !== eFrom) {
+      addTrigger("HEADER_FROM_MISMATCH", "Divergência entre Header From e Envelope From", 2.0, "MEDIUM", `Header De: (${sFrom}) diverge de Return-Path (${eFrom}).`);
+    }
+
+    if (isImpersonation) {
+      addTrigger("MARCA_CONHECIDA_DMARC_FAIL", "Impersonation Crítico de Marca / Banco", 5.0, "CRITICAL", `Uso não autorizado de '${matchedBrand}' (@${fromDomain}) com falha DMARC/SPF.`);
+    }
+
+    intScore = Number(intScore.toFixed(3));
+    const finalScore = Number((sScore + intScore).toFixed(3));
+
+    const spamTh = parseFloat(virtualAntispamSettings.score_spam_threshold || "4.5");
+    const highTh = parseFloat(virtualAntispamSettings.score_high_risk_threshold || "8.0");
+    const critTh = parseFloat(virtualAntispamSettings.score_critical_threshold || "10.0");
+
+    let classification = "CLEAN";
+    let conf = "HIGH";
+    if (isImpersonation) {
+      classification = "POSSIBLE_IMPERSONATION";
+    } else if (finalScore >= critTh) {
+      classification = "CRITICAL";
+    } else if (finalScore >= highTh) {
+      classification = "HIGH_RISK";
+    } else if (finalScore >= spamTh) {
+      classification = "SPAM";
+      conf = "MEDIUM";
+    }
+
+    const simResult = {
+      success: true,
+      message_id: msgId,
+      queue_id: qId,
+      sender_from: sFrom,
+      envelope_from: eFrom,
+      envelope_to: eTo,
+      client_ip: cIp,
+      ptr: ptrHost,
+      helo: sHelo,
+      spf_status: spf,
+      dkim_status: dkim,
+      dmarc_status: dmarc,
+      sa_score: sScore,
+      intelligence_score: intScore,
+      final_score: finalScore,
+      thresholds: {
+        spam: spamTh,
+        high_risk: highTh,
+        critical: critTh
+      },
+      classification,
+      confidence_level: conf,
+      impersonation: {
+        is_impersonation: isImpersonation,
+        brand_name: matchedBrand,
+        target_domain: fromDomain,
+        confidence: isImpersonation ? "HIGH" : "LOW",
+        reason: isImpersonation ? `Tentativa de impersonation de '${matchedBrand}'.` : "Identidade alinhada."
+      },
+      rdns_analysis: {
+        client_ip: cIp,
+        has_ptr: true,
+        ptr_hostname: ptrHost,
+        fcrdns_valid: !isDynamicIp,
+        helo_matches_ptr: false,
+        is_dynamic: isDynamicIp,
+        details: `PTR: ${ptrHost}. Dinâmico: ${isDynamicIp ? 'Sim' : 'Não'}.`
+      },
+      triggered_rules: triggeredRules,
+      triggered_rules_count: triggeredRules.length,
+      explanation: `SpamAssassin (${sScore.toFixed(3)}) + Intelligence (${intScore.toFixed(3)}) = Score Final ${finalScore.toFixed(3)}. Classificação: ${classification}.`
+    };
+
+    virtualAntispamAnalyses.unshift({
+      id: virtualAntispamAnalyses.length + 1,
+      message_id: msgId,
+      queue_id: qId,
+      sender_from: sFrom,
+      envelope_from: eFrom,
+      envelope_to: eTo,
+      client_ip: cIp,
+      ptr: ptrHost,
+      helo: sHelo,
+      spf_status: spf,
+      dkim_status: dkim,
+      dmarc_status: dmarc,
+      sa_score: sScore,
+      intelligence_score: intScore,
+      final_score: finalScore,
+      classification,
+      confidence_level: conf,
+      created_at: new Date().toISOString().replace("T", " ").substring(0, 19)
+    });
+
+    res.json(simResult);
+  });
+
+  // GET /api/antispam/analysis/history
+  app.get("/api/antispam/analysis/history", (req, res) => {
+    res.json({ success: true, history: virtualAntispamAnalyses });
+  });
+
+  // GET /api/antispam/audit
+  app.get("/api/antispam/audit", (req, res) => {
+    res.json({ success: true, logs: virtualAntispamAudit });
+  });
+
+  // POST /api/antispam/spamassassin/sync-diff
+  app.post("/api/antispam/spamassassin/sync-diff", (req, res) => {
+    const { proposed_vals } = req.body || {};
+    const oldRs = 4.5;
+    const newRs = parseFloat(proposed_vals?.required_score || "4.5");
+    const hasChanges = oldRs !== newRs;
+
+    res.json({
+      success: true,
+      diff: {
+        has_changes: hasChanges,
+        diff_items: hasChanges ? [
+          { param: "required_score", old_val: `${oldRs}`, new_val: `${newRs}`, file: "/etc/spamassassin/local.cf" }
+        ] : [],
+        impact_descriptions: hasChanges ? [
+          `A alteração do required_score de ${oldRs} para ${newRs} reconfigura o limiar nativo do SpamAssassin no arquivo local.cf.`
+        ] : [],
+        requires_restart: true,
+        services_affected: ["spamassassin"]
+      }
+    });
+  });
+
+  // POST /api/antispam/spamassassin/sync-apply
+  app.post("/api/antispam/spamassassin/sync-apply", (req, res) => {
+    const { confirmed, required_score, reason } = req.body || {};
+    if (!confirmed) {
+      return res.status(400).json({ success: false, error: "Confirmação explícita obrigatória." });
+    }
+
+    virtualAntispamAudit.unshift({
+      id: virtualAntispamAudit.length + 1,
+      usuario: "admin",
+      user: "admin",
+      acao: "UPDATE_SPAMASSASSIN_REQUIRED_SCORE",
+      action: "UPDATE_SPAMASSASSIN_REQUIRED_SCORE",
+      alvo: "/etc/spamassassin/local.cf",
+      target: "/etc/spamassassin/local.cf",
+      valor_anterior: "4.5",
+      old_value: "4.5",
+      valor_novo: String(required_score),
+      new_value: String(required_score),
+      motivo: reason || "Ajuste de required_score do SpamAssassin",
+      reason: reason || "Ajuste de required_score do SpamAssassin",
+      ip_origem: "127.0.0.1",
+      ip: "127.0.0.1",
+      data_hora: new Date().toISOString().replace("T", " ").substring(0, 19),
+      timestamp: new Date().toISOString().replace("T", " ").substring(0, 19)
+    });
+
+    res.json({ success: true, message: `Configuração atualizada para required_score ${required_score} e serviço recarregado com sucesso.` });
+  });
+
+
   // Root HTML Route
   app.get("/", (req, res) => {
     res.sendFile(path.join(process.cwd(), "templates/index.html"));

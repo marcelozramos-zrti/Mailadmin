@@ -376,3 +376,203 @@ class SpamCustomRule(db.Model):
         }
 
 
+class AntispamRule(db.Model):
+    """Regras configuráveis do Policy Engine com pesos de -10.0 a +10.0"""
+    __tablename__ = 'antispam_rules'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    codigo = db.Column(db.String(80), unique=True, nullable=False, index=True) # ex: SPF_FAIL, DMARC_PASS
+    nome = db.Column(db.String(150), nullable=False)
+    categoria = db.Column(db.String(50), nullable=False, default='authentication') # 'authentication', 'rdns', 'impersonation', 'reputation', 'identity'
+    descricao = db.Column(db.Text, nullable=True)
+    score = db.Column(db.Float, nullable=False, default=0.0) # -10.0 até +10.0
+    ativo = db.Column(db.Boolean, default=True)
+    severidade = db.Column(db.String(30), default='MEDIUM') # 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'
+    origem = db.Column(db.String(50), default='system') # 'system', 'custom', 'soar'
+    data_criacao = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    data_atualizacao = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'codigo': self.codigo,
+            'code': self.codigo,
+            'nome': self.nome,
+            'name': self.nome,
+            'categoria': self.categoria,
+            'category': self.categoria,
+            'descricao': self.descricao or '',
+            'description': self.descricao or '',
+            'score': round(float(self.score), 2),
+            'ativo': bool(self.ativo),
+            'active': bool(self.ativo),
+            'severidade': self.severidade or 'MEDIUM',
+            'severity': self.severidade or 'MEDIUM',
+            'origem': self.origem or 'system',
+            'origin': self.origem or 'system',
+            'data_criacao': self.data_criacao.strftime('%Y-%m-%d %H:%M:%S') if self.data_criacao else None,
+            'data_atualizacao': self.data_atualizacao.strftime('%Y-%m-%d %H:%M:%S') if self.data_atualizacao else None
+        }
+
+
+class AntispamSetting(db.Model):
+    """Limiares operacionais e configurações gerais do motor Policy Engine e sincronização SA"""
+    __tablename__ = 'antispam_settings'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    key = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    value = db.Column(db.String(255), nullable=False)
+    label = db.Column(db.String(150), nullable=True)
+    category = db.Column(db.String(50), default='threshold') # 'threshold', 'sa_sync', 'amavis_sync', 'engine'
+    description = db.Column(db.Text, nullable=True)
+    updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    updated_by = db.Column(db.String(100), default='system')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'key': self.key,
+            'value': self.value,
+            'label': self.label or self.key,
+            'category': self.category or 'threshold',
+            'description': self.description or '',
+            'updated_at': self.updated_at.strftime('%Y-%m-%d %H:%M:%S') if self.updated_at else None,
+            'updated_by': self.updated_by or 'system'
+        }
+
+
+class AntispamImpersonationProfile(db.Model):
+    """Perfis e catálogo de proteção contra falsificação de identidade (Impersonation/Phishing)"""
+    __tablename__ = 'antispam_impersonation_profiles'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    brand_name = db.Column(db.String(100), nullable=False)
+    official_domains = db.Column(db.Text, nullable=False) # JSON ou lista separada por vírgula de domínios legítimos
+    dmarc_enforced = db.Column(db.Boolean, default=True)
+    active = db.Column(db.Boolean, default=True)
+    severity = db.Column(db.String(30), default='CRITICAL') # 'HIGH', 'CRITICAL'
+    category = db.Column(db.String(50), default='finance') # 'finance', 'gov', 'tech', 'retail', 'corporate'
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'brand_name': self.brand_name,
+            'official_domains': [d.strip().lower() for d in self.official_domains.split(',') if d.strip()],
+            'official_domains_raw': self.official_domains,
+            'dmarc_enforced': bool(self.dmarc_enforced),
+            'active': bool(self.active),
+            'severity': self.severity or 'CRITICAL',
+            'category': self.category or 'finance',
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None
+        }
+
+
+class AntispamAnalysis(db.Model):
+    """Histórico de diagnósticos preditivos e simulações de e-mail (100% read-only)"""
+    __tablename__ = 'antispam_analysis'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    message_id = db.Column(db.String(255), nullable=True, index=True)
+    queue_id = db.Column(db.String(100), nullable=True, index=True)
+    sender_from = db.Column(db.String(255), nullable=True, index=True)
+    envelope_from = db.Column(db.String(255), nullable=True)
+    envelope_to = db.Column(db.String(255), nullable=True)
+    client_ip = db.Column(db.String(80), nullable=True)
+    ptr = db.Column(db.String(255), nullable=True)
+    helo = db.Column(db.String(255), nullable=True)
+    spf_status = db.Column(db.String(30), default='NONE') # 'PASS', 'FAIL', 'SOFTFAIL', 'NONE', 'NEUTRAL'
+    dkim_status = db.Column(db.String(30), default='NONE') # 'PASS', 'FAIL', 'NONE'
+    dmarc_status = db.Column(db.String(30), default='NONE') # 'PASS', 'FAIL', 'NONE'
+    sa_score = db.Column(db.Float, default=0.0)
+    intelligence_score = db.Column(db.Float, default=0.0)
+    final_score = db.Column(db.Float, default=0.0)
+    classification = db.Column(db.String(50), default='CLEAN') # 'CLEAN', 'SPAM', 'HIGH_RISK', 'CRITICAL', 'POSSIBLE_IMPERSONATION', 'PHISHING_SUSPECTED'
+    confidence_level = db.Column(db.String(30), default='HIGH') # 'LOW', 'MEDIUM', 'HIGH'
+    triggered_rules = db.Column(db.Text, nullable=True) # JSON summary
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'message_id': self.message_id,
+            'queue_id': self.queue_id,
+            'sender_from': self.sender_from,
+            'envelope_from': self.envelope_from,
+            'envelope_to': self.envelope_to,
+            'client_ip': self.client_ip,
+            'ptr': self.ptr,
+            'helo': self.helo,
+            'spf_status': self.spf_status,
+            'dkim_status': self.dkim_status,
+            'dmarc_status': self.dmarc_status,
+            'sa_score': round(float(self.sa_score or 0.0), 3),
+            'intelligence_score': round(float(self.intelligence_score or 0.0), 3),
+            'final_score': round(float(self.final_score or 0.0), 3),
+            'classification': self.classification,
+            'confidence_level': self.confidence_level,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None
+        }
+
+
+class AntispamAnalysisRule(db.Model):
+    """Regras específicas disparadas em cada diagnóstico"""
+    __tablename__ = 'antispam_analysis_rules'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    analysis_id = db.Column(db.Integer, db.ForeignKey('antispam_analysis.id', ondelete='CASCADE'), nullable=False)
+    rule_code = db.Column(db.String(80), nullable=False)
+    rule_name = db.Column(db.String(150), nullable=True)
+    score_applied = db.Column(db.Float, nullable=False)
+    evidence = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'analysis_id': self.analysis_id,
+            'rule_code': self.rule_code,
+            'rule_name': self.rule_name or self.rule_code,
+            'score_applied': round(float(self.score_applied), 2),
+            'evidence': self.evidence or '',
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None
+        }
+
+
+class AntispamAudit(db.Model):
+    """Trilha de auditoria imutável para qualquer alteração no Policy Engine"""
+    __tablename__ = 'antispam_audit'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    usuario = db.Column(db.String(100), nullable=False)
+    acao = db.Column(db.String(80), nullable=False) # 'UPDATE_SCORE', 'TOGGLE_RULE', 'UPDATE_SETTINGS', 'SYNC_SPAMASSASSIN'
+    alvo = db.Column(db.String(150), nullable=False)
+    valor_anterior = db.Column(db.Text, nullable=True)
+    valor_novo = db.Column(db.Text, nullable=True)
+    motivo = db.Column(db.String(255), nullable=True)
+    ip_origem = db.Column(db.String(80), default='127.0.0.1')
+    data_hora = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'usuario': self.usuario,
+            'user': self.usuario,
+            'acao': self.acao,
+            'action': self.acao,
+            'alvo': self.alvo,
+            'target': self.alvo,
+            'valor_anterior': self.valor_anterior,
+            'old_value': self.valor_anterior,
+            'valor_novo': self.valor_novo,
+            'new_value': self.valor_novo,
+            'motivo': self.motivo or '',
+            'reason': self.motivo or '',
+            'ip_origem': self.ip_origem or '127.0.0.1',
+            'ip': self.ip_origem or '127.0.0.1',
+            'data_hora': self.data_hora.strftime('%Y-%m-%d %H:%M:%S') if self.data_hora else None,
+            'timestamp': self.data_hora.strftime('%Y-%m-%d %H:%M:%S') if self.data_hora else None
+        }
+
+
+
