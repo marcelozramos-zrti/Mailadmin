@@ -1,276 +1,7 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <script id="mailadmin-core-auth">
-    window.currentUserRole = null;
-    window.currentUsername = localStorage.getItem('mailadmin_user') || null;
-    window.tempMfaUserId = null;
-    window.autoRefreshTimer = null;
-    window.isAutoRefreshOn = true;
-
-    window.showLoginScreen = function() {
-        console.log('[AUTH UI] Exibindo tela de login.');
-        var loginScreen = document.getElementById('login-screen');
-        var appWrapper = document.getElementById('app-wrapper');
-        if (loginScreen) loginScreen.classList.remove('d-none');
-        if (appWrapper) appWrapper.classList.add('d-none');
-        if (window.autoRefreshTimer) {
-            clearInterval(window.autoRefreshTimer);
-            window.autoRefreshTimer = null;
-        }
-    };
-
-    window.showPanelScreen = function() {
-        console.log('[AUTH UI] Exibindo painel principal.');
-        var loginScreen = document.getElementById('login-screen');
-        var appWrapper = document.getElementById('app-wrapper');
-        if (loginScreen) loginScreen.classList.add('d-none');
-        if (appWrapper) appWrapper.classList.remove('d-none');
-        if (!window.autoRefreshTimer && typeof window.loadTelemetry === 'function') {
-            window.autoRefreshTimer = setInterval(function() {
-                if (window.isAutoRefreshOn) {
-                    if (typeof window.loadTelemetry === 'function') window.loadTelemetry();
-                    if (typeof window.loadServiceStatus === 'function') window.loadServiceStatus();
-                }
-            }, 5000);
-        }
-    };
-
-    window.applyRbacPermissions = function() {
-        var isUser = (window.currentUserRole === 'user');
-        var badgeContainer = document.getElementById('user-role-badge');
-        if (badgeContainer) {
-            if (isUser) {
-                badgeContainer.innerHTML = '<span class="badge bg-info-subtle text-info border border-info-subtle px-2.5 py-1.5 font-monospace"><i class="bi bi-person-fill me-1"></i> USUÃRIO (' + (window.currentUsername || '') + ')</span>';
-            } else {
-                badgeContainer.innerHTML = '<span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2.5 py-1.5 font-monospace"><i class="bi bi-shield-lock-fill me-1"></i> ADMINISTRADOR (' + (window.currentUsername || '') + ')</span>';
-            }
-        }
-        var adminOnlyEls = document.querySelectorAll('.rbac-admin-only');
-        adminOnlyEls.forEach(function(el) {
-            if (isUser) el.classList.add('d-none');
-            else el.classList.remove('d-none');
-        });
-    };
-
-    window.checkAuthSession = async function() {
-        try {
-            console.log('[AUTH] Verificando sessÃ£o ativa...');
-            var res = await fetch('/api/auth/me');
-            if (res.ok) {
-                var data = await res.json();
-                if (data && (data.authenticated || data.success)) {
-                    window.currentUserRole = data.role || 'admin';
-                    window.currentUsername = data.username || 'admin';
-                    localStorage.setItem('mailadmin_user', window.currentUsername);
-                    window.showPanelScreen();
-                    window.applyRbacPermissions();
-                    var hash = window.location.hash.replace('#', '');
-                    if (typeof window.switchTab === 'function') {
-                        window.switchTab(hash || 'dashboard');
-                    }
-                    if (typeof window.loadServiceStatus === 'function') {
-                        window.loadServiceStatus();
-                    }
-                    return;
-                }
-            }
-            window.currentUsername = null;
-            window.currentUserRole = null;
-            localStorage.removeItem('mailadmin_user');
-            window.showLoginScreen();
-        } catch (e) {
-            console.error('[AUTH SESSION CHECK ERROR]', e);
-            window.showLoginScreen();
-        }
-    };
-
-    window.handleLoginSubmit = async function(event) {
-        if (event) {
-            event.preventDefault();
-            if (event.stopPropagation) event.stopPropagation();
-        }
-        var usernameEl = document.getElementById('login-username');
-        var passwordEl = document.getElementById('login-password');
-        var tokenEl = document.getElementById('login-mfa-token');
-        var alertContainer = document.getElementById('login-alert-container');
-        var submitBtn = document.getElementById('login-btn');
-
-        var username = usernameEl ? usernameEl.value.trim() : '';
-        var password = passwordEl ? passwordEl.value : '';
-        var token = tokenEl ? tokenEl.value.trim() : '';
-
-        if (!username || !password) {
-            if (alertContainer) {
-                alertContainer.innerHTML = '<div class="alert alert-warning py-2 px-3 small border-0 mb-3"><i class="bi bi-exclamation-circle-fill me-1"></i> Por favor, informe o usuÃ¡rio e a senha.</div>';
-            }
-            return;
-        }
-
-        if (alertContainer) alertContainer.innerHTML = '';
-        if (submitBtn) {
-            submitBtn.disabled = true;
-            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Autenticando...';
-        }
-
-        try {
-            console.log('[AUTH LOGIN] Enviando credenciais para /api/auth/login:', username);
-            var res = await fetch('/api/auth/login', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({ username: username, password: password, token: token })
-            });
-
-            var data;
-            var resText = await res.text();
-            try {
-                data = JSON.parse(resText);
-            } catch (jsonErr) {
-                console.error('[AUTH PARSE ERROR]', resText);
-                throw new Error('Erro HTTP ' + res.status + ': Resposta invÃ¡lida do servidor.');
-            }
-
-            console.log('[AUTH LOGIN RESPONSE]', res.status, data);
-
-            if (data.require_mfa_setup) {
-                window.tempMfaUserId = data.temp_user_id;
-                var qrWrapper = document.getElementById('forced-qr-wrapper');
-                if (qrWrapper) {
-                    if (data.qr_code_base64) {
-                        qrWrapper.innerHTML = '<img src="' + data.qr_code_base64 + '" alt="QR Code" class="img-fluid" style="max-width:180px;">';
-                    } else if (data.provision_url) {
-                        qrWrapper.innerHTML = '<div class="p-2 text-break font-monospace small bg-light text-dark rounded border">' + data.provision_url + '</div>';
-                    }
-                }
-                var secretEl = document.getElementById('forced-mfa-secret');
-                if (secretEl) secretEl.value = data.otp_secret || '';
-                var fTokenEl = document.getElementById('forced-mfa-token');
-                if (fTokenEl) fTokenEl.value = '';
-                var modalEl = document.getElementById('forcedMfaModal');
-                if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
-                    var forcedModal = bootstrap.Modal.getOrCreateInstance(modalEl);
-                    forcedModal.show();
-                }
-                if (submitBtn) {
-                    submitBtn.disabled = false;
-                    submitBtn.innerHTML = '<i class="bi bi-box-arrow-in-right me-1"></i> Entrar no Sistema';
-                }
-                return;
-            }
-
-            if (data.mfa_required) {
-                var mfaContainer = document.getElementById('login-mfa-container');
-                if (mfaContainer) mfaContainer.classList.remove('d-none');
-                if (alertContainer) {
-                    alertContainer.innerHTML = '<div class="alert alert-warning py-2 px-3 small border-0 mb-3"><i class="bi bi-shield-lock me-1"></i> ' + (data.message || 'CÃ³digo TOTP obrigatÃ³rio.') + '</div>';
-                }
-                if (submitBtn) {
-                    submitBtn.disabled = false;
-                    submitBtn.innerHTML = '<i class="bi bi-shield-check me-1"></i> Confirmar CÃ³digo TOTP';
-                }
-                if (tokenEl) tokenEl.focus();
-                return;
-            }
-
-            if (data.success) {
-                window.currentUserRole = (data.user && data.user.role) || 'admin';
-                window.currentUsername = (data.user && data.user.username) || username;
-                localStorage.setItem('mailadmin_user', window.currentUsername);
-                window.showPanelScreen();
-                window.applyRbacPermissions();
-                
-                var hash = window.location.hash.replace('#', '');
-                if (typeof window.switchTab === 'function') {
-                    window.switchTab(hash || 'dashboard');
-                }
-                if (typeof window.loadServiceStatus === 'function') {
-                    window.loadServiceStatus();
-                }
-            } else {
-                if (alertContainer) {
-                    alertContainer.innerHTML = '<div class="alert alert-danger py-2 px-3 small border-0 mb-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> ' + (data.message || 'Falha ao autenticar.') + '</div>';
-                }
-                if (submitBtn) {
-                    submitBtn.disabled = false;
-                    submitBtn.innerHTML = '<i class="bi bi-box-arrow-in-right me-1"></i> Entrar no Sistema';
-                }
-            }
-        } catch (e) {
-            console.error('[AUTH LOGIN EXCEPTION]', e);
-            if (alertContainer) {
-                alertContainer.innerHTML = '<div class="alert alert-danger py-2 px-3 small border-0 mb-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> ' + (e.message || 'Erro de comunicaÃ§Ã£o.') + '</div>';
-            }
-            if (submitBtn) {
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = '<i class="bi bi-box-arrow-in-right me-1"></i> Entrar no Sistema';
-            }
-        }
-    };
-
-    window.submitForcedMfa = async function(event) {
-        if (event) event.preventDefault();
-        var token = document.getElementById('forced-mfa-token').value.trim();
-        var alertEl = document.getElementById('forced-mfa-alert');
-        if (!token || token.length !== 6) {
-            if (alertEl) alertEl.innerHTML = '<div class="alert alert-warning py-1 px-2 small mb-2">Insira o cÃ³digo de 6 dÃ­gitos.</div>';
-            return;
-        }
-        try {
-            var res = await fetch('/api/auth/mfa/enable_forced', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: window.tempMfaUserId, token: token })
-            });
-            var data = await res.json();
-            if (data.success) {
-                var modalEl = document.getElementById('forcedMfaModal');
-                if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
-                    var forcedModal = bootstrap.Modal.getInstance(modalEl);
-                    if (forcedModal) forcedModal.hide();
-                }
-                window.currentUserRole = (data.user && data.user.role) || 'admin';
-                window.currentUsername = (data.user && data.user.username) || 'admin';
-                localStorage.setItem('mailadmin_user', window.currentUsername);
-                window.showPanelScreen();
-                window.applyRbacPermissions();
-                if (typeof window.switchTab === 'function') window.switchTab('dashboard');
-                if (typeof window.loadServiceStatus === 'function') window.loadServiceStatus();
-            } else {
-                if (alertEl) alertEl.innerHTML = '<div class="alert alert-danger py-1 px-2 small mb-2">' + (data.message || 'CÃ³digo invÃ¡lido.') + '</div>';
-            }
-        } catch (e) {
-            if (alertEl) alertEl.innerHTML = '<div class="alert alert-danger py-1 px-2 small mb-2">' + e.message + '</div>';
-        }
-    };
-
-    window.handleLogout = async function(event) {
-        if (event) event.preventDefault();
-        try {
-            await fetch('/api/auth/logout', { method: 'POST' });
-        } catch(e) {}
-        window.currentUsername = null;
-        window.currentUserRole = null;
-        localStorage.removeItem('mailadmin_user');
-        window.showLoginScreen();
-    };
-
-    // Garante que o form de login e verificaÃ§Ã£o inicial sejam ativados no carregamento
-    document.addEventListener('DOMContentLoaded', function() {
-        console.log('[MAILADMIN DOM READY] Inicializando verificaÃ§Ã£o de sessÃ£o e formulÃ¡rio de login.');
-        var form = document.getElementById('login-form');
-        if (form) {
-            form.addEventListener('submit', window.handleLoginSubmit);
-        }
-        var btn = document.getElementById('login-btn');
-        if (btn) {
-            btn.addEventListener('click', window.handleLoginSubmit);
-        }
-        window.checkAuthSession();
-    });
-    </script>
+    
 
     <script>
     window.onerror = function(msg, url, lineNo, columnNo, error) {
@@ -710,39 +441,39 @@
 
         <!-- Navigation Links -->
         <nav class="sidebar-nav" id="sidebar-nav">
-            <a href="javascript:void(0)" onclick="switchTab('dashboard')" class="nav-link active" data-target="tab-dashboard" data-tab="dashboard">
+            <a href="#dashboard" onclick="switchTab('dashboard')" class="nav-link active" data-target="tab-dashboard" data-tab="dashboard">
                 <i class="bi bi-speedometer2 fs-5"></i>
                 <span class="sidebar-text">Dashboard</span>
             </a>
-            <a href="javascript:void(0)" onclick="switchTab('servidores')" class="nav-link" data-target="tab-servidores" data-tab="servidores">
+            <a href="#servidores" onclick="switchTab('servidores')" class="nav-link" data-target="tab-servidores" data-tab="servidores">
                 <i class="bi bi-hdd-stack fs-5"></i>
                 <span class="sidebar-text">Servidores</span>
             </a>
-            <a href="javascript:void(0)" onclick="switchTab('dominios')" class="nav-link" data-target="tab-dominios" data-tab="dominios">
+            <a href="#dominios" onclick="switchTab('dominios')" class="nav-link" data-target="tab-dominios" data-tab="dominios">
                 <i class="bi bi-globe fs-5"></i>
                 <span class="sidebar-text">DomÃ­nios</span>
             </a>
-            <a href="javascript:void(0)" onclick="switchTab('mailbox')" class="nav-link" data-target="tab-mailbox" data-tab="mailbox">
+            <a href="#mailbox" onclick="switchTab('mailbox')" class="nav-link" data-target="tab-mailbox" data-tab="mailbox">
                 <i class="bi bi-mailbox fs-5"></i>
                 <span class="sidebar-text">Mailbox</span>
             </a>
-            <a href="javascript:void(0)" onclick="switchTab('spam')" class="nav-link" data-target="tab-spam" data-tab="spam">
+            <a href="#spam" onclick="switchTab('spam')" class="nav-link" data-target="tab-spam" data-tab="spam">
                 <i class="bi bi-shield-slash fs-5"></i>
                 <span class="sidebar-text">AntiSpam</span>
             </a>
-            <a href="javascript:void(0)" onclick="switchTab('ferramentas')" class="nav-link" data-target="tab-ferramentas" data-tab="ferramentas">
+            <a href="#ferramentas" onclick="switchTab('ferramentas')" class="nav-link" data-target="tab-ferramentas" data-tab="ferramentas">
                 <i class="bi bi-tools fs-5"></i>
                 <span class="sidebar-text">Ferramentas</span>
             </a>
-            <a href="javascript:void(0)" onclick="switchTab('studio')" class="nav-link" data-target="tab-studio" data-tab="studio">
+            <a href="#studio" onclick="switchTab('studio')" class="nav-link" data-target="tab-studio" data-tab="studio">
                 <i class="bi bi-terminal-plus fs-5"></i>
                 <span class="sidebar-text">Studio</span>
             </a>
-            <a href="javascript:void(0)" onclick="switchTab('settings')" class="nav-link" data-target="tab-settings" data-tab="settings">
+            <a href="#settings" onclick="switchTab('settings')" class="nav-link" data-target="tab-settings" data-tab="settings">
                 <i class="bi bi-gear fs-5"></i>
                 <span class="sidebar-text">ConfiguraÃ§Ãµes</span>
             </a>
-            <a href="javascript:void(0)" onclick="switchTab('usuarios')" class="nav-link" data-target="tab-usuarios" data-tab="usuarios">
+            <a href="#usuarios" onclick="switchTab('usuarios')" class="nav-link" data-target="tab-usuarios" data-tab="usuarios">
                 <i class="bi bi-people fs-5"></i>
                 <span class="sidebar-text">UsuÃ¡rios</span>
             </a>
@@ -8342,30 +8073,274 @@
 
     function showCreateCronModal() {
         document.getElementById('cron-job-id').value = '';
-        document.getElementById('cron-modal-titlexœì<ÛrÛF–ïùŠ67ôe6Š%—,1edI#É[[•JIM I¶ a4@IãáÓ>ÌÌ<Ïz÷aj¶*oûú¡ı„=§»âJBã¤fF®2	¢qúÜonkà$ì:ÙaÂÂ„lëHÌ)ÙMĞÛ¿Üş· »SzÔ£Ö×Ÿóç	7`¼3eÉÈgøõÕÍ×·ÜX„v3É[2Ÿ¹‰5pæÔO‚vS	`;Ã	iÀlFi	HçÇ¥;c^ê3ƒOÆÓYg(ì—¾ÖPyB~¥ÿu†æŠ  ¡·’*>!ıu”Å<Jì	÷Y‘Gƒµi|ìaH¸ZsîˆCå©FBvEÆB$2‰iä¼õW¡ÄhÂö`
-5qäL\õŞâ3õ1IC7Qæñ'Æı·b|àÈ‡|b@N&~„\=HîQĞ&gÂC¯ÿ–lï·÷Èöö6ÑO—÷~˜%i~ıYGÕ€glîx?À$]5+@²í„'>³j6=ri\²ê²È—wœâ'µkDo<ÜºRv÷Bß%¿ÿı±\aøÅ4^ã3ËgÔŒ›ój}ïâS:
-Eş>QŠÔ¯û	£aÛ÷123HàU,ııÂÓN™„G
-3ßÓÆ¬
-ÍßcäPL%~ì€rŸD4¦ä59İEúpÓN„½ÿjP`ôC¬²sd~vuÛ²¢›d&Âçd(¢dˆ¼ ^ÀÃ¡Ö@©~)BÄNtS˜xA˜/Y› çêé1uß¥ÑFDøJ2®<á¿£“JrNÇÌ‡O5á¦dæ¬›ŠíÙÅÖnä{ßKƒˆØ©&[ÉØ‘%Y8£†÷OŸ=·ôm²C†sµ4ä°(`õº
-ˆLA.h˜pÑ`#‚Ğx
-Q:³Ë]]}™
-Iú;ÏŸ}NåÆlrÓò}¾Iùb²¥Æ7¤sIóˆõ+gú;‹ØAÂáêK`‹ícMy¶3ôØ|¦¾!8‰SVk£—7¡»tñ£œÂû;û–]†Ì<@²×¬³½=t€£,A¯öšZş¼À°.áF_­ ñU7Z7[ ”‰(EAÄJç,ËñÓûo-ßËIyU~J×¨[»“Ä<èªĞª9ë†”¬š˜Ş]ÕZ°{#Æx×m4òV>`Ü½È²Ï|hÌVÉË‡d¹7²UÊ4Kºy}uŸL¶+z	p»rí©x®¯ÿ(Î_Geœ8àQE3ªAŒú,Nú½“	‹ø1z?º3J9{L¾‰ÙûôöB—SÂà×=
-"Rr¦&$¡ÏCæôåÕÆKÇ\áqÀ 'óˆ©¯YÖÉ›s	>9>;¯‰$ıÂØË!øšI„C¸!‡ŸP÷—¥iD‘•I|Sa‡È£	…™èå	™°Ä}'!RÀü+ãñOS±e>×îÏõX,·Èb™rİ>¿‰˜båÁ]ƒÌa‘EÀXx7[ä»³ã#ªHPùä¦_ÇÿP/ê ğ¯âxšU”e5¤­nÃ‚¶Á*¹•ƒŒZ7ÇÇ>)`2P±|V¾,(šŠÃ]e	(z' zèT˜Ul§HêÏ)DdêÂñÈzL,øVEû]_H¦ëÔz=Zêê™ &‹®rA@5Üé³ªÙ.¾Å± Ô ºÄw‹|şeÄ,.c¸…Œ6.N_J–*±5Ó©ŸGWeW3Fº£­6Ü¡õr•¥i÷ğÉ,-£¹IÖkQ»†lDìÔOXr—	MR()è&5 NCDğH\eâG+-bUÄèš¹i¢BCïó8pÑ#º{¸q‘9„™£X ?ÇA”x8E„ªN€´Š«e( Uª¨NMtªÁ…B3¢ª2¾BjÑ),ieš^ÙEã4¨¢P3u‰¾EO˜xB_ZÇ¿±”ŒZÔÅ”««×h…Tã£¯ ÒÌñ\	‹ãü²¨5W4Ájm^=¬†ãÍú1]5VüXU‘UZŠ6áqĞ¿Ü‡ù–BC}­¹ìÚõSh[òôåå a-`£±¬Æû£ÃÑù¨®È?‹Ê™ó ™‡äé3‡Œşıäğøtwÿø”¼Ş==ØİE†äì·‡äìüÍşÁq¥¦gÉÙ{ÿ·)‹oúò½Î®“zÈ×ÕŞğ¤ıa4WİêÇ*x©V5swÓFí%Xøf1ÖŒ„ë @Ö–ú‰´Õà;ÃÀÁu±¸Úi˜œEteMª@‰+¨ƒ`p*Eº€Ğ¬Å¢Ÿ¨ÃQÅ&Ê•x4™¤¶zHUhê)kP©ÅÊ@•IÂÿß¿>4ëe‡£EuZA£LáWÓ¹†ÉêÁ`Åô—™óÏ!Y¥Rn÷ÔÃ„m|>äD1Äû	>õ@F2 =ñÙ5ŒãÓĞæ	¤í¢—ŒÉÛT&3åí˜%WPN’`l?mHCyöó|õ™™®·ÓˆVµö9§4²Ÿ­€¢ ñÎ˜“1·ÑcQíem—Ç®Ï°Eà“‰´ÿ…àD¶œAş÷ÈÆUÖŒ½C¾f&Ày§PNóPò˜’4 øª9Ğ¥Q@_5Mâ;/†øt;?ÖÜ§I‚y;¤¼@¨ºèåt'@)–$="BRáwÀÓû¨ÿR¥¶-¢'jF«ãË™M½;áñ)_±mœE^ÖzåÔdm'ByS0‘ºÃ9:¹²A¿Hâ‰P|È[ÂíŞÓ'Oş9ç¹R£¥ê{ ß#Ñık`\A¹e¤ ÚÚÖHù-.`ö3"¬h|ƒŒGÖ’î¢z…"[åƒ$ûÅ0ñ`8 Ú¥ù.½œ›ôu%ó…*Â¿HÀ†y²~I¥šÂhËÈs]Ùoz§zzœòƒšÔî;´ªjö”%ùóªã¶¼eÌÈc²_'ªæß•PfÕZ7æVq¿·‹Eª;VğÄsî5¨uÜ²	ûWÅ2¿ıèÃÈ»X—"Á~•[ŠX¼+ŞéÖc±`Âş£©"Tú»ûyÎÙ…Ôjç¥§²Kàà8c.S­i¨s³ı×p/&#ƒRjRy“æÒÔG0äBe$âópFåe]úYj2È“”`ynr/¹ ¬³X‡’¡Ì«1síø,œ&3µxò¤™« »M>j¶sªr5ˆáà
-f¹?¨¨9¹ËÜÉ¼š-¸¡JduAVïJ1|×S8±&.Ø·Ià×5–³:ZëhğbéÈ.ëˆW}|ƒ´0_’*19 QßÅÀ€ôY‰lÆïÈä
-<³ï‘	ÙD(Àõ»ŒÈ€ú~o§D£«í\œ·‚‡}ËÀdVÍ—…Š·”<^¬û
-©e¡É(bY“‚ÕóŞÎ^æh\LÒÛËM‡±p†AY
-ÊBÄ!õ¨ó`‘Õ[2Å„>Uçˆ†½NÀÍ]tí!Àx ®¾wPşL­7ƒŸ+ü„	íò"\0?C {/ñUóR)O ‡u{;Go_qd“H¸¬ÚDù"	dr2¹Á<: ×ö÷’ÙyşäItıu¨wQæe<Sq²t‹Š¢–î)¡5ÈkÑ¬Å-C
-êİŞM@VC-à0î”ÏËm«÷˜°†ÀÛÙŸ[OŒÿ¶îá¿áá@6™ê',Åtëäo¿J×Õbš]K±•#Ô(HE8İÉT¯%ÃØ[Õ×C,0«)F ÁˆX²¿¼W†Ö·ï¿×:±S8¯Çl£/5¯±(­ ñ·æLó%cÂuĞÁµŠØµIŸZ3§’²4Ä×Zcõ©CÎO¿İ%û#²ûfÿàüøô@_ÜşáöO£32"ÿ::íì¾ã­¸Ú‡‹Ñ™‚£ŞIã„B:ŸX(~ÿƒñM½Nì.çƒ:	®«½ZÓgä [·«­F•7åµ¬"¿µ¦tÿêSÖí{895u»¦O÷‚$›¦1oÿB«•{™uºÎú†ãòßîÙz,êv‚–ùÒ4®qÍ	ÜQ4›³˜'7›Ñw Ocwöo*»Zf=î"ØÌ{­±T{¹Š½Ô¬Ús]á±7§P•D"„›ı"Ë‹/2Â[—˜¨†#5mƒK‹Ë–•ÉRİ¸>iLJ@~9ZÏ[€b«±ÕF6©4È Vò¢%.€ryR‡”½Æ“8áPî¶£¥AÈ
-Rº¦Ì¥‰8}ÿÃÀÑšÙç˜ñs(|æÌW¥ÔsÀLT(ı^âS'µQ‰®„ÁHø‘·S¦@4Ä‡Ñõ¬•®k‹™ìHŒşœymt)H°‘.­Ep|ŠE?*ÖÅ›zİ]Õë5WTe3Ê™©^Ò+³wKEµšæU@®/Ê7x*i‚œqæ{ºáBŠMÌœ¥ÁØp~“Dè}oÊá† _
-“8ë»€úÃ'¸=Êes4Êşškùõì¨qks@±¹:Ç$Ôúõ¦ê%áR¥=V¿§8€¢m%ßêíüßŸÿü‘œ¥2b<íÕ·^÷uk®~Zé,Zú	ë16é¡^kšá
-Gó?ş/9RŞşˆ8í&J“v
+        document.getElementById('cron-modal-title').textContent = 'Nova AutomaÃ§Ã£o Agendada';
+        document.getElementById('cron-preset-select').value = 'custom';
+        document.getElementById('cron-name-input').value = '';
+        document.getElementById('cron-schedule-preset').value = '1h';
+        document.getElementById('cron-expression-input').value = '0 * * * *';
+        document.getElementById('cron-command-input').value = '';
+        if (document.getElementById('cron-script-filename-input')) document.getElementById('cron-script-filename-input').value = '';
+        if (document.getElementById('cron-script-content-input')) document.getElementById('cron-script-content-input').value = '';
+        new bootstrap.Modal(document.getElementById('createCronModal')).show();
+    }
 
-{Ê„<[AHÁ;Ü›’lÙ°Ğ.«Ëà?ÉA®„'8©“Şƒ˜§+ˆ‘ eîr‘ÊŸššd4RDÅªT0¹J«ÌBá²‡ B%=^*Æ
-m5­wEı	{öà5•k€\b{ü7¬àƒ\1Cyw™áµ	íàñ½±ûÁ>Í¢I;ğÌ•–ØÓÖdléæ€£l¯Á—õa‡62€ı)@6ˆ2×/•zT¿=f[¦\5çú†I•irçnD)Ñ{cñ‚¡\$fÌÊÜêÖÑX×3Y†ÃD\Ÿãä<çiì2óƒaÍš–É:Î}ş!sëÙœ×‡-²”i€Å`†-.rá+ÎfK1ş²•fƒq7Á6ø/À¸¢ÜÕ®oÁ0p¦¥ÓXÖ™R%x|]÷Ï´–Í&‚§k©>DšàF‚¼V^v \İd…[çúVS÷Éá®ƒ…5Èûà{"â4&><Ú°dåóh,hìé4iu§ên”dn$„-É‘éÒİŒ íêPúw%K;25ˆ†&—ÊŸ™†RWúÚ¥®²¿µmºâ@şcë@s^X_¿Z‘&›XÖœ'7õù
-­µì%FWwdâB?fëm·†NØnêq­½÷ì„Qğ7ÚÉø3Š%‰¢R€ V7À¨bìú•fšİ¹G•Jwc7ÛüÒp?]ûKÏ‡Îñ¥æSs—ªÈñÁâ¤»yà’{÷ï{i2§Zé?æU»Ñ\°ã­Ÿ»H‰HHıb•nÖ‚WÖè`—›JöP¨ĞšZ\1ëo¿½ú? HñKYøÙ›½½ÑÙäàu˜MÙwbŞ—Á~³{p8Ú·ĞPÊ7F§§Ç§M³u©„>U¦ï—óünÉ_%g¯D{TĞ$(è`6âÜ\-û|:K
-µ² 5t´)w·T³i<ew(ŒJ»é¦eŠ]î±„r_>4;·æå~1+?şM&ı=df¹'|Hb–§dµš¿òa!cb.b'/œ«îöè_.{Xûˆ‘z^‰ìh¸kADs’ûíÕ¼érµî\’â: bÆÕ¯æ5ÏÛPb( ßÊ	‹õnì¶İ§ e%Ñu3á;ÁI”·]]'!Bˆ€c5oşÊvµœÉĞVİÔ\Úte™MWT½(Ò–cª–Eõê€~-Cq|$[²ì¥5hHy7º48lÌ`4I‹¡Æ/a›ßlXÛ‘¼T»|É¤ã–dü«,Éßy‹aÌJ52…òI)O}×—Ö›åŒë÷™©)€›äKÂ
-;Úî¶	°¬”G"auu4~À=P(!£}êWF¨Ö¢²7„
-f»U+ÇÒÏ«–:Œü¢6Sk”¶Š]ØÇšçk¶WßÍl¬3³!ºèXq!ËWÇiılf’¡ğ‹5½ÿş5$8q£s©[qGåmŞ:‚GráqOz*·Z?½ßÜÃ8ƒ«ù–hŸ”§v®Ş~Äe<¼¡ŠÊ\YZí=%”oÛ•4àğ`Æ|
-Ãõ€Íg]aßrE'{™CÛ­êä`D•\øÉñ¸Ôg&l«9¾®(WÛÅô¸K;Ieˆ*#&Hx¨‰Çª²gã*kÎiüQ¾pŠ£ÒÇå«÷]œ—î3>Üo}C±-Ò¥¢¶%…e®oÖ_‘	¡0«
-²Eñ¯¢„
-”×9U×ÄJ‰¥îKÆ.Í—¥W2µâ™£üv§"¦Õwá;ÙªIOR(X÷ûıöy÷|ttû‡Ûÿ8Ş"˜“•®°¼ƒ$q›©:Y0Àı¦Øj…Œ:1IBŸS¹‰ì¹Ùl'fã#ŸÀdôáŠÊ`TõÒ¼‘èSÏò€½Á×HIü²"¾Z›0çPHìnF¬…um¼ë–ÑìèÌ¡˜ãÆEvÕ´Rï(l¡±usbÓpÜJ ¦’«)‚4$”y[À|¼¼ãË»U–“dô¸àYçsëõ‚vš‚µôq78›z|†;¯Ôjz×Z-)€|!U˜ágì…Ò*t¾—£‰ˆG$Ñğ"•‰ü«â~ÄÌŠ† mT/·Atã&©©WåTÇ5£JíÍ/T/	ÀWtaakß]ŞiŞ0ŠcGyçCpmõp©Ø9gÈLUÌòR“YWŸY RÓN¾Z›uüš ´Úä{£¦ëW›·vFpÂÎ\Ù'}i¾UÎÃ)YÓ!<ƒoòœŒH6Õ¼ôì³Â	1{,¼ı#ˆõù‡âè…•uõ<ÓÏITC\7ìí¨ª‡CU)w=ïULCï$xˆœ>o­!ÍÅ1Gú É¬°ÇÓq‹ˆ²~ø”«}¸ÆBxAù+B]åÊHÀá´^äç ë!´0÷¾€2,¶ ×ÿ1Î X|ûm‰IŸ]o‘ 7¬± ÖÃm‹3-skĞõÙ«±9÷ÆeÊ"Í9YÛÆ¿ªAğ æ@Kc@sç)m-å®Z‘·Ubc¡S°0]V&ª®î=ƒ/T¿±ªPÊåË±wÈ%Î€åÚËo0¡ÈĞ‰I¤Pî–Pd}a<ækUc¸TÄñê´¢Å4Ao1ÏbÌ}oŸO&%³,2=¾ı«=çRWÛyqdÏJ"yˆGMªZ<{7œÆíŠê÷“ù\÷Ğ‘Ù»€®„GO*şã…9ğ}¾¡âç,	üÏş  ÿÿ šNo
+    function editCronJob(jobId) {
+        const job = cronJobsCache.find(j => j.id === jobId);
+        if (!job) return;
+
+        document.getElementById('cron-job-id').value = job.id;
+        document.getElementById('cron-modal-title').textContent = 'Editar AutomaÃ§Ã£o #' + job.id;
+        document.getElementById('cron-preset-select').value = 'custom';
+        document.getElementById('cron-name-input').value = job.name;
+        document.getElementById('cron-schedule-preset').value = job.schedule_preset || 'custom';
+        document.getElementById('cron-expression-input').value = job.schedule || job.cron_expression || '0 * * * *';
+        document.getElementById('cron-command-input').value = job.command;
+        if (document.getElementById('cron-script-filename-input')) document.getElementById('cron-script-filename-input').value = '';
+        if (document.getElementById('cron-script-content-input')) document.getElementById('cron-script-content-input').value = '';
+        new bootstrap.Modal(document.getElementById('createCronModal')).show();
+    }
+
+    function applyCronPreset() {
+        const preset = document.getElementById('cron-preset-select').value;
+        if (preset === 'preset_log_ingest') {
+            document.getElementById('cron-name-input').value = 'IngestÃ£o de Logs de E-mail para MariaDB (Log-to-DB)';
+            document.getElementById('cron-schedule-preset').value = '1h';
+            document.getElementById('cron-expression-input').value = '0 * * * *';
+            document.getElementById('cron-command-input').value = 'python3 /opt/mailadmin/scripts/mail_log_ingestor.py';
+        } else if (preset === 'preset_vmail_backup') {
+            document.getElementById('cron-name-input').value = 'Backup Automatizado das Tabelas vmail';
+            document.getElementById('cron-schedule-preset').value = 'daily';
+            document.getElementById('cron-expression-input').value = '0 2 * * *';
+            document.getElementById('cron-command-input').value = "mysqldump -u vmailadmin -p'senha_vmail_123' vmail > /var/backups/vmail_backup.sql";
+        } else if (preset === 'preset_expunge_antispam') {
+            document.getElementById('cron-name-input').value = 'Expurgar Logs de Antispam Antigos (>30 Dias)';
+            document.getElementById('cron-schedule-preset').value = 'daily';
+            document.getElementById('cron-expression-input').value = '0 3 * * *';
+            document.getElementById('cron-command-input').value = "find /var/log/amavis -name '*.gz' -mtime +30 -delete 2>/dev/null || true";
+        }
+    }
+
+    function syncCronPresetExpression() {
+        const preset = document.getElementById('cron-schedule-preset').value;
+        const exprInput = document.getElementById('cron-expression-input');
+        if (preset === '1h') exprInput.value = '0 * * * *';
+        else if (preset === '3h') exprInput.value = '0 */3 * * *';
+        else if (preset === '6h') exprInput.value = '0 */6 * * *';
+        else if (preset === 'daily') exprInput.value = '0 2 * * *';
+    }
+
+    async function saveCronJob() {
+        const jobId = document.getElementById('cron-job-id').value;
+        const name = document.getElementById('cron-name-input').value.trim();
+        const schedule_preset = document.getElementById('cron-schedule-preset').value;
+        const cron_expression = document.getElementById('cron-expression-input').value.trim();
+        let command = document.getElementById('cron-command-input').value.trim();
+        const script_filename = document.getElementById('cron-script-filename-input') ? document.getElementById('cron-script-filename-input').value.trim() : '';
+        const script_content = document.getElementById('cron-script-content-input') ? document.getElementById('cron-script-content-input').value.trim() : '';
+
+        if (!name || (!command && !script_content) || !cron_expression) {
+            alert("Por favor, preencha o Nome, FrequÃªncia e o Comando ou Script Inline.");
+            return;
+        }
+
+        const method = jobId ? 'PUT' : 'POST';
+        const url = jobId ? `/api/automation/jobs/${jobId}` : '/api/automation/jobs';
+
+        try {
+            const data = await fetchJson(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name,
+                    schedule_preset,
+                    cron_expression,
+                    schedule: cron_expression,
+                    command,
+                    script_filename,
+                    script_content,
+                    enabled: true
+                })
+            });
+
+            showAlert(data.message || 'AutomaÃ§Ã£o salva com sucesso!', 'success');
+            closeModal('createCronModal');
+            loadCronJobs();
+        } catch (e) {
+            showAlert(`Erro ao salvar automaÃ§Ã£o: ${e.message}`, 'danger');
+        }
+    }
+
+    async function toggleCronJob(jobId, enabled) {
+        try {
+            const data = await fetchJson(`/api/automation/jobs/${jobId}/toggle`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled })
+            });
+            showAlert(data.message, 'success');
+            loadCronJobs();
+        } catch (e) {
+            showAlert(`Erro ao alterar status da automaÃ§Ã£o: ${e.message}`, 'danger');
+        }
+    }
+
+    async function runCronNow(jobId, name) {
+        showAlert(`Executando "${name}" imediatamente via subprocess...`, 'info');
+        try {
+            const data = await fetchJson(`/api/automation/run-now/${jobId}`, { method: 'POST' });
+            if (data.success) {
+                showAlert(`AutomaÃ§Ã£o "${name}" executada com sucesso! Output: ${data.output || data.stdout || 'OK'}`, 'success');
+            } else {
+                showAlert(`AtenÃ§Ã£o na execuÃ§Ã£o de "${name}": ${data.output || data.stderr || data.message}`, 'warning');
+            }
+            loadCronJobs();
+        } catch (e) {
+            showAlert(`Erro ao disparar automaÃ§Ã£o: ${e.message}`, 'danger');
+        }
+    }
+
+    async function deleteCronJob(jobId, name) {
+        if (!confirm(`Deseja realmente excluir a automaÃ§Ã£o "${name}"?`)) return;
+
+        try {
+            const data = await fetchJson(`/api/automation/jobs/${jobId}`, { method: 'DELETE' });
+            showAlert(data.message, 'success');
+            loadCronJobs();
+        } catch (e) {
+            showAlert(`Erro ao excluir automaÃ§Ã£o: ${e.message}`, 'danger');
+        }
+    }
+
+    // 12. EXPLORADOR MARIADB / SQL STUDIO
+    function setSqlQuery(sqlText) {
+        const input = document.getElementById('sql-query-input');
+        if (input) {
+            input.value = sqlText;
+        }
+    }
+
+    async function executeSqlQuery() {
+        const input = document.getElementById('sql-query-input');
+        const thead = document.getElementById('sql-results-thead');
+        const tbody = document.getElementById('sql-results-tbody');
+        const rowCountSpan = document.getElementById('sql-row-count');
+        const timeSpan = document.getElementById('sql-execution-time');
+        const alertContainer = document.getElementById('sql-studio-alert-container');
+
+        if (alertContainer) alertContainer.innerHTML = '';
+
+        if (!input || !input.value.trim()) {
+            if (alertContainer) {
+                alertContainer.innerHTML = `
+                    <div class="alert alert-warning border-0 shadow-sm d-flex align-items-center justify-content-between mb-3 rounded-3" role="alert">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-exclamation-circle-fill fs-5 flex-shrink-0 text-warning"></i>
+                            <div>Por favor, insira uma instruÃ§Ã£o SQL antes de executar.</div>
+                        </div>
+                        <button type="button" class="btn-close" onclick="document.getElementById('sql-studio-alert-container').innerHTML=''"></button>
+                    </div>
+                `;
+            } else {
+                alert("Por favor, digite uma consulta SQL.");
+            }
+            return;
+        }
+
+        const query = input.value.trim();
+
+        tbody.innerHTML = '<tr><td colspan="100%" class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm me-2 text-primary"></div>Executando instruÃ§Ã£o no MariaDB...</td></tr>';
+
+        try {
+            const res = await fetch('/api/troubleshooting/sql-query', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: query })
+            });
+
+            const contentType = res.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                throw new Error("A resposta do servidor para a consulta SQL nÃ£o Ã© JSON vÃ¡lido.");
+            }
+
+            const data = await res.json();
+
+            if (!res.ok || (!data.success && data.status !== 'success')) {
+                throw new Error(data.message || "Erro desconhecido na execuÃ§Ã£o da query SQL.");
+            }
+
+            if (rowCountSpan) rowCountSpan.textContent = `${data.row_count} linhas`;
+            if (timeSpan) timeSpan.textContent = `${data.execution_time_ms} ms`;
+
+            if (!data.columns || data.columns.length === 0) {
+                thead.innerHTML = '<tr><th>Resultado</th></tr>';
+                tbody.innerHTML = `<tr><td class="text-success"><i class="bi bi-check-circle-fill me-1"></i> ${escapeHtml(data.message || "Comando executado com sucesso.")}</td></tr>`;
+                return;
+            }
+
+            thead.innerHTML = '<tr>' + data.columns.map(c => `<th class="text-dark fw-bold font-monospace small">${escapeHtml(c)}</th>`).join('') + '</tr>';
+
+            if (!data.rows || data.rows.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="${data.columns.length}" class="text-center text-muted py-3">Consulta concluÃ­da com sucesso. Nenhuma linha retornada.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = data.rows.map(row => {
+                return '<tr>' + data.columns.map(c => {
+                    const val = row[c] !== null && row[c] !== undefined ? row[c] : '<span class="text-muted font-italic">NULL</span>';
+                    return `<td class="text-truncate" style="max-width: 300px;" title="${escapeHtml(String(val))}">${escapeHtml(String(val))}</td>`;
+                }).join('') + '</tr>';
+            }).join('');
+
+        } catch (e) {
+            console.error("Erro na consulta SQL:", e);
+            if (rowCountSpan) rowCountSpan.textContent = '0 linhas';
+            if (timeSpan) timeSpan.textContent = '0 ms';
+
+            if (alertContainer) {
+                alertContainer.innerHTML = `
+                    <div class="alert alert-danger border-0 shadow-sm d-flex align-items-center justify-content-between mb-3 rounded-3" role="alert">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-exclamation-triangle-fill fs-5 flex-shrink-0 text-danger"></i>
+                            <div>
+                                <strong>Erro na execuÃ§Ã£o da query SQL:</strong>
+                                <div class="font-monospace small mt-1">${escapeHtml(e.message)}</div>
+                            </div>
+                        </div>
+                        <button type="button" class="btn-close" onclick="document.getElementById('sql-studio-alert-container').innerHTML=''"></button>
+                    </div>
+                `;
+            }
+
+            thead.innerHTML = '<tr><th class="text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro SQL</th></tr>';
+            tbody.innerHTML = `<tr><td class="text-danger font-monospace py-3"><i class="bi bi-x-circle me-1"></i> ${escapeHtml(e.message)}</td></tr>`;
+        }
+    }
+
+    // 11. TRILHA DE AUDITORIA DE AÃ‡Ã•ES E GERENCIAMENTO DE INCIDENTES
+    let currentIncidents = [];
+
+    
+    async function loadIncidents() {
+        const tableBody = document.getElementById('incidents-table-body');
+        if (!tableBody) return;
+        tableBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm me-2 text-primary"></div>Carregando incidentes de seguranÃ§a...</td></tr>';
+        const xœä<Ñr7rïúŠ1ËååÖy—wÎU(‘*Š¤ÎôIÍ¥ïå*eag°»°fc`†ÔFÇ§<äò~Qòp•Tù-ÀÊ'¤`€f¹”dûª¢*‰Fw£»Ñht÷€–5©ùœå5ÉA’ñ´)hYO—´>Í)şúl}–íX™N¤Â,òhützMò†&ùK2"y>zü(iÿ¥¼”u"é5¬^oÉ¼Å~ {"ÒÕŸH~?gDœ°²jjŸ­Ã³ëäu«d¤&° ¹!¬N´NWßH^î¾Ş#Û«oæ9•+ÎkV.÷`5–ÁÚò©6ÕÁçïh™òŒ~wyvÌ‹Š—0¹+“o¿0Š {FTè¨Írk’ñíëñcO¶Hv•._|¡tš¢rÜÓ¹Ó»æ5ÉOï·-p™(ÜQoA³hËhl8Nkú¶>æe|»•eªp_~rÒB¥`‰-eBT–‹¥Y[–=¡”¥¦v7Q¦?ÿÓxª=s—%‡	›æ°3 ËÁAòˆÀ¦f«¾Ç}Q£N
+@/—õjH³Šo«`k¦X5ÇÓë«A½!îQLP¹¥b€Éókšé¥85Ã¨^Ú‹
+°ø’d\9Ò8ù7©×`fÖ_è6rüÓFXãÌšì wŒ¬1ÇÉÓ$Ùë†§°Ï²5 2ìoc²&cñl¬K*¾¾zùÄ=©Åá“:AsY‘ò`çw’4'Rì u&)0‡°«~/ššfIµü~çğ	3hs–ÌÙD®Í³Iº¢é-›4¥R&9ù}’Mæ9‡™b>ùï±ÃsZ®š"1zÒ¼BÒe#Hy÷7’`\*k[ò"áÀüKÀO{„Éé“½:F ş(ÜiAëF”›6&nÀª©vADôéĞ¤9U×Ó3’-©²%ZĞšEAçK¸8@“ŒÀÍ° &/9à¥tçğÿú×÷É¬‘e5²‡Ô1ep»A† T hc°ˆHŒÿî—8#åÒìùÍŠÁŞ„’ÿÛÿ$\Ê»ŸP¦£šüØĞanšKQä«Š8Ñáƒ5¹!¢„+U«{ğ&¶ÿœY'¼ÀESXô”ùİe$ì2KoäÏ­ÍûäôTá[8Öí£¸K«ÌBÉrŒ @w±Á[5­ı-•yA÷æËE8{fwÙŸÉQy÷>grÃ
+ñ²ÂËö:fÏÊÿ0Ş—æ6fnB©g —¼zÆùè„ÌŒ³ù•È’æCÈeJ*úu]äJš„-*ãó© n‡ïI­râÉh|«"ô¦5‡'BÆ®­T7“9Ï³ÎÀQ‘êœq(ïëu¥St{À•XÀøKGâ\‡AÒœáâÌÚFòF¤´´¦Ù(Ãı–ûü	÷›Ùh2´—²)
+<Ö­´LVÕŒ—{+õhËÄ/¸çÜ·1YôÁÀ•º qÛ†°­5UÛä;÷ló¼©kŞÉY—	ü7y+ÕŞÔ9+é¤Í³“ğv6}s°“òjm<ê_Êİ‘§Ç¬h”:,Óâx|;ï$ÊEvyÅˆHr )X£šs"2&=ÙÓB~
+ML)$$a:²™CºkÒ¡wÿ¡jé@FÅf!"ºavøÕ$e"Íé¶úïºÊş‚™×½´o<ı3PÆ­n“”@ìÒşmÏ_?$Mnï²xLßÂ°Pö€A‚VAMV|*Oä¼Q°a—ËıÄÛ:…,É’¶çQÃÑ]§»íOä’ØES¦êXçœdGMÆ´÷º&hËvc„M%A…
+Á9[»öÅ{î3ËeäãŸºqâ5äYÈDàúÃ‰,ĞØ_iædêp|¬m^BÉ;“¯–$JK5ÆKm1¢{JMcoİ£j$Û²FÜOÛüÒ|¹ö—^ƒãSm§x—ÊµøøöÔ;ØYïÃû^Z”)(İh«v…/Øqê×.Ò€D¤$¹[¥kôÍ5:œ
+&a›¼óàTè?O-®†õw>\}Ï?¢HÉ½,|öİññél9xÈ3–}÷9ÚôŞgûüèìÅéÉŠ?qzyùê2¶Ú6•Ğ/•éç~¿]ò×ËÙ–x7	NEò Q™ãÕrÎ–«Ú©•õˆ£ãˆ£ŞÃRÍí¬HDÕ‡›Ğ)6¬cÌ3Z–ËÍÎçƒyyîfå¯ş¸‘ş?df6~LbfS² ¦€Äï,smP’kLÌ¹˜Úaz# @\j»¯»ÖÙ	J¤èÕ–ïàF›Ö+ZîB¶DS¸zor*êİÑ	„s	¹€Ó—M±ZAhEIHr÷ÊA¼
+ ö—rAÅİcÇì³Ñ—ØæR¡ÒÛĞñTíè}+Ÿßı'Oœ%•m+¦ºNBP€)®Ğ¶qüoÈu«›ÀÀ*i…S¶`¢ KPI }+(’p·%^ƒ~€æúëÀİßPdeˆ‘´3ÙS(ŒÂ”÷“~Ü‹f0Z¥Û=-_M_™¼®W<Û‡‚úÕìjd­åj­¿mè½‹¥%İ6)ÌÖ¿ıÎJb?™`¿˜r
+óÛlßíIÑ—êƒÄ1§Tã”OÊyôùïr»Eğq— k&¿IìI²ŞT€ùNyÎkº£væÀ=*›Œç“-±O®¡úÕhWtí~P!§_×-õ5‚Nl©ï¤_ó+Jàò†ø]2j¿ØM®Ö	©ÔEÃîı B‚‡°BİO¾™½:‡Ûl±Ş}×6\÷İ.ì—Úæ·ãŞeõ1Çf4Ó7¨XñCVÎşÌ¯vLŒ·¥æK¸†_B‚—âQSs¯[ñ@çE· æPkìé¥&ıüqóïüÚÙ]¼>–pà E(îŞãg<œPE¥u–Á‹öwH¹VÇ¥ò‚ˆ½‡‚-½İÄ3µ^Àa°Ã¾å†Nö2µ„“vÓúA0úêhš1‰ÉcÌkÑĞÇ‚_m»éñ6í$•!ªŒ8Aí º@M<úæùä.«ñxë™õã)¶›»Ÿ6û#şÃà¥ûŒ·lË•¤sÔ¡¤Ğ·ú§WÉ‚•P˜õ7rÀñ_Ï	4-zb¯DÒƒßLRìÒÜ0éV'­ã‰--¹ £Acl8«mú{Ñ@ÁzÖßN®NÏïşõî_^í'm®uA^¨«¾­€Cû#¡¶ƒq¬„Ä~/q¸!£†Ê‚šãØ5‘Ÿ"{”‰Nä82§ÊêÀ¨êlBÓ¦ş€ùSí[AD»KüïëÆWß&ÀI »õ)$keèC.±ï­7–é¿¦âšÑ›¾²íó°)3ü Ñó7DÆ„³¿9ç;ÂpTÚ¥¡¶E…4T”fû`|~€áÍ¬.œEŒ~	L {:dyksı½à‚^6pZva=
+dŞÏ0óL}­CÿY}R€ı…Ta…?EVÊ‘Óùî°§.N	ìDä!U{óoº÷+Ú~Ñ˜ Ë	ºWÙºyl×ÔS9Õq5ZáQ°*ê^,*€Ot1ÂÖ~ÚÍ`8Š¿Ø™OUt~¡mJ2üTæ¼¦hLUÚÏK±cİ§´€]ÓıZk:~1ƒçˆó‹¦Û^®!/ö{4Şi¿ ³”BöÉø®l9'í»Ÿ=M/€_ò\œ&İÜ£í$ëÂÓëcZŞ½Œdôù;ûvdºzYÛÏ©UCB7Ø»ŸĞ3>ƒ²u„|FšğŠ–GYöL2»–¾äÉci.âàÂNaÎ¼(à^õ”ÁXcIXQAùËK]åÊŠÃå2,ò-ëğ
+uÖ>áA–n[rıŸJ°°Å×o$»ôí~R°rEhQAÀ#S¸½¦s1X[³WïßÍ6ûšUÚrrÔolj|Ts` 1 ”ù¾Kîwû¡Z©·ï™ÑéÜ¶]V}MôCİ{T€-T¿±ïPÊîqìr‰˜\GùO˜PqDR)‘·K(L_n©a'©bsZ1p4Áoñ>¼Z	Ìóì„-Ş±t.îşkrÍ¤®¶mq^Z™HV¦‚—ª7o“!hÜı¸¨~ŸÌ®u}âJ Q6‰Ä½½ä9ŸÃ‘»Á²ñ¦“zcpG©Ğô$ã?)ÙÌ>b.Ò‡=ö(Àÿ×Ç ï(@ñ™{Án$ÔşÈ­GÓƒ‡”ß6,}ómCñbMzûrNRğñ‚}tJ{têÃµz¹rÒèsMåYùŒ¤o–ë—X[İ‡ãW¯fT­ÖÑ[Pˆr>3xğ«?Ÿs©Ã>bØÓ+±³êáWë“RâW…jG–ûı¨EuA~FsZÓ£BûwR?,ñ!1ìœÙaâ(‚…®õŸ[¼vÃ´Õºr¡³×—;Äó¥v`
+ìQÍù[‹İ#˜àÓ})—Õ "¸3rM3s,ú ~pÄc`‚»wvwF>V‰ˆ—t9û»a?c"Šø8ª|¤Ç9%ewÄ?:£ı˜sô =ìŠ‹Z«­.­+ub`ÎæØj1¿ûnÁƒXî8‚y…Æºä7®…øØy#WÊÑ|.
+¨ŒÖÚhÎ(‚õmÃU€pF¬+õ¼àŸfÍj‚¹yfi"s‡%-©€}:ùãÙËç\Ø£…G)Û3r‰çŠ¸ìn¸Zã¼ÇiS9=¯ÕÒ¯ğjñ‰-„7VÎÔG5KæÀâPĞ¸È0Œà9öë‰ÌøÔl¹R/P€ó(›¬òğYÉPÖœsı
+@ßU> À½pëA
+ÑŞ}‡¥]mNƒıİÇÀÆŞ
+ÅBŒ­Ô"éQˆ5Ğâ1dÓ!óŒÕšq€ÙFDƒh†.3™g´Æ®¡ÁïƒCºîf±Ú{°
+7ÄrÿjĞG0±@7Å´Ewcº¨ÕÚÓk5²ã ó¢¿òÅğª&DÚßŒö°RÚ~7Õ˜,¤`EO b›BÈàšq€yE±U«ÛÊ{˜Cå?M…ô~ÖêÑG¦z”~òä²˜ré.×>‡ŞL@ı‚]ÃL©^F•Ë–Ğ4…¸Ë˜a€wNo†Õ‹O<®¨l/—¸õ¨bÕ£j„`îG,}`ßQ–ç‚ÇêÑíA…{”‚.é±şcTÈ4€*€õ(ÊŒ
+_©RE:4áaS¦FŒĞø‰ioİØdÔ’*ù{Ö°<SµH ):G„ô¤04>´OUÃ•ÚMà |Ü¦ÄûáêqÀ³ƒ>N[A7t êÃúÊ½´§Atjrs“Mõé‘o;Ë…¦ó@¾„mëªgbi·R¿âÏÉ5Ç‡…ÒPÅg#\zõ\h"·mĞa,¢a3dh* 7±ßşîcĞúH5Ìõás‡}<­Ÿ8/ÕŸü&ñ‰>í×´LÖ,=n¿GØ¿òìó0ÆXÄç]5æŒ|,Ó Có{€¡Ó`•š<ßÙMÓ!õ·¤
+Ñ£ï‡è0ÛŠĞYğ ÌB¨œ/$îOnä1D¾‰²ÍÆBRw" =)åIûh\Ót€ WWQ© ´l‘H€}AJš{Ø$À¾Äˆó”p" 5ÁõJæSèø¨NúYQ‘T‘@Ÿ†q”¶ñ¹ø8ª¼Œ86’ÍÅ8t®İQv°aŠ¶·À)lï¡‰­5ÔMsqºZ¡‚‹;¥™îRõ ìğa·%§6ĞŸëw¶!0Bã¹§%ò >Õ«ÓU{•˜ß}Œu™v-ùÓ·ø¥­íGMônºtÅU_¢%ÌxÔøµsVÑ”-XzŠoË–X‰Öøıw|ã¼ÏI½¡Äwš—:_Eê>,BÑe)Ş8‚éûb ‹P8G-…‹Qğ9Ôh3p9PÙı‡Ìƒ*«×–62áĞ_qx-lĞëâ#˜]B¬3KÒŸği±M¤¶ñí ‡}Ö©¢3uSeşĞö³RãT O<~ôèÉşÿÂoøÑ®ê"?|ô   ÿÿ øÆ
