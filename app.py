@@ -110,6 +110,16 @@ def create_app():
     def unauthorized():
         return jsonify({'success': False, 'message': 'Acesso negado. Por favor, faça login.', 'authenticated': False}), 401
 
+    @app.route('/favicon.ico')
+    def favicon():
+        return Response('', status=204, mimetype='image/x-icon')
+
+    @app.errorhandler(404)
+    def not_found_error(e):
+        if request.path.startswith('/api/'):
+            return jsonify({'success': False, 'error': 'Not Found', 'message': 'Endpoint não encontrado.'}), 404
+        return jsonify({'error': 'Not Found', 'path': request.path}), 404
+
     # Handlers Globais de Erro para Diagnóstico Imediato no Servidor
     @app.errorhandler(500)
     def internal_server_error(e):
