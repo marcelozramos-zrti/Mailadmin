@@ -12,6 +12,7 @@ import sys
 import traceback
 
 from config import Config
+from logger_setup import logger, LOG_FILE
 from models import (
     db, AdminUser, Domain, Mailbox, Alias, MailRule, MailLogHistory,
     SystemAuditLog, CronJob, SpamCustomRule, AntispamRule, AntispamSetting,
@@ -166,6 +167,37 @@ def create_app():
     app.register_blueprint(servers_bp)
     app.register_blueprint(automation_bp)
     app.register_blueprint(antispam_bp)
+
+    @app.before_request
+    def log_incoming_request():
+        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        # Não loga polling repetitivo para não poluir
+        if request.path not in ['/api/services/status', '/api/troubleshooting/logs/stream']:
+            logger.info(f"[HTTP IN] {client_ip} -> {request.method} {request.path}")
+
+    @app.after_request
+    def log_outgoing_response(response):
+        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        if request.path not in ['/api/services/status', '/api/troubleshooting/logs/stream']:
+            logger.info(f"[HTTP OUT] {request.method} {request.path} -> Status {response.status_code}")
+        return response
+
+    @app.route('/api/system/logs', methods=['GET'])
+    def get_system_debug_logs():
+        """Retorna as últimas 200 linhas do arquivo de log central mailadmin.log."""
+        lines = []
+        try:
+            if os.path.exists(LOG_FILE):
+                with open(LOG_FILE, 'r', encoding='utf-8', errors='replace') as f:
+                    all_lines = f.readlines()
+                    lines = all_lines[-200:] # Últimas 200 linhas
+        except Exception as e:
+            lines = [f"Erro ao ler arquivo de log ({LOG_FILE}): {e}"]
+        return jsonify({
+            'success': True,
+            'log_file': LOG_FILE,
+            'lines': lines
+        })
 
     @app.route('/')
     @app.route('/index.html')

@@ -5,6 +5,7 @@ import hashlib
 import base64
 import os
 from passlib.hash import sha512_crypt, bcrypt
+from logger_setup import logger
 
 try:
     from passlib.hash import md5_crypt
@@ -27,13 +28,17 @@ def verify_password_hash(password_plain, stored_hash):
     - Plaintext: comparação direta se não houver hash
     """
     if not stored_hash or not password_plain:
+        logger.warning("[AUTH HASH] Tentativa de verificação com senha ou hash vazio.")
         return False
     
     stored = str(stored_hash).strip()
     plain = str(password_plain)
 
+    logger.debug(f"[AUTH HASH] Iniciando verificação de senha. Hash prefixo: '{stored[:15]}...' (tamanho total do hash: {len(stored)})")
+
     # 1. Comparação direta texto puro
     if stored == plain:
+        logger.info("[AUTH HASH] ✓ Senha validada via texto puro (plaintext match).")
         return True
 
     # 2. Formatos Dovecot com prefixo {ESQUEMA}
@@ -45,78 +50,101 @@ def verify_password_hash(password_plain, stored_hash):
             salt = raw[64:]
             ctx = hashlib.sha512(plain.encode('utf-8'))
             ctx.update(salt)
-            return ctx.digest() == digest
-        except Exception:
-            pass
+            res = (ctx.digest() == digest)
+            logger.info(f"[AUTH HASH] Esquema {{SSHA512}} verificado: {'✓ VÁLIDO' if res else '❌ INVÁLIDO'}")
+            return res
+        except Exception as e:
+            logger.warning(f"[AUTH HASH] Erro ao decodificar {{SSHA512}}: {e}")
 
     if stored.startswith('{SHA512-CRYPT}'):
         try:
             h = stored[len('{SHA512-CRYPT}'):]
-            return sha512_crypt.verify(plain, h)
-        except Exception:
-            pass
+            res = sha512_crypt.verify(plain, h)
+            logger.info(f"[AUTH HASH] Esquema {{SHA512-CRYPT}} verificado: {'✓ VÁLIDO' if res else '❌ INVÁLIDO'}")
+            return res
+        except Exception as e:
+            logger.warning(f"[AUTH HASH] Erro ao verificar {{SHA512-CRYPT}}: {e}")
 
     if stored.startswith('{BCRYPT}') or stored.startswith('{BLF-CRYPT}'):
         try:
             h = stored.split('}', 1)[1]
-            return bcrypt.verify(plain, h)
-        except Exception:
-            pass
+            res = bcrypt.verify(plain, h)
+            logger.info(f"[AUTH HASH] Esquema {{BCRYPT}} verificado: {'✓ VÁLIDO' if res else '❌ INVÁLIDO'}")
+            return res
+        except Exception as e:
+            logger.warning(f"[AUTH HASH] Erro ao verificar {{BCRYPT}}: {e}")
 
     if stored.startswith('{PLAIN}') or stored.startswith('{CLEARTEXT}'):
         try:
-            return plain == stored.split('}', 1)[1]
-        except Exception:
-            pass
+            res = (plain == stored.split('}', 1)[1])
+            logger.info(f"[AUTH HASH] Esquema {{PLAIN}} verificado: {'✓ VÁLIDO' if res else '❌ INVÁLIDO'}")
+            return res
+        except Exception as e:
+            logger.warning(f"[AUTH HASH] Erro ao verificar {{PLAIN}}: {e}")
 
     if stored.startswith('{MD5}') or stored.startswith('{PLAIN-MD5}'):
         try:
             md5_target = stored.split('}', 1)[1]
-            return hashlib.md5(plain.encode('utf-8')).hexdigest().lower() == md5_target.lower()
-        except Exception:
-            pass
+            res = (hashlib.md5(plain.encode('utf-8')).hexdigest().lower() == md5_target.lower())
+            logger.info(f"[AUTH HASH] Esquema {{MD5}} verificado: {'✓ VÁLIDO' if res else '❌ INVÁLIDO'}")
+            return res
+        except Exception as e:
+            logger.warning(f"[AUTH HASH] Erro ao verificar {{MD5}}: {e}")
 
     # 3. Hashes Passlib nativos
     try:
-        if stored.startswith('$6$') and sha512_crypt.verify(plain, stored):
-            return True
-    except Exception:
-        pass
+        if stored.startswith('$6$'):
+            res = sha512_crypt.verify(plain, stored)
+            logger.info(f"[AUTH HASH] Esquema Passlib $6$ SHA512 verificado: {'✓ VÁLIDO' if res else '❌ INVÁLIDO'}")
+            if res:
+                return True
+    except Exception as e:
+        logger.debug(f"[AUTH HASH] Passlib $6$ check exception: {e}")
 
     try:
-        if (stored.startswith('$2a$') or stored.startswith('$2b$') or stored.startswith('$2y$')) and bcrypt.verify(plain, stored):
-            return True
-    except Exception:
-        pass
+        if stored.startswith('$2a$') or stored.startswith('$2b$') or stored.startswith('$2y$'):
+            res = bcrypt.verify(plain, stored)
+            logger.info(f"[AUTH HASH] Esquema Passlib $2* Bcrypt verificado: {'✓ VÁLIDO' if res else '❌ INVÁLIDO'}")
+            if res:
+                return True
+    except Exception as e:
+        logger.debug(f"[AUTH HASH] Passlib Bcrypt check exception: {e}")
 
     if md5_crypt:
         try:
-            if stored.startswith('$1$') and md5_crypt.verify(plain, stored):
-                return True
-        except Exception:
-            pass
+            if stored.startswith('$1$'):
+                res = md5_crypt.verify(plain, stored)
+                logger.info(f"[AUTH HASH] Esquema Passlib $1$ MD5 verificado: {'✓ VÁLIDO' if res else '❌ INVÁLIDO'}")
+                if res:
+                    return True
+        except Exception as e:
+            logger.debug(f"[AUTH HASH] Passlib MD5 check exception: {e}")
 
     # 4. Werkzeug check_password_hash
     if werkzeug_check_password:
         try:
             if werkzeug_check_password(stored, plain):
+                logger.info("[AUTH HASH] ✓ Senha validada via Werkzeug check_password_hash.")
                 return True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"[AUTH HASH] Werkzeug check exception: {e}")
 
     # 5. Tentativas gerais de verificação
     try:
         if sha512_crypt.verify(plain, stored):
+            logger.info("[AUTH HASH] ✓ Senha validada via sha512_crypt fallback.")
             return True
     except Exception:
         pass
 
     try:
         if bcrypt.verify(plain, stored):
+            logger.info("[AUTH HASH] ✓ Senha validada via bcrypt fallback.")
             return True
     except Exception:
         pass
 
+    logger.warning("[AUTH HASH] ❌ Todas as estratégias de verificação de hash falharam. Senha incorreta ou formato não suportado.")
     return False
 
 class AdminUser(UserMixin, db.Model):

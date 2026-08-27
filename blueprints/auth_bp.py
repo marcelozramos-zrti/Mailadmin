@@ -8,6 +8,7 @@ import sys
 import base64
 from models import db, AdminUser, Mailbox, SystemAuditLog
 from blueprints.audit_helper import log_audit_action
+from logger_setup import logger, log_auth_attempt
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -21,7 +22,12 @@ def login():
     password = data.get('password') or request.args.get('password')
     token = data.get('token') or request.args.get('token') # Código TOTP de 6 dígitos
 
+    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+
+    logger.info(f"[AUTH REQ] Nova requisição de login recebida para usuário: '{username}' | IP: {client_ip}")
+
     if not username or not password:
+        logger.warning(f"[AUTH REQ] Falha na validação: campos de usuário ou senha vazios.")
         return jsonify({'success': False, 'message': 'Usuário e senha são obrigatórios.'}), 400
 
     u_clean = str(username).strip()
@@ -29,47 +35,65 @@ def login():
 
     try:
         # 1. Busca por usuário administrador em vmail_admins (case-insensitive)
+        logger.debug(f"[AUTH DB] Buscando '{u_clean}' na tabela vmail_admins...")
         admin = AdminUser.query.filter(func.lower(AdminUser.username) == u_clean.lower()).first()
         
         # Se não encontrou e o usuário digitou e-mail completo, tenta pelo prefixo
         if not admin and '@' in u_clean:
             prefix = u_clean.split('@')[0].lower()
+            logger.debug(f"[AUTH DB] Tentando busca por prefixo '{prefix}' em vmail_admins...")
             admin = AdminUser.query.filter(func.lower(AdminUser.username) == prefix).first()
 
         authenticated = False
 
-        if admin and admin.check_password(pwd_clean):
-            authenticated = True
+        if admin:
+            logger.info(f"[AUTH DB] Usuário encontrado em vmail_admins (ID: {admin.id}, Perfil: {admin.role}). Validando senha...")
+            if admin.check_password(pwd_clean):
+                authenticated = True
+                logger.info(f"[AUTH DB] ✓ Senha confere com registro em vmail_admins para '{u_clean}'.")
+            else:
+                logger.warning(f"[AUTH DB] ❌ Senha NÃO confere para o admin '{u_clean}'.")
         else:
+            logger.info(f"[AUTH DB] Usuário '{u_clean}' não encontrado em vmail_admins. Verificando tabela mailbox...")
+
+        if not authenticated:
             # 2. Se não autenticou como vmail_admins, verifica na tabela mailbox (contas de e-mail do sistema)
             try:
                 mbox = Mailbox.query.filter(func.lower(Mailbox.username) == u_clean.lower()).first()
-                if mbox and mbox.check_password(pwd_clean):
-                    # Conta de e-mail válida: sincroniza/cria como AdminUser
-                    if not admin:
-                        admin = AdminUser.query.filter(func.lower(AdminUser.username) == mbox.username.lower()).first()
-                    if not admin:
-                        admin = AdminUser(
-                            username=mbox.username,
-                            password_hash=mbox.password,
-                            role='admin'
-                        )
-                        db.session.add(admin)
-                        db.session.commit()
+                if mbox:
+                    logger.info(f"[AUTH DB] Conta de e-mail encontrada em mailbox: '{mbox.username}'. Validando senha da caixa postal...")
+                    if mbox.check_password(pwd_clean):
+                        logger.info(f"[AUTH DB] ✓ Senha confere com a mailbox '{mbox.username}'. Sincronizando como administrador...")
+                        # Conta de e-mail válida: sincroniza/cria como AdminUser
+                        if not admin:
+                            admin = AdminUser.query.filter(func.lower(AdminUser.username) == mbox.username.lower()).first()
+                        if not admin:
+                            admin = AdminUser(
+                                username=mbox.username,
+                                password_hash=mbox.password,
+                                role='admin'
+                            )
+                            db.session.add(admin)
+                            db.session.commit()
+                        else:
+                            admin.password_hash = mbox.password
+                            db.session.commit()
+                        authenticated = True
                     else:
-                        admin.password_hash = mbox.password
-                        db.session.commit()
-                    authenticated = True
+                        logger.warning(f"[AUTH DB] ❌ Senha da mailbox '{mbox.username}' não confere.")
+                else:
+                    logger.warning(f"[AUTH DB] Usuário '{u_clean}' também não existe na tabela mailbox.")
             except Exception as err:
-                print(f"[AUTH LOGIN] Verificação de mailbox falhou: {err}", file=sys.stderr)
+                logger.error(f"[AUTH DB] Erro ao consultar tabela mailbox: {err}")
 
         if not authenticated or not admin:
-            print(f"[AUTH FAILED] Tentativa de login falhou para usuário: '{u_clean}' do IP: {request.remote_addr}", file=sys.stderr)
+            log_auth_attempt(u_clean, client_ip, "FAIL", "Credenciais incorretas ou usuário inexistente.")
             return jsonify({'success': False, 'message': 'Usuário ou senha inválidos.'}), 401
 
         # Se o usuário tiver 2FA (MFA) ativado, valida o token TOTP de 6 dígitos
         if getattr(admin, 'otp_enabled', False):
             if not token:
+                logger.info(f"[AUTH MFA] MFA ativado para '{admin.username}'. Solicitando código TOTP...")
                 return jsonify({
                     'success': False,
                     'mfa_required': True,
@@ -78,12 +102,16 @@ def login():
 
             totp = pyotp.TOTP(admin.otp_secret)
             if not totp.verify(str(token).strip(), valid_window=1):
+                logger.warning(f"[AUTH MFA] Código TOTP inválido ou expirado para '{admin.username}'.")
                 return jsonify({'success': False, 'message': 'Código TOTP incorreto ou expirado.'}), 401
+            logger.info(f"[AUTH MFA] ✓ Código TOTP validado com sucesso para '{admin.username}'.")
 
         # Login direto com sucesso
         login_user(admin, remember=True)
         session['user_id'] = admin.id
         session.pop('temp_mfa_user_id', None)
+
+        log_auth_attempt(admin.username, client_ip, "SUCCESS", f"Perfil: {admin.role}, MFA: {'Ativo' if admin.otp_enabled else 'Inativo'}")
 
         try:
             log_audit_action(
@@ -91,7 +119,7 @@ def login():
                 action="LOGIN_SUCCESS",
                 target=f"Admin ID: {admin.id}",
                 status="SUCCESS",
-                ip=request.remote_addr,
+                ip=client_ip,
                 details=f"Login efetuado no painel (MFA: {'Ativo' if admin.otp_enabled else 'Inativo'})"
             )
         except Exception:
@@ -108,10 +136,10 @@ def login():
             }
         })
     except Exception as db_err:
-        print(f"[AUTH ERROR] Falha no banco de dados durante login: {db_err}", file=sys.stderr)
+        logger.error(f"[AUTH ERROR] Exceção inesperada durante autenticação: {db_err}", exc_info=True)
         return jsonify({
             'success': False,
-            'message': f'Erro no banco de dados: {str(db_err)}'
+            'message': f'Erro interno no servidor de banco de dados: {str(db_err)}'
         }), 500
 
 @auth_bp.route('/logout', methods=['GET', 'POST'])
