@@ -2537,10 +2537,13 @@ Checks 12
             id: ruleCounter,
             rule_number: ruleCounter,
             type: action_type,
+            rule_type: action_type,
             action: action_type,
             action_label,
             directive: rawType,
             value: val,
+            target_value: val,
+            score: (action_type === 'blacklist_from' || action_type === 'spam_from') ? 100.0 : -100.0,
             normalized_value: norm.normalized,
             domain: norm.domain,
             target_type: targetType,
@@ -3046,9 +3049,10 @@ Checks 12
 
   // POST Create New Visual Rule with Smart In-Place Consolidation and Duplicate Prevention
   app.post("/api/services/spamassassin/visual-rules", (req, res) => {
-    const { action, value, reason, description, origin, notes, active, force } = req.body || {};
-    const act = action || "blacklist_from";
-    const rawVal = (value || "").trim();
+    const { action, value, reason, description, origin, notes, active, force, rule_type, target_value } = req.body || {};
+    let act = action || rule_type || "blacklist_from";
+    if (act === "blacklist_ip" || act === "blacklist_to") act = "blacklist_from";
+    const rawVal = (value || target_value || "").trim();
     const ruleReason = (reason || description || "").trim();
 
     if (!act || !["blacklist_from", "whitelist_from", "spam_from"].includes(act)) {
@@ -3229,8 +3233,19 @@ Checks 12
 
   // DELETE Visual Rule
   const deleteVisualRule = (req: express.Request, res: express.Response) => {
-    const { raw, action, value } = req.body || {};
-    const targetLine = raw || (action && value ? `${action} ${value}` : req.query.raw as string || req.query.value as string);
+    let { raw, action, value } = req.body || {};
+    const idParam = req.params?.id || req.query?.id;
+    if (idParam) {
+      const currentCf = getSpamAssassinConfigContent();
+      const rules = parseAllVisualRules(currentCf);
+      const found = rules.find(r => String(r.id) === String(idParam));
+      if (found) {
+        raw = found.raw || found.original_line || `${found.action} ${found.value}`;
+        value = found.value;
+        action = found.action;
+      }
+    }
+    const targetLine = raw || (action && value ? `${action} ${value}` : req.query?.raw as string || req.query?.value as string);
 
     if (!targetLine) {
       return res.status(400).json({ success: false, message: "Especificação da regra não fornecida." });
@@ -3239,7 +3254,13 @@ Checks 12
     const targetClean = targetLine.trim().toLowerCase();
     const currentCf = getSpamAssassinConfigContent();
     const lines = currentCf.split("\n");
-    const filtered = lines.filter(l => l.trim().toLowerCase() !== targetClean);
+    const filtered = lines.filter(l => {
+      const lClean = l.trim().toLowerCase();
+      if (lClean === targetClean) return false;
+      if (lClean === `# ${targetClean}`) return false;
+      if (value && lClean.includes(String(value).toLowerCase()) && (lClean.includes("blacklist_from") || lClean.includes("whitelist_from") || lClean.includes("spam_from"))) return false;
+      return true;
+    });
     saveSpamAssassinConfigContent(filtered.join("\n"));
 
     addAuditLog("SPAM_RULE_DELETE", targetLine, { deleted_rule: targetLine }, "normal", req);
@@ -3251,7 +3272,9 @@ Checks 12
   };
 
   app.delete("/api/services/spamassassin/visual-rules", deleteVisualRule);
+  app.delete("/api/services/spamassassin/visual-rules/:id", deleteVisualRule);
   app.post("/api/services/spamassassin/visual-rules/delete", deleteVisualRule);
+  app.post("/api/services/spamassassin/visual-rules/delete/:id", deleteVisualRule);
 
   // Helper parser for Custom Regex Rules (header, score, describe)
   function parseCustomSpamRules(cfContent: string) {
@@ -4063,6 +4086,70 @@ Checks 12
       success: true,
       message: `Certificado SSL/TLS para '${sslCertState.domain}' verificado e renovado com sucesso via Certbot! Validade estendida para 90 dias.`,
       ssl_info: sslCertState
+    });
+  });
+
+  // GET /api/servers/spamassassin/thresholds
+  app.get("/api/servers/spamassassin/thresholds", (req, res) => {
+    const requiredScore = parseFloat(virtualAntispamSettings["spam_threshold_quarantine"] || "4.5");
+    const tagLevel = parseFloat(virtualAntispamSettings["spam_threshold_tag"] || "2.0");
+    const killLevel = parseFloat(virtualAntispamSettings["spam_threshold_kill"] || "6.9");
+    const subjectTag = virtualAntispamSettings["sa_spam_subject_tag"] || "***SPAM*** ";
+
+    res.json({
+      success: true,
+      detected: {
+        required_score: requiredScore,
+        required_score_source: "/etc/spamassassin/local.cf",
+        sa_tag_level_deflt: tagLevel,
+        sa_tag2_level_deflt: requiredScore,
+        sa_kill_level_deflt: killLevel,
+        sa_spam_subject_tag: subjectTag,
+        amavis_source: "/etc/amavis/conf.d/50-user",
+        files_found: ["/etc/spamassassin/local.cf", "/etc/amavis/conf.d/50-user"]
+      }
+    });
+  });
+
+  // POST /api/servers/spamassassin/thresholds
+  app.post("/api/servers/spamassassin/thresholds", (req, res) => {
+    const data = req.body || {};
+    if (data.required_score !== undefined) {
+      virtualAntispamSettings["spam_threshold_quarantine"] = String(data.required_score);
+    }
+    if (data.sa_tag_level_deflt !== undefined) {
+      virtualAntispamSettings["spam_threshold_tag"] = String(data.sa_tag_level_deflt);
+    }
+    if (data.sa_tag2_level_deflt !== undefined) {
+      virtualAntispamSettings["spam_threshold_quarantine"] = String(data.sa_tag2_level_deflt);
+    }
+    if (data.sa_kill_level_deflt !== undefined) {
+      virtualAntispamSettings["spam_threshold_kill"] = String(data.sa_kill_level_deflt);
+    }
+    if (data.sa_spam_subject_tag !== undefined) {
+      virtualAntispamSettings["sa_spam_subject_tag"] = String(data.sa_spam_subject_tag);
+    }
+
+    addAuditLog("UPDATE_SPAM_THRESHOLDS", "SpamAssassin/Amavis", data, "normal", req);
+
+    const requiredScore = parseFloat(virtualAntispamSettings["spam_threshold_quarantine"] || "4.5");
+    const tagLevel = parseFloat(virtualAntispamSettings["spam_threshold_tag"] || "2.0");
+    const killLevel = parseFloat(virtualAntispamSettings["spam_threshold_kill"] || "6.9");
+    const subjectTag = virtualAntispamSettings["sa_spam_subject_tag"] || "***SPAM*** ";
+
+    res.json({
+      success: true,
+      message: "Parâmetros e pontuações de corte do SpamAssassin e Amavis salvos e aplicados com sucesso!",
+      detected: {
+        required_score: requiredScore,
+        required_score_source: "/etc/spamassassin/local.cf",
+        sa_tag_level_deflt: tagLevel,
+        sa_tag2_level_deflt: requiredScore,
+        sa_kill_level_deflt: killLevel,
+        sa_spam_subject_tag: subjectTag,
+        amavis_source: "/etc/amavis/conf.d/50-user",
+        files_found: ["/etc/spamassassin/local.cf", "/etc/amavis/conf.d/50-user"]
+      }
     });
   });
 

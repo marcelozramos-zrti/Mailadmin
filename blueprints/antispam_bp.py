@@ -518,13 +518,13 @@ def apply_sa_config():
 
         user = get_current_user()
         ip = request.remote_addr or '127.0.0.1'
-        reason = data.get('reason') or 'Ajuste de required_score do SpamAssassin / Amavis'
+        reason = data.get('reason') or 'Ajuste de limiares de corte do SpamAssassin / Amavis'
 
+        # 1. SpamAssassin local.cf (required_score)
         new_required_score = data.get('required_score')
-        local_cf_path = "/etc/spamassassin/local.cf"
+        local_cf_path = os.environ.get('LOCAL_CF_PATH', '/etc/spamassassin/local.cf')
 
         if new_required_score is not None and os.path.exists(local_cf_path):
-            # Backup carimbado
             ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
             bak_path = f"{local_cf_path}.bak_{ts}"
             with open(local_cf_path, "r", encoding="utf-8") as f:
@@ -532,7 +532,6 @@ def apply_sa_config():
             with open(bak_path, "w", encoding="utf-8") as f:
                 f.write(orig_content)
 
-            # Atualização da diretiva required_score
             if re.search(r'^\s*required_(?:score|hits)\s+[\d\.]+', orig_content, re.MULTILINE):
                 new_content = re.sub(r'^\s*required_(?:score|hits)\s+[\d\.]+', f"required_score {new_required_score}", orig_content, flags=re.MULTILINE)
             else:
@@ -541,23 +540,71 @@ def apply_sa_config():
             with open(local_cf_path, "w", encoding="utf-8") as f:
                 f.write(new_content)
 
-            # Reload do serviço
             os.system("systemctl reload spamassassin >/dev/null 2>&1 || true")
 
-            # Auditoria
-            audit = AntispamAudit(
-                usuario=user,
-                acao='UPDATE_SPAMASSASSIN_REQUIRED_SCORE',
-                alvo='/etc/spamassassin/local.cf',
-                valor_anterior=str(data.get('old_required_score', 'N/A')),
-                valor_novo=str(new_required_score),
-                motivo=reason,
-                ip_origem=ip
-            )
-            db.session.add(audit)
-            db.session.commit()
+        # 2. Amavis 50-user ($sa_tag_level_deflt, $sa_tag2_level_deflt, $sa_kill_level_deflt, $sa_spam_subject_tag)
+        amavis_conf_path = os.environ.get('AMAVIS_CONF', '/etc/amavis/conf.d/50-user')
+        amavis_changed = False
+        if os.path.exists(amavis_conf_path):
+            with open(amavis_conf_path, "r", encoding="utf-8") as f:
+                a_orig = f.read()
+            a_new = a_orig
 
-        return jsonify({"success": True, "message": "Configuração aplicada e serviço recarregado com sucesso."})
+            if 'sa_tag_level_deflt' in data and data['sa_tag_level_deflt'] is not None:
+                val = float(data['sa_tag_level_deflt'])
+                if re.search(r'\$sa_tag_level_deflt\s*=\s*[\d\.\-]+;', a_new):
+                    a_new = re.sub(r'\$sa_tag_level_deflt\s*=\s*[\d\.\-]+;', f'$sa_tag_level_deflt = {val};', a_new)
+                else:
+                    a_new += f"\n$sa_tag_level_deflt = {val};\n"
+                amavis_changed = True
+
+            if 'sa_tag2_level_deflt' in data and data['sa_tag2_level_deflt'] is not None:
+                val = float(data['sa_tag2_level_deflt'])
+                if re.search(r'\$sa_tag2_level_deflt\s*=\s*[\d\.\-]+;', a_new):
+                    a_new = re.sub(r'\$sa_tag2_level_deflt\s*=\s*[\d\.\-]+;', f'$sa_tag2_level_deflt = {val};', a_new)
+                else:
+                    a_new += f"\n$sa_tag2_level_deflt = {val};\n"
+                amavis_changed = True
+
+            if 'sa_kill_level_deflt' in data and data['sa_kill_level_deflt'] is not None:
+                val = float(data['sa_kill_level_deflt'])
+                if re.search(r'\$sa_kill_level_deflt\s*=\s*[\d\.\-]+;', a_new):
+                    a_new = re.sub(r'\$sa_kill_level_deflt\s*=\s*[\d\.\-]+;', f'$sa_kill_level_deflt = {val};', a_new)
+                else:
+                    a_new += f"\n$sa_kill_level_deflt = {val};\n"
+                amavis_changed = True
+
+            if 'sa_spam_subject_tag' in data and data['sa_spam_subject_tag'] is not None:
+                val = str(data['sa_spam_subject_tag']).replace("'", "\\'")
+                if re.search(r'\$sa_spam_subject_tag\s*=\s*[\'\"].*?[\'\"];', a_new):
+                    a_new = re.sub(r'\$sa_spam_subject_tag\s*=\s*[\'\"].*?[\'\"];', f"$sa_spam_subject_tag = '{val}';", a_new)
+                else:
+                    a_new += f"\n$sa_spam_subject_tag = '{val}';\n"
+                amavis_changed = True
+
+            if amavis_changed:
+                ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                bak_a = f"{amavis_conf_path}.bak_{ts}"
+                with open(bak_a, "w", encoding="utf-8") as f:
+                    f.write(a_orig)
+                with open(amavis_conf_path, "w", encoding="utf-8") as f:
+                    f.write(a_new)
+                os.system("systemctl reload amavis >/dev/null 2>&1 || true")
+
+        # Auditoria
+        audit = AntispamAudit(
+            usuario=user,
+            acao='UPDATE_SPAMASSASSIN_REQUIRED_SCORE',
+            alvo='SpamAssassin / Amavis',
+            valor_anterior=str(data.get('old_vals', 'N/A')),
+            valor_novo=str(data),
+            motivo=reason,
+            ip_origem=ip
+        )
+        db.session.add(audit)
+        db.session.commit()
+
+        return jsonify({"success": True, "message": "Configuração aplicada e serviços recarregados com sucesso."})
     except Exception as e:
         db.session.rollback()
         return jsonify({"success": False, "error": str(e)}), 500

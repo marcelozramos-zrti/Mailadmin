@@ -335,6 +335,7 @@ def detect_real_spamassassin_settings() -> Dict[str, Any]:
         "sa_tag_level_deflt": 2.0,
         "sa_tag2_level_deflt": 4.5,
         "sa_kill_level_deflt": 6.9,
+        "sa_spam_subject_tag": "***SPAM*** ",
         "amavis_source": "default",
         "files_found": []
     }
@@ -363,6 +364,7 @@ def detect_real_spamassassin_settings() -> Dict[str, Any]:
                     tag_m = re.search(r'\$sa_tag_level_deflt\s*=\s*([\d\.\-]+);', acontent)
                     tag2_m = re.search(r'\$sa_tag2_level_deflt\s*=\s*([\d\.]+);', acontent)
                     kill_m = re.search(r'\$sa_kill_level_deflt\s*=\s*([\d\.]+);', acontent)
+                    subj_m = re.search(r'\$sa_spam_subject_tag\s*=\s*[\'\"](.*?)[\'\"];', acontent)
 
                     if tag_m:
                         detected["sa_tag_level_deflt"] = float(tag_m.group(1))
@@ -371,6 +373,8 @@ def detect_real_spamassassin_settings() -> Dict[str, Any]:
                         detected["amavis_source"] = apath
                     if kill_m:
                         detected["sa_kill_level_deflt"] = float(kill_m.group(1))
+                    if subj_m:
+                        detected["sa_spam_subject_tag"] = subj_m.group(1)
             except Exception:
                 pass
 
