@@ -113,32 +113,108 @@ async function startServer() {
 
   sqliteDb = initSqliteInstance();
 
-  // Seed sample records into mail_logs_history if empty
-  if (sqliteDb) {
+  // Seed realistic 7-day records into mail_logs_history in SQLite if missing
+  function seedDatabaseMailLogsIfEmpty() {
+    if (!sqliteDb) return;
     try {
-      const mlCount = (sqliteDb.prepare("SELECT COUNT(*) as c FROM mail_logs_history").get() as any)?.c || 0;
-      if (mlCount === 0) {
+      const count = (sqliteDb.prepare("SELECT COUNT(*) as c FROM mail_logs_history").get() as any)?.c || 0;
+      if (count < 100) {
         const seedStmt = sqliteDb.prepare(`
           INSERT INTO mail_logs_history (timestamp, queue_id, sender, recipient, client_ip, status, message, created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
-        const nowIso = new Date().toISOString().substring(0, 10);
-        const seedLogs = [
-          [ `${nowIso} 08:30:00`, "NOQUEUE", "-", "-", "198.51.100.77", "Rejected", `${nowIso} 08:30:00 mailserver postfix/smtpd[13110]: NOQUEUE: reject: RCPT from unknown[198.51.100.77]: 554 5.7.1 <test@external.org>: Relay access denied;`, `${nowIso} 08:30:00` ],
-          [ `${nowIso} 09:45:12`, "NOQUEUE", "-", "-", "185.220.101.5", "AuthFail", `${nowIso} 09:45:12 mailserver postfix/smtpd[14201]: warning: unknown[185.220.101.5]: SASL LOGIN authentication failed: U3Vwb3J0ZQ==`, `${nowIso} 09:45:12` ],
-          [ `${nowIso} 10:14:02`, "4YtZ8b3K", "usuario@empresa.com.br", "destino@cliente.com.br", "198.51.100.12", "Sent", `${nowIso} 10:14:04 mailserver amavis[1204]: (4YtZ8b3K) Passed CLEAN {RelayedInbound}, [198.51.100.12] <usuario@empresa.com.br> -> <destino@cliente.com.br>, Hits: -0.100`, `${nowIso} 10:14:04` ],
-          [ `${nowIso} 10:14:05`, "4YtZ8b3K", "usuario@empresa.com.br", "destino@cliente.com.br", "198.51.100.12", "Sent", `${nowIso} 10:14:05 mailserver postfix/lmtp[14220]: 4YtZ8b3K: to=<destino@cliente.com.br>, relay=127.0.0.1[127.0.0.1]:24, delay=2.1, dsn=2.0.0, status=sent (250 2.0.0 OK saved_to_mailbox)`, `${nowIso} 10:14:05` ],
-          [ `${nowIso} 11:20:10`, "NOQUEUE", "-", "-", "185.220.101.5", "Info", `${nowIso} 11:20:10 mailserver postfix/smtpd[14500]: warning: improper command pipelining after HELO from unknown[185.220.101.5]`, `${nowIso} 11:20:10` ],
-          [ `${nowIso} 11:25:00`, "NOQUEUE", "-", "-", "192.168.1.50", "AuthFail", `${nowIso} 11:25:00 mailserver dovecot: auth-worker(14550): password mismatch for user user1@domain.com from 192.168.1.50`, `${nowIso} 11:25:00` ]
-        ];
-        for (const row of seedLogs) {
-          seedStmt.run(...row);
+        const now = new Date();
+        const sample_domains_external = ["gmail.com", "outlook.com", "uol.com.br", "hotmail.com", "yahoo.com.br", "parceiro-banco.com.br", "fornecedor-pecas.com.br", "promo-marketing.net", "rastreio-expresso-fake.org", "contato-falso.biz"];
+        const sample_recipients = ["suporte@zrti.com.br", "comercial@zrti.com.br", "wilker.oliveira@zrti.com.br", "andreza.carvalho@zrti.com.br", "contato@empresa.com.br", "postmaster@zrti.tech", "andreza@emporiomisticosaboaria.com.br"];
+        const rules_list = ["BAYES_99", "URIBL_BLACK", "SPF_FAIL", "FORGED_GMAIL", "MIME_HTML_ONLY", "PIX_PHISHING_REGEX", "DKIM_ADSP_DISCARD"];
+
+        for (let dayOffset = 6; dayOffset >= 0; dayOffset--) {
+          const dayDate = new Date(now.getTime() - dayOffset * 24 * 60 * 60 * 1000);
+          const y = dayDate.getFullYear();
+          const m = String(dayDate.getMonth() + 1).padStart(2, '0');
+          const d = String(dayDate.getDate()).padStart(2, '0');
+          const dayStr = `${y}-${m}-${d}`;
+          const isWeekend = dayDate.getDay() === 0 || dayDate.getDay() === 6;
+          const multiplier = isWeekend ? 0.6 : (1.0 + (6 - dayOffset) * 0.05);
+
+          for (let h = 0; h < 24; h++) {
+            const hWeight = (h >= 8 && h <= 18) ? 1.0 : ((h >= 6 && h < 8) || (h > 18 && h <= 22)) ? 0.4 : 0.1;
+            const hRec = Math.max(1, Math.round(5 * multiplier * hWeight));
+            const hSent = Math.max(1, Math.round(3 * multiplier * hWeight));
+            const hSpam = Math.round(2 * multiplier * hWeight);
+            const hBounce = (h % 6 === 0) ? 1 : 0;
+            const hVirus = (h === 14 && !isWeekend && dayOffset % 2 === 0) ? 1 : 0;
+
+            for (let i = 0; i < hRec; i++) {
+              const mm = String(Math.floor(Math.random() * 60)).padStart(2, '0');
+              const ss = String(Math.floor(Math.random() * 60)).padStart(2, '0');
+              const ts = `${dayStr} ${String(h).padStart(2, '0')}:${mm}:${ss}`;
+              const qid = Math.random().toString(36).substring(2, 8).toUpperCase();
+              const sDom = sample_domains_external[Math.floor(Math.random() * 6)];
+              const sender = `usuario${Math.floor(Math.random() * 50) + 1}@${sDom}`;
+              const recip = sample_recipients[Math.floor(Math.random() * sample_recipients.length)];
+              const ip = `198.51.${Math.floor(Math.random() * 200) + 1}.${Math.floor(Math.random() * 250) + 1}`;
+              const msg = `${ts} mailserver postfix/lmtp[14220]: ${qid}: to=<${recip}>, relay=127.0.0.1[127.0.0.1]:24, delay=1.2, dsn=2.0.0, status=sent (250 2.0.0 OK saved_to_mailbox)`;
+              seedStmt.run(ts, qid, sender, recip, ip, 'Received', msg, ts);
+            }
+
+            for (let i = 0; i < hSent; i++) {
+              const mm = String(Math.floor(Math.random() * 60)).padStart(2, '0');
+              const ss = String(Math.floor(Math.random() * 60)).padStart(2, '0');
+              const ts = `${dayStr} ${String(h).padStart(2, '0')}:${mm}:${ss}`;
+              const qid = Math.random().toString(36).substring(2, 8).toUpperCase();
+              const sender = sample_recipients[Math.floor(Math.random() * sample_recipients.length)];
+              const rDom = sample_domains_external[Math.floor(Math.random() * 5)];
+              const recip = `cliente${Math.floor(Math.random() * 50) + 1}@${rDom}`;
+              const ip = `192.168.1.${Math.floor(Math.random() * 80) + 10}`;
+              const msg = `${ts} mailserver postfix/smtp[14250]: ${qid}: to=<${recip}>, relay=mail.${rDom}[203.0.113.10]:25, delay=0.9, dsn=2.0.0, status=sent (250 2.0.0 Queued mail for delivery)`;
+              seedStmt.run(ts, qid, sender, recip, ip, 'Sent', msg, ts);
+            }
+
+            for (let i = 0; i < hSpam; i++) {
+              const mm = String(Math.floor(Math.random() * 60)).padStart(2, '0');
+              const ss = String(Math.floor(Math.random() * 60)).padStart(2, '0');
+              const ts = `${dayStr} ${String(h).padStart(2, '0')}:${mm}:${ss}`;
+              const qid = Math.random().toString(36).substring(2, 8).toUpperCase();
+              const sDom = sample_domains_external[5 + Math.floor(Math.random() * 5)];
+              const sender = `promo@${sDom}`;
+              const recip = sample_recipients[Math.floor(Math.random() * sample_recipients.length)];
+              const ip = `185.220.${Math.floor(Math.random() * 200) + 1}.${Math.floor(Math.random() * 250) + 1}`;
+              const rule = rules_list[Math.floor(Math.random() * rules_list.length)];
+              const hits = (Math.random() * 8 + 6.0).toFixed(1);
+              const msg = `${ts} mailserver amavis[1204]: (${qid}) Blocked SPAM {DiscardedInbound}, [${ip}] <${sender}> -> <${recip}>, Hits: ${hits}, tests=[${rule}]`;
+              seedStmt.run(ts, qid, sender, recip, ip, 'Spam', msg, ts);
+            }
+
+            if (hBounce) {
+              const mm = String(Math.floor(Math.random() * 60)).padStart(2, '0');
+              const ss = String(Math.floor(Math.random() * 60)).padStart(2, '0');
+              const ts = `${dayStr} ${String(h).padStart(2, '0')}:${mm}:${ss}`;
+              const ip = `198.51.100.${Math.floor(Math.random() * 200) + 1}`;
+              const msg = `${ts} mailserver postfix/smtpd[13110]: NOQUEUE: reject: RCPT from unknown[${ip}]: 550 5.1.1 <usuario_inexistente@zrti.com.br>: Recipient address rejected: User unknown in virtual mailbox table`;
+              seedStmt.run(ts, 'NOQUEUE', '-', 'usuario_inexistente@zrti.com.br', ip, 'Rejected', msg, ts);
+            }
+
+            if (hVirus) {
+              const mm = String(Math.floor(Math.random() * 60)).padStart(2, '0');
+              const ss = String(Math.floor(Math.random() * 60)).padStart(2, '0');
+              const ts = `${dayStr} ${String(h).padStart(2, '0')}:${mm}:${ss}`;
+              const qid = 'VIRUS99';
+              const sender = 'badactor@phishmalware.org';
+              const recip = sample_recipients[Math.floor(Math.random() * sample_recipients.length)];
+              const ip = '192.0.2.88';
+              const msg = `${ts} mailserver amavis[1204]: (${qid}) Blocked INFECTED (Eicar-Test-Signature), [${ip}] <${sender}> -> <${recip}>`;
+              seedStmt.run(ts, qid, sender, recip, ip, 'Virus', msg, ts);
+            }
+          }
         }
       }
     } catch (seedErr) {
       console.error("Erro ao popular tabela mail_logs_history:", seedErr);
     }
   }
+
+  seedDatabaseMailLogsIfEmpty();
 
   // Virtual Database for Preview Mode (vmail MariaDB simulation)
   let sessionUser = "admin";
@@ -345,6 +421,7 @@ async function startServer() {
     return newLog;
   }
 
+  const systemdAvailable = false;
   const virtualServices: Record<string, { active: boolean; state: string }> = {
     postfix: { active: true, state: "active" },
     amavis: { active: true, state: "active" },
@@ -2152,9 +2229,11 @@ Checks 12
 
 interface DailyMailMetric {
   date: string;
+  displayDate: string;
   display_date: string;
   short_date: string;
   day_name: string;
+  weekday: string;
   received: number;
   sent: number;
   spam_blocked: number;
@@ -2165,9 +2244,12 @@ interface DailyMailMetric {
   clean_delivery_rate: number;
   avg_latency_ms: number;
   hourly: { hour: string; received: number; sent: number; spam: number; bounced: number }[];
-  top_senders: { domain: string; count: number; spam_count: number; clean_pct: number; reputacao: string }[];
+  hourly_distribution: { hour: string; received: number; sent: number; spam: number; bounced: number; total: number }[];
+  top_senders: { domain: string; count: number; spam_count: number; clean_count: number; clean_pct: number; reputacao: string; reputation: 'Boa' | 'Suspeita' | 'Crítica' }[];
+  top_sender_domains: { domain: string; count: number; spam_count: number; clean_count: number; reputation: 'Boa' | 'Suspeita' | 'Crítica' }[];
   top_recipients: { domain: string; count: number; mailboxes_active: number; status: string }[];
-  spam_rules_triggered: { rule: string; description: string; hits: number; score_impact: number }[];
+  top_recipient_domains: { domain: string; count: number; mailboxes_active: number }[];
+  spam_rules_triggered: { rule: string; description: string; hits: number; score_impact: string }[];
 }
 
 // In-memory simulation delta storage keyed by date (YYYY-MM-DD)
@@ -2187,42 +2269,18 @@ function getLocalDayInfo(dateObj: Date): { isoDate: string; shortDate: string; d
   return { isoDate, shortDate, displayDate, dayName: dayNames[dayIdx], dayIdx };
 }
 
-// Real Mail Log Discovery & Parser (Postfix, Dovecot, SpamAssassin, ClamAV, Amavis)
-function parseSystemMailLogsFor7Days(): Record<string, Partial<DailyMailMetric>> | null {
+// Database-First Mail Logs Aggregator (Consulta direta na tabela mail_logs_history do SQLite / MariaDB)
+function parseDatabaseMailLogsFor7Days(): Record<string, any> | null {
+  if (!sqliteDb) return null;
   try {
-    const logCandidates = [
-      '/var/log/mail.log',
-      '/var/log/mail.log.1',
-      '/var/log/maillog',
-      '/var/log/maillog.1',
-      '/var/log/syslog'
-    ];
+    const rows = sqliteDb.prepare(`
+      SELECT id, timestamp, queue_id, sender, recipient, client_ip, status, message, created_at 
+      FROM mail_logs_history 
+      ORDER BY id ASC
+    `).all() as Array<any>;
 
-    let combinedLogContent = '';
-    for (const logPath of logCandidates) {
-      if (fs.existsSync(logPath)) {
-        try {
-          const content = fs.readFileSync(logPath, 'utf-8');
-          combinedLogContent += '\n' + content;
-        } catch (e) {
-          // File unreadable or permission restricted, continue
-        }
-      }
-    }
+    if (!rows || rows.length === 0) return null;
 
-    if (!combinedLogContent.trim()) {
-      return null;
-    }
-
-    const lines = combinedLogContent.split('\n');
-    const monthMap: Record<string, string> = {
-      'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
-      'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12',
-      'Jan.': '01', 'Fev.': '02', 'Mar.': '03', 'Abr.': '04', 'Mai.': '05', 'Jun.': '06',
-      'Jul.': '07', 'Ago.': '08', 'Set.': '09', 'Out.': '10', 'Nov.': '11', 'Dez.': '12'
-    };
-
-    const currentYear = new Date().getFullYear();
     const resultByDate: Record<string, {
       received: number;
       sent: number;
@@ -2235,32 +2293,20 @@ function parseSystemMailLogsFor7Days(): Record<string, Partial<DailyMailMetric>>
       rules: Record<string, number>;
     }> = {};
 
-    for (const line of lines) {
-      if (!line || line.length < 15) continue;
+    for (const r of rows) {
+      const ts = r.timestamp || r.created_at || '';
+      if (!ts) continue;
+      const dateIso = ts.substring(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) continue;
 
-      let lineDateIso = '';
-      let lineHour = 0;
-
-      // Check ISO format timestamp (e.g. 2026-08-31T10:20:30)
-      const isoMatch = line.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):/);
-      if (isoMatch) {
-        lineDateIso = `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
-        lineHour = parseInt(isoMatch[4], 10);
-      } else {
-        // Check Syslog format (e.g. Aug 31 10:20:30)
-        const syslogMatch = line.match(/^([A-Za-z]{3,4})\s+(\d{1,2})\s+(\d{2}):/);
-        if (syslogMatch) {
-          const mStr = monthMap[syslogMatch[1]] || '08';
-          const dStr = syslogMatch[2].padStart(2, '0');
-          lineDateIso = `${currentYear}-${mStr}-${dStr}`;
-          lineHour = parseInt(syslogMatch[3], 10);
-        }
+      let hour = 0;
+      const hourMatch = ts.match(/\s(\d{2}):/) || ts.match(/T(\d{2}):/);
+      if (hourMatch) {
+        hour = parseInt(hourMatch[1], 10);
       }
 
-      if (!lineDateIso) continue;
-
-      if (!resultByDate[lineDateIso]) {
-        resultByDate[lineDateIso] = {
+      if (!resultByDate[dateIso]) {
+        resultByDate[dateIso] = {
           received: 0,
           sent: 0,
           spam: 0,
@@ -2272,186 +2318,93 @@ function parseSystemMailLogsFor7Days(): Record<string, Partial<DailyMailMetric>>
           rules: {}
         };
         for (let h = 0; h < 24; h++) {
-          resultByDate[lineDateIso].hourly[h] = { received: 0, sent: 0, spam: 0, bounced: 0 };
+          resultByDate[dateIso].hourly[h] = { received: 0, sent: 0, spam: 0, bounced: 0 };
         }
       }
 
-      const dayBucket = resultByDate[lineDateIso];
-      const hourBucket = dayBucket.hourly[lineHour] || { received: 0, sent: 0, spam: 0, bounced: 0 };
+      const dayBucket = resultByDate[dateIso];
+      const hourBucket = dayBucket.hourly[hour] || { received: 0, sent: 0, spam: 0, bounced: 0 };
+      const statusLower = (r.status || '').toLowerCase();
+      const msgLower = (r.message || '').toLowerCase();
 
-      // Parse Event Types
-      const lower = line.toLowerCase();
-
-      // 1. Inbound Received / Delivered
-      if (
-        (lower.includes('postfix/local') || lower.includes('postfix/lmtp') || lower.includes('postfix/virtual') || lower.includes('dovecot:')) &&
-        (lower.includes('status=sent') || lower.includes('saved mail') || lower.includes('delivered'))
-      ) {
+      if (statusLower === 'received' || msgLower.includes('passed clean') || msgLower.includes('saved_to_mailbox') || msgLower.includes('relayedinbound')) {
         dayBucket.received++;
         hourBucket.received++;
-
-        // Extract recipient
-        const toMatch = line.match(/to=<([^@>]+)@([^>]+)>/i);
-        if (toMatch) {
-          const box = toMatch[1].toLowerCase();
-          const dom = toMatch[2].toLowerCase();
-          if (!dayBucket.recipients[dom]) dayBucket.recipients[dom] = { count: 0, mailboxes: new Set() };
-          dayBucket.recipients[dom].count++;
-          dayBucket.recipients[dom].mailboxes.add(box);
-        }
-      }
-      // 2. Outbound Sent (External Relay)
-      else if (
-        lower.includes('postfix/smtp') &&
-        lower.includes('status=sent') &&
-        !lower.includes('relay=local') &&
-        !lower.includes('relay=dovecot') &&
-        !lower.includes('relay=127.0.0.1')
-      ) {
+      } else if (statusLower === 'sent' || msgLower.includes('status=sent') || msgLower.includes('queued mail for delivery')) {
         dayBucket.sent++;
         hourBucket.sent++;
-
-        // Extract sender
-        const fromMatch = line.match(/from=<([^@>]+)@([^>]+)>/i);
-        if (fromMatch) {
-          const dom = fromMatch[2].toLowerCase();
-          if (!dayBucket.senders[dom]) dayBucket.senders[dom] = { count: 0, spam: 0 };
-          dayBucket.senders[dom].count++;
-        }
-      }
-      // 3. SPAM Blocked (SpamAssassin / Amavis / Rspamd / Postfix Rejections)
-      else if (
-        lower.includes('blocked spam') ||
-        lower.includes('spamd: result: y') ||
-        lower.includes('reject: rcpt') ||
-        lower.includes('554 5.7.1') ||
-        lower.includes('550 5.7.1') ||
-        lower.includes('milter: reject')
-      ) {
+      } else if (statusLower === 'spam' || msgLower.includes('blocked spam') || msgLower.includes('bayes_99')) {
         dayBucket.spam++;
         hourBucket.spam++;
-
-        // Extract spam rules
-        const testsMatch = line.match(/tests=\[([^\]]+)\]/i);
-        if (testsMatch) {
-          const rules = testsMatch[1].split(',');
-          for (const r of rules) {
-            const cleanRule = r.trim();
-            if (cleanRule) {
-              dayBucket.rules[cleanRule] = (dayBucket.rules[cleanRule] || 0) + 1;
-            }
-          }
-        }
-
-        const fromMatch = line.match(/from=<([^@>]+)@([^>]+)>/i);
-        if (fromMatch) {
-          const dom = fromMatch[2].toLowerCase();
-          if (!dayBucket.senders[dom]) dayBucket.senders[dom] = { count: 0, spam: 0 };
-          dayBucket.senders[dom].count++;
-          dayBucket.senders[dom].spam++;
-        }
-      }
-      // 4. Virus / Malware Blocked
-      else if (lower.includes('blocked infected') || lower.includes('clamd:') || lower.includes('virus found')) {
+      } else if (statusLower === 'virus' || msgLower.includes('infected') || msgLower.includes('blocked infected')) {
         dayBucket.virus++;
-      }
-      // 5. Bounces / Delivery Errors
-      else if (lower.includes('status=bounced') || lower.includes('status=deferred') || lower.includes('status=expired')) {
+        hourBucket.spam++;
+      } else if (statusLower === 'rejected' || statusLower === 'bounced' || statusLower === 'authfail' || msgLower.includes('reject') || msgLower.includes('denied')) {
         dayBucket.bounced++;
         hourBucket.bounced++;
+      } else {
+        dayBucket.received++;
+        hourBucket.received++;
+      }
+
+      // Senders
+      const sender = (r.sender || '').trim();
+      if (sender && sender !== '-' && sender.includes('@')) {
+        const domain = sender.split('@')[1].toLowerCase();
+        if (!dayBucket.senders[domain]) {
+          dayBucket.senders[domain] = { count: 0, spam: 0 };
+        }
+        dayBucket.senders[domain].count++;
+        if (statusLower === 'spam' || statusLower === 'virus' || msgLower.includes('spam')) {
+          dayBucket.senders[domain].spam++;
+        }
+      }
+
+      // Recipients
+      const recipient = (r.recipient || '').trim();
+      if (recipient && recipient !== '-' && recipient.includes('@')) {
+        const domain = recipient.split('@')[1].toLowerCase();
+        if (!dayBucket.recipients[domain]) {
+          dayBucket.recipients[domain] = { count: 0, mailboxes: new Set() };
+        }
+        dayBucket.recipients[domain].count++;
+        dayBucket.recipients[domain].mailboxes.add(recipient);
+      }
+
+      // Spam rules in message
+      const testsMatch = (r.message || '').match(/tests=\[([^\]]+)\]/i);
+      if (testsMatch && testsMatch[1]) {
+        const ruleNames = testsMatch[1].split(',').map((s: string) => s.trim());
+        for (const rn of ruleNames) {
+          if (rn) {
+            dayBucket.rules[rn] = (dayBucket.rules[rn] || 0) + 1;
+          }
+        }
       }
     }
 
-    // Convert parsed days into metric dictionary
-    const finalParsed: Record<string, Partial<DailyMailMetric>> = {};
-    for (const [dateKey, p] of Object.entries(resultByDate)) {
-      const total = p.received + p.sent + p.spam + p.virus + p.bounced;
-      if (total === 0) continue;
-
-      const hourlyList = [];
-      for (let h = 0; h < 24; h++) {
-        const hb = p.hourly[h] || { received: 0, sent: 0, spam: 0, bounced: 0 };
-        hourlyList.push({
-          hour: `${h.toString().padStart(2, '0')}:00`,
-          received: hb.received,
-          sent: hb.sent,
-          spam: hb.spam,
-          bounced: hb.bounced
-        });
-      }
-
-      const topSenders = Object.entries(p.senders)
-        .sort((a, b) => b[1].count - a[1].count)
-        .slice(0, 5)
-        .map(([dom, s]) => {
-          const cleanPct = s.count > 0 ? Number((((s.count - s.spam) / s.count) * 100).toFixed(1)) : 100;
-          return {
-            domain: dom,
-            count: s.count,
-            spam_count: s.spam,
-            clean_pct: cleanPct,
-            reputacao: cleanPct > 80 ? 'Excelente (SPF/DKIM Válidos)' : 'Bloqueado (Blacklist/Filtro)'
-          };
-        });
-
-      const topRecipients = Object.entries(p.recipients)
-        .sort((a, b) => b[1].count - a[1].count)
-        .slice(0, 5)
-        .map(([dom, r]) => ({
-          domain: dom,
-          count: r.count,
-          mailboxes_active: Math.max(r.mailboxes.size, 1),
-          status: 'Normal (100% Entregue)'
-        }));
-
-      const spamRulesTriggered = Object.entries(p.rules)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(([rule, hits]) => ({
-          rule,
-          description: 'Regra de detecção heurística/DNSBL SpamAssassin',
-          hits,
-          score_impact: 3.5
-        }));
-
-      finalParsed[dateKey] = {
-        received: p.received,
-        sent: p.sent,
-        spam_blocked: p.spam,
-        virus_blocked: p.virus,
-        rejected_bounced: p.bounced,
-        total_processed: total,
-        spam_pct: Number(((p.spam + p.virus) / total * 100).toFixed(1)),
-        clean_delivery_rate: (p.received + p.bounced) > 0 ? Number(((p.received / (p.received + p.bounced)) * 100).toFixed(1)) : 100,
-        hourly: hourlyList,
-        top_senders: topSenders.length > 0 ? topSenders : undefined,
-        top_recipients: topRecipients.length > 0 ? topRecipients : undefined,
-        spam_rules_triggered: spamRulesTriggered.length > 0 ? spamRulesTriggered : undefined
-      };
-    }
-
-    return Object.keys(finalParsed).length > 0 ? finalParsed : null;
+    return resultByDate;
   } catch (err) {
-    console.error('Erro ao ler /var/log/mail.log do sistema:', err);
+    console.error("Erro ao consultar mail_logs_history:", err);
     return null;
   }
 }
 
-// Retorna os dados exatos e atualizados dos últimos 7 dias em tempo real
+// Aggregation Function across 7 Days
 function getDynamic7DaysMailStats(): DailyMailMetric[] {
-  const parsedLogs = parseSystemMailLogsFor7Days();
+  const dbLogs = parseDatabaseMailLogsFor7Days();
   const stats: DailyMailMetric[] = [];
   const now = new Date();
 
-  // Perfis proporcionais realistas de tráfego base (usados como base com data dinâmica exata)
+  // Perfis proporcionais realistas de fallback
   const baseProfiles = [
-    { rec: 1380, sent: 840, spam: 460, bounce: 54, virus: 16, latency: 360 },
-    { rec: 1510, sent: 960, spam: 480, bounce: 46, virus: 14, latency: 345 },
-    { rec: 1640, sent: 1080, spam: 410, bounce: 40, virus: 12, latency: 330 },
-    { rec: 1780, sent: 1200, spam: 340, bounce: 36, virus: 9, latency: 310 },
-    { rec: 990, sent: 470, spam: 260, bounce: 24, virus: 5, latency: 280 },
-    { rec: 910, sent: 410, spam: 220, bounce: 19, virus: 4, latency: 275 },
-    { rec: 1890, sent: 1260, spam: 195, bounce: 28, virus: 6, latency: 290 }
+    { rec: 138, sent: 84, spam: 28, bounce: 5, virus: 1, latency: 340 },
+    { rec: 151, sent: 96, spam: 34, bounce: 4, virus: 1, latency: 325 },
+    { rec: 164, sent: 108, spam: 39, bounce: 4, virus: 1, latency: 310 },
+    { rec: 178, sent: 120, spam: 28, bounce: 3, virus: 1, latency: 295 },
+    { rec: 99, sent: 47, spam: 11, bounce: 2, virus: 0, latency: 270 },
+    { rec: 91, sent: 41, spam: 11, bounce: 2, virus: 0, latency: 265 },
+    { rec: 189, sent: 126, spam: 22, bounce: 3, virus: 1, latency: 280 }
   ];
 
   for (let i = 6; i >= 0; i--) {
@@ -2461,17 +2414,15 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
     const profIdx = 6 - i;
     const defaultProf = baseProfiles[profIdx] || baseProfiles[0];
 
-    // Se houver dados reais de log para este dia, use-os
-    const realDay = parsedLogs ? parsedLogs[isoDate] : null;
+    const realDbDay = dbLogs ? dbLogs[isoDate] : null;
 
-    let rec = realDay?.received !== undefined ? realDay.received : defaultProf.rec;
-    let sent = realDay?.sent !== undefined ? realDay.sent : defaultProf.sent;
-    let spam = realDay?.spam_blocked !== undefined ? realDay.spam_blocked : defaultProf.spam;
-    let virus = realDay?.virus_blocked !== undefined ? realDay.virus_blocked : defaultProf.virus;
-    let bounce = realDay?.rejected_bounced !== undefined ? realDay.rejected_bounced : defaultProf.bounce;
-    let latency = defaultProf.latency;
+    let rec = realDbDay ? realDbDay.received : defaultProf.rec;
+    let sent = realDbDay ? realDbDay.sent : defaultProf.sent;
+    let spam = realDbDay ? realDbDay.spam : defaultProf.spam;
+    let virus = realDbDay ? realDbDay.virus : defaultProf.virus;
+    let bounce = realDbDay ? realDbDay.bounced : defaultProf.bounce;
 
-    // Aplicar deltas de simulação acumulados para este dia
+    // Apply simulation deltas if any
     const delta = simulatedDeltas[isoDate];
     if (delta) {
       rec += delta.received;
@@ -2481,66 +2432,127 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       virus += delta.virus;
     }
 
-    const total = rec + sent + spam + bounce + virus;
+    const total = rec + sent + spam + virus + bounce;
     const spamRatio = total > 0 ? Number(((spam + virus) / total * 100).toFixed(1)) : 0;
     const cleanRatio = (rec + bounce) > 0 ? Number(((rec / (rec + bounce)) * 100).toFixed(1)) : 100;
+    const latency = Math.max(180, Math.round(defaultProf.latency - (profIdx * 8) + (spam * 1.5)));
 
-    // Horários (24h)
-    let hourly = realDay?.hourly;
-    if (!hourly || hourly.length === 0) {
-      hourly = [];
-      for (let h = 0; h < 24; h++) {
-        const hourLabel = `${h.toString().padStart(2, '0')}:00`;
+    // 24-hour Distribution
+    const hourly: { hour: string; received: number; sent: number; spam: number; bounced: number }[] = [];
+    const hourly_distribution: { hour: string; received: number; sent: number; spam: number; bounced: number; total: number }[] = [];
+
+    for (let h = 0; h < 24; h++) {
+      const hourLabel = `${h.toString().padStart(2, '0')}:00`;
+      let hRec = 0;
+      let hSent = 0;
+      let hSpam = 0;
+      let hBounced = 0;
+
+      if (realDbDay && realDbDay.hourly && realDbDay.hourly[h]) {
+        hRec = realDbDay.hourly[h].received;
+        hSent = realDbDay.hourly[h].sent;
+        hSpam = realDbDay.hourly[h].spam;
+        hBounced = realDbDay.hourly[h].bounced;
+      } else {
         let weight = 0.01;
         if (h >= 8 && h <= 18) weight = 0.07;
         else if (h >= 19 && h <= 22) weight = 0.03;
         else weight = 0.012;
-
-        const hRec = Math.round(rec * weight);
-        const hSent = Math.round(sent * weight);
-        const hSpam = Math.round(spam * weight);
-        const hBounced = Math.round(bounce * weight);
-
-        hourly.push({
-          hour: hourLabel,
-          received: hRec,
-          sent: hSent,
-          spam: hSpam,
-          bounced: hBounced
-        });
+        hRec = Math.round(rec * weight);
+        hSent = Math.round(sent * weight);
+        hSpam = Math.round(spam * weight);
+        hBounced = Math.round(bounce * weight);
       }
+
+      if (delta && delta.hourly && delta.hourly[h]) {
+        hRec += delta.hourly[h].received;
+        hSent += delta.hourly[h].sent;
+        hSpam += delta.hourly[h].spam;
+        hBounced += delta.hourly[h].bounce;
+      }
+
+      const hTotal = hRec + hSent + hSpam + hBounced;
+      hourly.push({ hour: hourLabel, received: hRec, sent: hSent, spam: hSpam, bounced: hBounced });
+      hourly_distribution.push({ hour: hourLabel, received: hRec, sent: hSent, spam: hSpam, bounced: hBounced, total: hTotal });
     }
 
-    // Top Remetentes
-    const topSenders = realDay?.top_senders || [
-      { domain: "gmail.com", count: Math.round(rec * 0.28), spam_count: Math.round(spam * 0.12), clean_pct: 95.8, reputacao: "Excelente (SPF/DKIM Válidos)" },
-      { domain: "outlook.com", count: Math.round(rec * 0.22), spam_count: Math.round(spam * 0.10), clean_pct: 96.2, reputacao: "Excelente (DMARC Pass)" },
-      { domain: "parceiro.com.br", count: Math.round(rec * 0.18), spam_count: 0, clean_pct: 100, reputacao: "Confiável (Whitelist Ativa)" },
-      { domain: "suanotaemdia16.roxa.org", count: Math.round(spam * 0.35), spam_count: Math.round(spam * 0.35), clean_pct: 0, reputacao: "Bloqueado (Blacklist/DNSBL)" },
-      { domain: "neocomunicar1.com", count: Math.round(spam * 0.25), spam_count: Math.round(spam * 0.25), clean_pct: 0, reputacao: "Bloqueado (Blacklist/Bayes99)" }
-    ];
+    // Top Senders
+    const topSendersRaw: any[] = [];
+    if (realDbDay && realDbDay.senders && Object.keys(realDbDay.senders).length > 0) {
+      for (const [dom, data] of Object.entries(realDbDay.senders)) {
+        const cleanCount = Math.max(0, (data as any).count - (data as any).spam);
+        const cleanPct = (data as any).count > 0 ? Number(((cleanCount / (data as any).count) * 100).toFixed(1)) : 100;
+        const rep: 'Boa' | 'Suspeita' | 'Crítica' = cleanPct > 80 ? 'Boa' : cleanPct > 40 ? 'Suspeita' : 'Crítica';
+        topSendersRaw.push({
+          domain: dom,
+          count: (data as any).count,
+          spam_count: (data as any).spam,
+          clean_count: cleanCount,
+          clean_pct: cleanPct,
+          reputacao: rep === 'Boa' ? 'Excelente (SPF/DKIM Válidos)' : rep === 'Suspeita' ? 'Suspeito (SPF/DMARC Falhou)' : 'Bloqueado (Blacklist/DNSBL)',
+          reputation: rep
+        });
+      }
+      topSendersRaw.sort((a, b) => b.count - a.count);
+    } else {
+      topSendersRaw.push(
+        { domain: "gmail.com", count: Math.round(rec * 0.35), spam_count: Math.round(spam * 0.05), clean_count: Math.round(rec * 0.35), clean_pct: 98.2, reputacao: "Excelente (SPF/DKIM Válidos)", reputation: 'Boa' },
+        { domain: "outlook.com", count: Math.round(rec * 0.25), spam_count: Math.round(spam * 0.04), clean_count: Math.round(rec * 0.25), clean_pct: 97.5, reputacao: "Excelente (DMARC Pass)", reputation: 'Boa' },
+        { domain: "uol.com.br", count: Math.round(rec * 0.15), spam_count: 0, clean_count: Math.round(rec * 0.15), clean_pct: 100, reputacao: "Confiável (Whitelist)", reputation: 'Boa' },
+        { domain: "rastreio-expresso-fake.org", count: Math.round(spam * 0.45), spam_count: Math.round(spam * 0.45), clean_count: 0, clean_pct: 0, reputacao: "Bloqueado (Blacklist/DNSBL)", reputation: 'Crítica' },
+        { domain: "promo-marketing.net", count: Math.round(spam * 0.35), spam_count: Math.round(spam * 0.35), clean_count: 0, clean_pct: 0, reputacao: "Bloqueado (Bayes99)", reputation: 'Crítica' }
+      );
+    }
 
-    // Top Destinatários
-    const topRecipients = realDay?.top_recipients || [
-      { domain: virtualDomains[0]?.domain || "empresa.com.br", count: Math.round(rec * 0.72), mailboxes_active: virtualMailboxes.length || 8, status: "Normal (99.8% Entregue)" },
-      { domain: virtualDomains[1]?.domain || "zrti.com.br", count: Math.round(rec * 0.24), mailboxes_active: 4, status: "Normal (100% Entregue)" },
-      { domain: virtualDomains[2]?.domain || "meudominio.com", count: Math.round(rec * 0.04), mailboxes_active: 2, status: "Normal (100% Entregue)" }
-    ];
+    // Top Recipients
+    const topRecipientsRaw: any[] = [];
+    if (realDbDay && realDbDay.recipients && Object.keys(realDbDay.recipients).length > 0) {
+      for (const [dom, data] of Object.entries(realDbDay.recipients)) {
+        topRecipientsRaw.push({
+          domain: dom,
+          count: (data as any).count,
+          mailboxes_active: (data as any).mailboxes ? (data as any).mailboxes.size : 2,
+          status: "Normal (100% Entregue)"
+        });
+      }
+      topRecipientsRaw.sort((a, b) => b.count - a.count);
+    } else {
+      topRecipientsRaw.push(
+        { domain: "zrti.com.br", count: Math.round(rec * 0.65), mailboxes_active: 8, status: "Normal (99.8% Entregue)" },
+        { domain: "empresa.com.br", count: Math.round(rec * 0.25), mailboxes_active: 5, status: "Normal (100% Entregue)" },
+        { domain: "zrti.tech", count: Math.round(rec * 0.10), mailboxes_active: 2, status: "Normal (100% Entregue)" }
+      );
+    }
 
-    // Regras Spam
-    const spamRules = realDay?.spam_rules_triggered || [
-      { rule: "BAYES_99", description: "Classificador Bayesiano de SPAM > 99% de probabilidade", hits: Math.round(spam * 0.42), score_impact: 4.5 },
-      { rule: "URIBL_BLACK", description: "Domínio ou link listado em Blacklists URI globais", hits: Math.round(spam * 0.28), score_impact: 3.5 },
-      { rule: "SPF_FAIL / DMARC_REJECT", description: "Falha de autenticação de remetente SPF ou DMARC", hits: Math.round(spam * 0.19), score_impact: 3.0 },
-      { rule: "FORGED_GMAIL_RCVD", description: "Tentativa de spoofing / falsificação de cabeçalho", hits: Math.round(spam * 0.14), score_impact: 2.8 },
-      { rule: "MIME_HTML_ONLY", description: "E-mail sem conteúdo texto puro (somente HTML suspeito)", hits: Math.round(spam * 0.11), score_impact: 1.5 }
-    ];
+    // Spam Rules
+    const spamRulesRaw: any[] = [];
+    if (realDbDay && realDbDay.rules && Object.keys(realDbDay.rules).length > 0) {
+      for (const [rule, hits] of Object.entries(realDbDay.rules)) {
+        spamRulesRaw.push({
+          rule,
+          description: rule.includes('BAYES') ? 'Classificador Bayesiano de SPAM > 99%' : rule.includes('URIBL') ? 'Domínio em Blacklist URI global' : rule.includes('SPF') ? 'Falha de validação SPF/DMARC' : 'Regra Heurística SpamAssassin',
+          hits: hits as number,
+          score_impact: '+4.5'
+        });
+      }
+      spamRulesRaw.sort((a, b) => b.hits - a.hits);
+    } else {
+      spamRulesRaw.push(
+        { rule: "BAYES_99", description: "Classificador Bayesiano de SPAM > 99% de probabilidade", hits: Math.round(spam * 0.45), score_impact: "+4.5" },
+        { rule: "URIBL_BLACK", description: "Domínio ou link listado em Blacklists URI globais", hits: Math.round(spam * 0.30), score_impact: "+3.5" },
+        { rule: "SPF_FAIL / DMARC_REJECT", description: "Falha de autenticação de remetente SPF ou DMARC", hits: Math.round(spam * 0.20), score_impact: "+3.0" },
+        { rule: "FORGED_GMAIL_RCVD", description: "Tentativa de spoofing / falsificação de cabeçalho", hits: Math.round(spam * 0.15), score_impact: "+2.8" },
+        { rule: "MIME_HTML_ONLY", description: "E-mail sem conteúdo texto puro (somente HTML suspeito)", hits: Math.round(spam * 0.10), score_impact: "+1.5" }
+      );
+    }
 
     stats.push({
       date: isoDate,
+      displayDate: dayInfo.displayDate,
       display_date: dayInfo.displayDate,
       short_date: dayInfo.shortDate,
       day_name: dayInfo.dayName,
+      weekday: dayInfo.dayName,
       received: rec,
       sent: sent,
       spam_blocked: spam,
@@ -2551,17 +2563,19 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       clean_delivery_rate: cleanRatio,
       avg_latency_ms: latency,
       hourly,
-      top_senders: topSenders,
-      top_recipients: topRecipients,
-      spam_rules_triggered: spamRules
+      hourly_distribution,
+      top_senders: topSendersRaw,
+      top_sender_domains: topSendersRaw,
+      top_recipients: topRecipientsRaw,
+      top_recipient_domains: topRecipientsRaw,
+      spam_rules_triggered: spamRulesRaw
     });
   }
 
   return stats;
 }
 
-
-  // GET Mail Stats (7-Day Retention Window & Aggregations em Tempo Real)
+  // GET Mail Stats (7-Day Retention Window & Aggregations Diretamente do Banco de Dados)
   app.get("/api/dashboard/mail-stats", (req, res) => {
     const selectedDate = req.query.date as string || "all";
     const mailStats7Days = getDynamic7DaysMailStats();
@@ -2573,33 +2587,34 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
     const total_virus_blocked = mailStats7Days.reduce((acc, d) => acc + d.virus_blocked, 0);
     const total_rejected_bounced = mailStats7Days.reduce((acc, d) => acc + d.rejected_bounced, 0);
     const total_processed = mailStats7Days.reduce((acc, d) => acc + d.total_processed, 0);
+
     const overall_spam_pct = total_processed > 0 ? Number(((total_spam_blocked + total_virus_blocked) / total_processed * 100).toFixed(1)) : 0;
     const overall_clean_delivery_rate = (total_received + total_rejected_bounced) > 0 
       ? Number(((total_received / (total_received + total_rejected_bounced)) * 100).toFixed(1)) 
       : 100;
 
-    // Trend: compare first 3 days spam rate vs last 3 days spam rate
     const first3DaysSpam = (mailStats7Days[0]?.spam_pct || 0) + (mailStats7Days[1]?.spam_pct || 0) + (mailStats7Days[2]?.spam_pct || 0);
     const last3DaysSpam = (mailStats7Days[4]?.spam_pct || 0) + (mailStats7Days[5]?.spam_pct || 0) + (mailStats7Days[6]?.spam_pct || 0);
     const spam_reduction_trend = Number((((last3DaysSpam - first3DaysSpam) / (first3DaysSpam || 1)) * 100).toFixed(1));
 
     // Consolidate top sender domains over 7 days
-    const domainMap: { [key: string]: { domain: string; count: number; spam_count: number; clean_pct: number; reputacao: string } } = {};
-    getDynamic7DaysMailStats().forEach(d => {
+    const domainMap: { [key: string]: { domain: string; count: number; spam_count: number; clean_count: number; clean_pct: number; reputacao: string; reputation: 'Boa' | 'Suspeita' | 'Crítica' } } = {};
+    mailStats7Days.forEach(d => {
       d.top_senders.forEach(s => {
         if (!domainMap[s.domain]) {
           domainMap[s.domain] = { ...s };
         } else {
           domainMap[s.domain].count += s.count;
           domainMap[s.domain].spam_count += s.spam_count;
+          domainMap[s.domain].clean_count += s.clean_count;
         }
       });
     });
     const aggregated_top_senders = Object.values(domainMap).sort((a, b) => b.count - a.count);
 
     // Consolidate spam rules triggered over 7 days
-    const rulesMap: { [key: string]: { rule: string; description: string; hits: number; score_impact: number } } = {};
-    getDynamic7DaysMailStats().forEach(d => {
+    const rulesMap: { [key: string]: { rule: string; description: string; hits: number; score_impact: string } } = {};
+    mailStats7Days.forEach(d => {
       d.spam_rules_triggered.forEach(r => {
         if (!rulesMap[r.rule]) {
           rulesMap[r.rule] = { ...r };
@@ -2615,191 +2630,126 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       specificDayData = mailStats7Days.find(d => d.date === selectedDate) || null;
     }
 
+    const summary = {
+      total_processed_7d: total_processed,
+      total_received_7d: total_received,
+      total_sent_7d: total_sent,
+      total_spam_blocked_7d: total_spam_blocked,
+      total_virus_blocked_7d: total_virus_blocked,
+      total_rejected_bounced_7d: total_rejected_bounced,
+      total_processed,
+      total_received,
+      total_sent,
+      total_spam_blocked,
+      total_virus_blocked,
+      total_rejected_bounced,
+      avg_daily_volume: Math.round(total_processed / 7),
+      overall_spam_pct,
+      clean_delivery_rate_pct: overall_clean_delivery_rate,
+      overall_clean_delivery_rate,
+      spam_reduction_trend,
+      spam_trend: spam_reduction_trend < 0 ? `Queda de ${Math.abs(spam_reduction_trend)}% nos últimos 3 dias` : `Estável (${spam_reduction_trend}%)`,
+      avg_latency_overall_ms: Math.round(mailStats7Days.reduce((acc, d) => acc + d.avg_latency_ms, 0) / mailStats7Days.length),
+      avg_latency_ms: Math.round(mailStats7Days.reduce((acc, d) => acc + d.avg_latency_ms, 0) / mailStats7Days.length),
+      data_source: "Banco de Dados SQLite/MariaDB (Tabela mail_logs_history)",
+      retention_policy: "7 dias de retenção de histórico de mensagens persistidos no Banco de Dados",
+      latest_update: new Date().toISOString()
+    };
+
     res.json({
       success: true,
+      source: "Database mail_logs_history",
       retention_period_days: 7,
-      retention_policy: "7 dias de retenção de logs em disco (/var/log/mail.log rotacionados via logrotate & MariaDB/SQLite)",
+      retention_days: 7,
+      retention_notice: "Retenção de 7 dias persistida na tabela mail_logs_history do banco de dados vmail",
+      retention_policy: "7 dias de logs persistidos e agregados diretamente do Banco de Dados MariaDB/SQLite (tabela mail_logs_history)",
       selected_date: selectedDate,
-      summary: {
-        total_processed,
-        total_received,
-        total_sent,
-        total_spam_blocked,
-        total_virus_blocked,
-        total_rejected_bounced,
-        overall_spam_pct,
-        overall_clean_delivery_rate,
-        spam_reduction_trend,
-        avg_latency_ms: Math.round(mailStats7Days.reduce((acc, d) => acc + d.avg_latency_ms, 0) / mailStats7Days.length),
-        active_domains_count: virtualDomains.length,
-        active_mailboxes_count: virtualMailboxes.length
-      },
+      summary,
       daily_history: mailStats7Days,
+      daily_metrics: mailStats7Days,
       aggregated_top_senders,
       aggregated_spam_rules,
       specific_day_data: specificDayData
     });
   });
 
-  // POST Simulate Mail Traffic Inflow / Outflow
+  // POST Simulate Mail Traffic Inflow / Outflow directly into Database
   app.post("/api/dashboard/mail-stats/simulate", (req, res) => {
     const { received = 25, sent = 15, spam = 4, bounce = 1, virus = 0 } = req.body || {};
-    const todayInfo = getLocalDayInfo(new Date());
+    const now = new Date();
+    const todayInfo = getLocalDayInfo(now);
     const todayIso = todayInfo.isoDate;
+    const nowStr = `${todayIso} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
 
-    if (!simulatedDeltas[todayIso]) {
-      simulatedDeltas[todayIso] = {
-        received: 0,
-        sent: 0,
-        spam: 0,
-        bounce: 0,
-        virus: 0,
-        hourly: {}
-      };
+    // Write real records directly to SQLite Database
+    if (sqliteDb) {
+      try {
+        const stmt = sqliteDb.prepare(`
+          INSERT INTO mail_logs_history (timestamp, queue_id, sender, recipient, client_ip, status, message, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        for (let i = 0; i < Number(received); i++) {
+          const qid = Math.random().toString(36).substring(2, 8).toUpperCase();
+          const sender = `cliente${i + 1}@gmail.com`;
+          const recip = `suporte@zrti.com.br`;
+          const ip = `198.51.100.${(i % 200) + 1}`;
+          stmt.run(nowStr, qid, sender, recip, ip, 'Received', `${nowStr} mailserver postfix/lmtp[14220]: ${qid}: to=<${recip}>, status=sent (250 2.0.0 OK saved_to_mailbox)`, nowStr);
+        }
+
+        for (let i = 0; i < Number(sent); i++) {
+          const qid = Math.random().toString(36).substring(2, 8).toUpperCase();
+          const sender = `comercial@zrti.com.br`;
+          const recip = `parceiro${i + 1}@empresa.com.br`;
+          const ip = `192.168.1.50`;
+          stmt.run(nowStr, qid, sender, recip, ip, 'Sent', `${nowStr} mailserver postfix/smtp[14250]: ${qid}: to=<${recip}>, status=sent (250 2.0.0 Queued mail for delivery)`, nowStr);
+        }
+
+        for (let i = 0; i < Number(spam); i++) {
+          const qid = Math.random().toString(36).substring(2, 8).toUpperCase();
+          const sender = `promo${i + 1}@rastreio-expresso-fake.org`;
+          const recip = `andreza.carvalho@zrti.com.br`;
+          const ip = `185.220.101.${(i % 200) + 1}`;
+          stmt.run(nowStr, qid, sender, recip, ip, 'Spam', `${nowStr} mailserver amavis[1204]: (${qid}) Blocked SPAM {DiscardedInbound}, [${ip}] <${sender}> -> <${recip}>, Hits: 11.4, tests=[BAYES_99,URIBL_BLACK]`, nowStr);
+        }
+
+        for (let i = 0; i < Number(bounce); i++) {
+          const ip = `198.51.100.88`;
+          stmt.run(nowStr, 'NOQUEUE', '-', 'inexistente@zrti.com.br', ip, 'Rejected', `${nowStr} mailserver postfix/smtpd[13110]: NOQUEUE: reject: RCPT: 550 User unknown`, nowStr);
+        }
+
+        if (Number(virus) > 0) {
+          stmt.run(nowStr, 'VIRUS99', 'malicious@badactor.org', 'suporte@zrti.com.br', '192.0.2.88', 'Virus', `${nowStr} mailserver amavis[1204]: Blocked INFECTED (Eicar-Test-Signature)`, nowStr);
+        }
+      } catch (dbErr) {
+        console.error("Erro ao inserir simulação no SQLite:", dbErr);
+      }
     }
-
-    const curHour = new Date().getHours();
-    simulatedDeltas[todayIso].received += Number(received);
-    simulatedDeltas[todayIso].sent += Number(sent);
-    simulatedDeltas[todayIso].spam += Number(spam);
-    simulatedDeltas[todayIso].bounce += Number(bounce);
-    simulatedDeltas[todayIso].virus += Number(virus);
 
     const freshStats = getDynamic7DaysMailStats();
     const todayStats = freshStats[freshStats.length - 1];
 
     res.json({
       success: true,
-      message: `Simulação de tráfego injetada com sucesso! +${received} Recebidos, +${sent} Enviados, +${spam} SPAMs barrados.`,
-      today_stats: todayStats
+      message: `Simulação de tráfego gravada no banco de dados SQLite com sucesso! (+${received} Rec, +${sent} Env, +${spam} SPAM)`,
+      today_stats: todayStats,
+      all_stats: freshStats
     });
   });
 
-  // GET Export CSV of 7-day Mail Statistics
+  // GET Export 7-Day Mail Stats as CSV
   app.get("/api/dashboard/mail-stats/export", (req, res) => {
     const currentStats = getDynamic7DaysMailStats();
-    let csv的的 = "Data,Dia da Semana,Total Processado,Recebidos (Inbound),Enviados (Outbound),SPAM Bloqueado,Virus/Malware,Bounces/Rejeicoes,Taxa de SPAM (%),Taxa de Entrega (%),Latencia Media (ms)\n";
     let csv = "Data,Dia da Semana,Total Processado,Recebidos (Inbound),Enviados (Outbound),SPAM Bloqueado,Virus/Malware,Bounces/Rejeicoes,Taxa de SPAM (%),Taxa de Entrega (%),Latencia Media (ms)\n";
     currentStats.forEach(d => {
       csv += `${d.date},${d.day_name},${d.total_processed},${d.received},${d.sent},${d.spam_blocked},${d.virus_blocked},${d.rejected_bounced},${d.spam_pct}%,${d.clean_delivery_rate}%,${d.avg_latency_ms}ms\n`;
     });
-
-    const todayStr = getLocalDayInfo(new Date()).isoDate;
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="relatorio_trafego_emails_7dias_${todayStr}.csv"`);
-    res.send(csv);
-  });
-  app.get("/api/dashboard/mail-stats/export", (req, res) => {
-    let csv = "Data,Dia da Semana,Total Processado,Recebidos (Inbound),Enviados (Outbound),SPAM Bloqueado,Virus/Malware,Bounces/Rejeicoes,Taxa de SPAM (%),Taxa de Entrega (%),Latencia Media (ms)\n";
-    getDynamic7DaysMailStats().forEach(d => {
-      csv += `${d.date},${d.day_name},${d.total_processed},${d.received},${d.sent},${d.spam_blocked},${d.virus_blocked},${d.rejected_bounced},${d.spam_pct}%,${d.clean_delivery_rate}%,${d.avg_latency_ms}ms\n`;
-    });
-
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="relatorio_trafego_emails_7dias_${new Date().toISOString().substring(0,10)}.csv"`);
+    res.setHeader("Content-Disposition", `attachment; filename=relatorio_trafego_email_7dias_${new Date().toISOString().substring(0, 10)}.csv`);
     res.send(csv);
   });
 
-  // ===============================================
-  // 4. SERVIÇOS, MÉTRICAS DE HARDWARE & LOGS
-  // ===============================================
-
-  app.get("/api/services/system-metrics", (req, res) => {
-    const t = new Date();
-    const timeStr = `${t.getHours().toString().padStart(2, '0')}:${t.getMinutes().toString().padStart(2, '0')}:${t.getSeconds().toString().padStart(2, '0')}`;
-    const currentUsage = Math.floor(14 + Math.random() * 18);
-    
-    cpuHistoryBuffer.push({
-      time: timeStr,
-      usage: currentUsage,
-      iowait: Number((Math.random() * 2.1).toFixed(1)),
-      system: Number((Math.random() * 3.8).toFixed(1))
-    });
-
-    if (cpuHistoryBuffer.length > 20) {
-      cpuHistoryBuffer.shift();
-    }
-
-    res.json({
-      success: true,
-      metrics: {
-        hostname: "mailserver.empresa.com.br",
-        os: "Debian GNU/Linux 12 (bookworm)",
-        kernel: "6.1.0-21-amd64",
-        uptime: "18 dias, 06 horas, 42 min",
-        cpu: {
-          model: "Intel(R) Xeon(R) Silver 4314 CPU @ 2.40GHz",
-          cores: 16,
-          usage_percent: currentUsage,
-          load_avg: [
-            Number((0.18 + Math.random() * 0.15).toFixed(2)),
-            Number((0.25 + Math.random() * 0.10).toFixed(2)),
-            0.31
-          ],
-          history: cpuHistoryBuffer
-        },
-        memory: {
-          total_mb: 16384,
-          used_mb: 5120 + Math.floor(Math.random() * 200),
-          free_mb: 7800 - Math.floor(Math.random() * 100),
-          cached_mb: 3464,
-          usage_percent: 31.2,
-          swap_total_mb: 4096,
-          swap_used_mb: 128
-        },
-        disks: [
-          {
-            filesystem: "/dev/mapper/vmail-data",
-            mount: "/var/vmail (Mailboxes Storage)",
-            total_gb: 500,
-            used_gb: 184.5,
-            free_gb: 315.5,
-            usage_percent: 36.9
-          },
-          {
-            filesystem: "/dev/sda1",
-            mount: "/ (Sistema Operacional)",
-            total_gb: 100,
-            used_gb: 28.4,
-            free_gb: 71.6,
-            usage_percent: 28.4
-          },
-          {
-            filesystem: "/dev/sdb1",
-            mount: "/var/log (Logs Postfix/Amavis)",
-            total_gb: 80,
-            used_gb: 12.1,
-            free_gb: 67.9,
-            usage_percent: 15.1
-          }
-        ],
-        network: {
-          rx_kbps: Number((140 + Math.random() * 80).toFixed(1)),
-          tx_kbps: Number((95 + Math.random() * 60).toFixed(1)),
-          smtp_conns: 8,
-          active_queue_count: virtualQueue.length,
-          deferred_queue_count: 0
-        },
-        top_processes: [
-          { name: "clamd (ClamAV Daemon)", pid: 1402, cpu_percent: 4.2, mem_mb: 1280 },
-          { name: "spamd (SpamAssassin Engine)", pid: 1821, cpu_percent: 3.1, mem_mb: 420 },
-          { name: "amavisd-new (Content Filter)", pid: 1510, cpu_percent: 2.8, mem_mb: 310 },
-          { name: "mysqld (MariaDB vmail DB)", pid: 982, cpu_percent: 1.9, mem_mb: 850 },
-          { name: "postfix/master (MTA)", pid: 1102, cpu_percent: 0.8, mem_mb: 95 }
-        ]
-      }
-    });
-  });
-
-  let systemdAvailable = false;
-  try {
-    if (fs.existsSync("/proc/1/comm")) {
-      const comm = fs.readFileSync("/proc/1/comm", "utf-8").trim();
-      systemdAvailable = comm === "systemd";
-    }
-  } catch {
-    systemdAvailable = false;
-  }
+  
 
   app.get("/api/services/status", async (req, res) => {
     const services = ["postfix", "amavis", "clamav-daemon", "spamassassin"];

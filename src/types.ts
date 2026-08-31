@@ -253,6 +253,81 @@ export interface LayoutSettings {
   themeMode: 'dark' | 'slate';
 }
 
+export interface HourlyDistribution {
+  hour: string;
+  received: number;
+  sent: number;
+  spam: number;
+  bounced: number;
+  total: number;
+}
+
+export interface TopSenderDomain {
+  domain: string;
+  count: number;
+  spam_count: number;
+  clean_count: number;
+  reputation: 'Boa' | 'Suspeita' | 'Crítica';
+}
+
+export interface TopRecipientDomain {
+  domain: string;
+  count: number;
+  mailboxes_active: number;
+}
+
+export interface SpamRuleTriggered {
+  rule: string;
+  description: string;
+  hits: number;
+  score_impact: string;
+}
+
+export interface DailyMailMetric {
+  date: string;
+  displayDate: string;
+  weekday: string;
+  received: number;
+  sent: number;
+  spam_blocked: number;
+  virus_blocked: number;
+  rejected_bounced: number;
+  total_processed: number;
+  spam_pct: number;
+  clean_delivery_rate: number;
+  avg_latency_ms: number;
+  hourly_distribution: HourlyDistribution[];
+  top_sender_domains: TopSenderDomain[];
+  top_recipient_domains: TopRecipientDomain[];
+  spam_rules_triggered: SpamRuleTriggered[];
+}
+
+export interface MailTrafficSummary {
+  total_processed_7d: number;
+  total_received_7d: number;
+  total_sent_7d: number;
+  total_spam_blocked_7d: number;
+  total_virus_blocked_7d: number;
+  total_rejected_bounced_7d: number;
+  avg_daily_volume: number;
+  overall_spam_pct: number;
+  clean_delivery_rate_pct: number;
+  avg_latency_overall_ms: number;
+  spam_trend: string;
+  data_source: string;
+  retention_policy: string;
+  latest_update: string;
+}
+
+export interface MailStatsResponse {
+  success: boolean;
+  source: string;
+  retention_days: number;
+  retention_notice: string;
+  summary: MailTrafficSummary;
+  daily_metrics: DailyMailMetric[];
+}
+
 export interface PythonFiles {
   "app.py": string;
   "requirements.txt"?: string;
@@ -269,3 +344,4 @@ export interface PythonFiles {
   "mailadmin.service": string;
   "README_DEPLOY.md": string;
 }
+
