@@ -25,6 +25,7 @@ from blueprints.services_bp import services_bp
 from blueprints.servers_bp import servers_bp
 from blueprints.automation_bp import automation_bp, sync_system_crontab
 from blueprints.antispam_bp import antispam_bp
+from blueprints.dashboard_bp import dashboard_bp
 
 
 def auto_heal_database_schema():
@@ -177,6 +178,7 @@ def create_app():
     app.register_blueprint(servers_bp)
     app.register_blueprint(automation_bp)
     app.register_blueprint(antispam_bp)
+    app.register_blueprint(dashboard_bp)
 
     @app.before_request
     def log_incoming_request():

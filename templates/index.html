@@ -812,6 +812,77 @@
         }
     }
 
+    
+    function showToast(message, type = 'info', duration = 3500) {
+        let container = document.getElementById('global-toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'global-toast-container';
+            container.className = 'toast-container position-fixed top-0 end-0 p-3';
+            container.style.zIndex = '99999';
+            container.style.pointerEvents = 'none';
+            document.body.appendChild(container);
+        }
+
+        let bgClass = 'bg-primary text-white';
+        let icon = 'bi-info-circle-fill';
+        if (type === 'success') {
+            bgClass = 'bg-success text-white';
+            icon = 'bi-check-circle-fill';
+        } else if (type === 'danger' || type === 'error') {
+            bgClass = 'bg-danger text-white';
+            icon = 'bi-exclamation-triangle-fill';
+        } else if (type === 'warning') {
+            bgClass = 'bg-warning text-dark';
+            icon = 'bi-exclamation-circle-fill';
+        } else if (type === 'info') {
+            bgClass = 'bg-info text-dark';
+            icon = 'bi-info-circle-fill';
+        }
+
+        const toastId = 'toast-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+        const toastEl = document.createElement('div');
+        toastEl.id = toastId;
+        toastEl.className = 'toast align-items-center shadow-lg border-0 mb-2 ' + bgClass;
+        toastEl.setAttribute('role', 'alert');
+        toastEl.setAttribute('aria-live', 'assertive');
+        toastEl.setAttribute('aria-atomic', 'true');
+        toastEl.style.pointerEvents = 'auto';
+        toastEl.style.minWidth = '280px';
+        toastEl.style.borderRadius = '12px';
+
+        const isDarkText = (type === 'warning' || type === 'info');
+        const closeBtnClass = isDarkText ? 'btn-close' : 'btn-close btn-close-white';
+
+        toastEl.innerHTML = `
+            <div class="d-flex align-items-center p-2.5">
+                <i class="bi ${icon} fs-5 me-2.5 ms-1"></i>
+                <div class="toast-body py-1 px-1 flex-grow-1 small fw-semibold" style="line-height: 1.35;">
+                    ${message}
+                </div>
+                <button type="button" class="${closeBtnClass} me-2 m-auto" data-bs-dismiss="toast" aria-label="Fechar"></button>
+            </div>
+        `;
+
+        container.appendChild(toastEl);
+
+        if (typeof bootstrap !== 'undefined' && bootstrap.Toast) {
+            const bsToast = new bootstrap.Toast(toastEl, { delay: duration });
+            bsToast.show();
+            toastEl.addEventListener('hidden.bs.toast', () => {
+                try { toastEl.remove(); } catch (e) {}
+            });
+        } else {
+            toastEl.classList.add('show');
+            setTimeout(() => {
+                toastEl.classList.remove('show');
+                setTimeout(() => {
+                    try { toastEl.remove(); } catch (e) {}
+                }, 300);
+            }, duration);
+        }
+    }
+
     function showAlert(message, type = 'success') {
         const container = document.getElementById('global-alert-container');
         const alertHtml = `
@@ -941,11 +1012,25 @@
         if (mailHourlyChartInstance) { mailHourlyChartInstance.resize(); mailHourlyChartInstance.update(); }
     }
 
+    function getDynamic7DaysLabels() {
+        const labels = [];
+        const nowObj = new Date();
+        for (let i = 6; i >= 0; i--) {
+            const d = new Date(nowObj.getTime() - i * 24 * 60 * 60 * 1000);
+            const dd = String(d.getDate()).padStart(2, '0');
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            labels.push(`${dd}/${mm}`);
+        }
+        return labels;
+    }
+
     function initMailCharts() {
         if (typeof Chart === 'undefined') {
             console.warn('Chart.js nÃ£o carregado globalmente ainda.');
             return;
         }
+
+        const dynamicDates7d = getDynamic7DaysLabels();
 
         // 1. GrÃ¡fico de Linhas 7 Dias
         const trafficCanvas = document.getElementById('mailTrafficChart7d');
@@ -954,7 +1039,7 @@
             mailTrafficChart7dInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: ['Dia 1', 'Dia 2', 'Dia 3', 'Dia 4', 'Dia 5', 'Dia 6', 'Hoje'],
+                    labels: dynamicDates7d,
                     datasets: [
                         {
                             label: 'Recebidos (Inbound)',
@@ -983,21 +1068,21 @@
                             data: [0, 0, 0, 0, 0, 0, 0],
                             borderColor: '#ef4444',
                             backgroundColor: 'rgba(239, 68, 68, 0.05)',
-                            fill: false,
+                            fill: true,
                             tension: 0.35,
                             borderWidth: 2,
-                            borderDash: [4, 4],
-                            pointRadius: 3,
+                            pointRadius: 4,
                             pointHoverRadius: 6
                         },
                         {
-                            label: 'Bounces / RejeiÃ§Ãµes',
+                            label: 'Bounces/RejeiÃ§Ãµes',
                             data: [0, 0, 0, 0, 0, 0, 0],
                             borderColor: '#f59e0b',
                             backgroundColor: 'rgba(245, 158, 11, 0.05)',
                             fill: false,
                             tension: 0.35,
-                            borderWidth: 1.5,
+                            borderWidth: 2,
+                            borderDash: [4, 4],
                             pointRadius: 3,
                             pointHoverRadius: 5
                         }
@@ -1012,40 +1097,41 @@
                     },
                     plugins: {
                         legend: {
-                            display: false
+                            position: 'top',
+                            labels: { boxWidth: 12, usePointStyle: true, font: { size: 11, family: 'monospace' } }
                         },
                         tooltip: {
-                            backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
                             padding: 10,
-                            bodyFont: { family: 'monospace' },
-                            titleFont: { family: 'monospace', weight: 'bold' }
+                            titleFont: { size: 12, weight: 'bold' },
+                            bodyFont: { size: 11, family: 'monospace' }
                         }
                     },
                     scales: {
                         x: {
-                            grid: { color: '#f1f5f9' },
-                            ticks: { font: { family: 'monospace', size: 11 }, color: '#64748b' }
+                            grid: { display: false },
+                            ticks: { font: { size: 11, family: 'monospace', weight: 'bold' }, color: '#475569' }
                         },
                         y: {
                             beginAtZero: true,
-                            grid: { color: '#f1f5f9' },
-                            ticks: { font: { family: 'monospace', size: 11 }, color: '#64748b' }
+                            grid: { color: 'rgba(226, 232, 240, 0.6)' },
+                            ticks: { precision: 0, font: { size: 10 } }
                         }
                     }
                 }
             });
         }
 
-        // 2. GrÃ¡fico Donut de Vereditos
-        const verdictCanvas = document.getElementById('mailVerdictDonut');
-        if (verdictCanvas && !mailVerdictDonutInstance) {
-            const ctx = verdictCanvas.getContext('2d');
+        // 2. GrÃ¡fico Donut de Veredito
+        const donutCanvas = document.getElementById('mailVerdictDonut');
+        if (donutCanvas && !mailVerdictDonutInstance) {
+            const ctx = donutCanvas.getContext('2d');
             mailVerdictDonutInstance = new Chart(ctx, {
                 type: 'doughnut',
                 data: {
-                    labels: ['Recebidos Limpos', 'Enviados com Sucesso', 'SPAM Bloqueado', 'Bounces / Erros'],
+                    labels: ['Recebidos Limpos', 'Enviados (Outbound)', 'SPAM/AmeaÃ§as', 'Bounces/Rejeitados'],
                     datasets: [{
-                        data: [1, 1, 0, 0],
+                        data: [0, 0, 0, 0],
                         backgroundColor: ['#10b981', '#3b82f6', '#ef4444', '#f59e0b'],
                         borderWidth: 2,
                         borderColor: '#ffffff',
@@ -1055,34 +1141,38 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    cutout: '72%',
+                    cutout: '70%',
                     plugins: {
                         legend: { display: false },
                         tooltip: {
-                            backgroundColor: 'rgba(15, 23, 42, 0.95)',
-                            padding: 8,
-                            bodyFont: { family: 'monospace' }
+                            callbacks: {
+                                label: function(context) {
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const val = context.raw || 0;
+                                    const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
+                                    return ` ${context.label}: ${val.toLocaleString('pt-BR')} (${pct}%)`;
+                                }
+                            }
                         }
                     }
                 }
             });
         }
 
-        // 3. GrÃ¡fico de Taxa de SPAM DiÃ¡ria (%)
+        // 3. GrÃ¡fico de Taxa de SPAM DiÃ¡ria
         const spamRateCanvas = document.getElementById('mailSpamRateChart');
         if (spamRateCanvas && !mailSpamRateChartInstance) {
             const ctx = spamRateCanvas.getContext('2d');
             mailSpamRateChartInstance = new Chart(ctx, {
                 type: 'bar',
                 data: {
-                    labels: ['Dia 1', 'Dia 2', 'Dia 3', 'Dia 4', 'Dia 5', 'Dia 6', 'Hoje'],
+                    labels: dynamicDates7d,
                     datasets: [{
                         label: 'Taxa de SPAM (%)',
                         data: [0, 0, 0, 0, 0, 0, 0],
-                        backgroundColor: 'rgba(239, 68, 68, 0.8)',
-                        borderColor: '#ef4444',
-                        borderWidth: 1.5,
-                        borderRadius: 6
+                        backgroundColor: 'rgba(239, 68, 68, 0.7)',
+                        hoverBackgroundColor: '#dc2626',
+                        borderRadius: 4
                     }]
                 },
                 options: {
@@ -1092,64 +1182,54 @@
                         legend: { display: false },
                         tooltip: {
                             callbacks: {
-                                label: (ctx) => `Taxa de SPAM: ${ctx.raw}% das mensagens`
+                                label: function(context) {
+                                    return ` Taxa de SPAM: ${context.raw}%`;
+                                }
                             }
                         }
                     },
                     scales: {
-                        x: { grid: { display: false }, ticks: { font: { family: 'monospace', size: 10 }, color: '#64748b' } },
+                        x: {
+                            grid: { display: false },
+                            ticks: { font: { size: 10, family: 'monospace', weight: 'bold' } }
+                        },
                         y: {
                             beginAtZero: true,
-                            suggestedMax: 25,
-                            grid: { color: '#f1f5f9' },
-                            ticks: {
-                                font: { family: 'monospace', size: 10 },
-                                color: '#64748b',
-                                callback: (v) => `${v}%`
-                            }
+                            max: 100,
+                            ticks: { callback: v => `${v}%`, font: { size: 10 } }
                         }
                     }
                 }
             });
         }
 
-        // 4. GrÃ¡fico de HorÃ¡rio 24h
+        // 4. GrÃ¡fico de DistribuiÃ§Ã£o HorÃ¡ria
         const hourlyCanvas = document.getElementById('mailHourlyChart');
         if (hourlyCanvas && !mailHourlyChartInstance) {
             const ctx = hourlyCanvas.getContext('2d');
-            const hours = Array.from({length: 24}, (_, i) => `${i.toString().padStart(2, '0')}:00`);
+            const hours24 = Array.from({ length: 24 }, (_, i) => `${i.toString().padStart(2, '0')}:00`);
             mailHourlyChartInstance = new Chart(ctx, {
                 type: 'bar',
                 data: {
-                    labels: hours,
+                    labels: hours24,
                     datasets: [
                         {
                             label: 'Recebidos',
                             data: Array(24).fill(0),
                             backgroundColor: '#10b981',
-                            borderRadius: 3,
-                            stack: 'combined'
+                            stack: 'traffic'
                         },
                         {
                             label: 'Enviados',
                             data: Array(24).fill(0),
                             backgroundColor: '#3b82f6',
-                            borderRadius: 3,
-                            stack: 'combined'
+                            stack: 'traffic'
                         },
                         {
-                            label: 'SPAM Bloqueado',
+                            label: 'SPAM',
                             data: Array(24).fill(0),
                             backgroundColor: '#ef4444',
-                            borderRadius: 3,
-                            stack: 'combined'
-                        },
-                        {
-                            label: 'Bounces / Erros',
-                            data: Array(24).fill(0),
-                            backgroundColor: '#f59e0b',
-                            borderRadius: 3,
-                            stack: 'combined'
+                            stack: 'traffic'
                         }
                     ]
                 },
@@ -1157,56 +1237,129 @@
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
-                        legend: { display: false },
-                        tooltip: {
-                            backgroundColor: 'rgba(15, 23, 42, 0.95)',
-                            padding: 8,
-                            bodyFont: { family: 'monospace' }
-                        }
+                        legend: { position: 'top', labels: { boxWidth: 10, font: { size: 10 } } }
                     },
                     scales: {
-                        x: { stacked: true, grid: { display: false }, ticks: { font: { family: 'monospace', size: 9 }, color: '#64748b' } },
-                        y: { stacked: true, beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { family: 'monospace', size: 9 }, color: '#64748b' } }
+                        x: {
+                            stacked: true,
+                            grid: { display: false },
+                            ticks: { font: { size: 9, family: 'monospace' }, maxRotation: 45 }
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true,
+                            ticks: { precision: 0, font: { size: 9 } }
+                        }
                     }
                 }
             });
         }
     }
 
-    async function loadMailTrafficStats(selectedDate = 'all') {
+    function handleMailStatsDatePicker(dateVal) {
+        if (!dateVal) {
+            handleMailStatsDateChange('all');
+            return;
+        }
+        const select = document.getElementById('mailstats-period-select');
+        if (select) {
+            let found = false;
+            for (let i = 0; i < select.options.length; i++) {
+                if (select.options[i].value === dateVal) {
+                    select.selectedIndex = i;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                const opt = document.createElement('option');
+                opt.value = dateVal;
+                opt.textContent = `Data: ${dateVal}`;
+                select.appendChild(opt);
+                select.value = dateVal;
+            }
+        }
+        loadMailTrafficStats(dateVal, true);
+        showToast(`Filtrando mÃ©tricas do banco de dados para a data ${dateVal}.`, 'info');
+    }
+
+    function handleMailStatsDateChange(dateVal) {
+        const datePicker = document.getElementById('mailstats-date-picker');
+        if (datePicker) {
+            if (dateVal === 'all') {
+                datePicker.value = '';
+            } else {
+                datePicker.value = dateVal;
+            }
+        }
+        loadMailTrafficStats(dateVal, true);
+    }
+
+    function selectSpecificMailDate(dateStr) {
+        const select = document.getElementById('mailstats-period-select');
+        if (select) select.value = dateStr;
+        const datePicker = document.getElementById('mailstats-date-picker');
+        if (datePicker) datePicker.value = dateStr;
+        loadMailTrafficStats(dateStr, true);
+        showToast(`Exibindo mÃ©tricas detalhadas para o dia ${dateStr}.`, 'info');
+    }
+
+    async function loadMailTrafficStats(selectedDate = 'all', showFeedback = false) {
+        const refreshIcon = document.getElementById('mailstats-refresh-icon');
+        if (refreshIcon) refreshIcon.classList.add('spin-animation');
         try {
             currentSelectedMailDate = selectedDate;
             const res = await fetch(`/api/dashboard/mail-stats?date=${encodeURIComponent(selectedDate)}`);
             if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
             const data = await res.json();
-            if (!data.success) return;
-
+            if (!data.success) {
+                showToast(data.message || 'Erro ao carregar estatÃ­sticas do banco de dados.', 'danger');
+                return;
+            }
             currentMailStatsData = data;
             renderMailStatsDashboard(data, selectedDate);
+            if (showFeedback) {
+                showToast(`MÃ©tricas atualizadas com sucesso a partir do banco de dados (${data.database_records_count || 0} logs totais).`, 'success');
+            }
         } catch (err) {
             console.error('Erro ao carregar mÃ©tricas de trÃ¡fego de e-mail:', err);
+            if (showFeedback) {
+                showToast(`Erro ao consultar dados no banco: ${err.message}`, 'danger');
+            }
+        } finally {
+            if (refreshIcon) {
+                setTimeout(() => {
+                    refreshIcon.classList.remove('spin-animation');
+                }, 400);
+            }
         }
     }
 
     function renderMailStatsDashboard(data, selectedDate) {
         const sum = data.summary || {};
-        const daily = data.daily_history || [];
+        const daily = data.daily_history || data.daily_metrics || [];
         const specific = data.specific_day_data;
 
-        // Atualizar seletor de perÃ­odo com as datas dinÃ¢micas exatas
+        // Atualizar seletor de perÃ­odo com as datas dinÃ¢micas exatas do banco
         const select = document.getElementById('mailstats-period-select');
         if (select) {
             select.innerHTML = '<option value="all">Todos os 7 Dias (Agregado)</option>';
             daily.forEach(d => {
                 const opt = document.createElement('option');
                 opt.value = d.date;
-                opt.textContent = `${d.display_date} (${d.total_processed} msgs)`;
+                opt.textContent = `${d.display_date || d.short_date} - ${d.weekday || ''} (${d.total_processed || 0} msgs)`;
                 select.appendChild(opt);
             });
             select.value = selectedDate;
         }
 
-        // Decide which numbers to display (aggregated vs specific single day)
+        // Sincronizar o datepicker
+        const datePicker = document.getElementById('mailstats-date-picker');
+        if (datePicker && selectedDate !== 'all') {
+            datePicker.value = selectedDate;
+        }
+
+        // Decidir dados a exibir
         const targetData = specific || {
             total_processed: sum.total_processed || 0,
             received: sum.total_received || 0,
@@ -1216,7 +1369,8 @@
             rejected_bounced: sum.total_rejected_bounced || 0,
             spam_pct: sum.overall_spam_pct || 0,
             clean_delivery_rate: sum.overall_clean_delivery_rate || 100,
-            avg_latency_ms: sum.avg_latency_ms || 300
+            avg_latency_ms: sum.avg_latency_ms || 300,
+            hourly: (daily[daily.length - 1] && daily[daily.length - 1].hourly) || []
         };
 
         const total = targetData.total_processed || (targetData.received + targetData.sent + targetData.spam_blocked + targetData.rejected_bounced) || 1;
@@ -1228,25 +1382,21 @@
         // Update KPIs
         const elTotal = document.getElementById('mail-kpi-total');
         if (elTotal) elTotal.textContent = targetData.total_processed.toLocaleString('pt-BR');
-
         const elTotalBadge = document.getElementById('mail-kpi-total-badge');
-        if (elTotalBadge) elTotalBadge.textContent = specific ? `${targetData.display_date}` : `7 Dias Consolidado`;
+        if (elTotalBadge) elTotalBadge.textContent = specific ? `${targetData.display_date || targetData.short_date}` : `7 Dias Consolidado`;
 
         const elRec = document.getElementById('mail-kpi-received');
         if (elRec) elRec.textContent = targetData.received.toLocaleString('pt-BR');
-
         const elRecPct = document.getElementById('mail-kpi-received-pct');
         if (elRecPct) elRecPct.textContent = `${recPct}%`;
 
         const elSent = document.getElementById('mail-kpi-sent');
         if (elSent) elSent.textContent = targetData.sent.toLocaleString('pt-BR');
-
         const elSentPct = document.getElementById('mail-kpi-sent-pct');
         if (elSentPct) elSentPct.textContent = `${sentPct}%`;
 
         const elSpam = document.getElementById('mail-kpi-spam');
         if (elSpam) elSpam.textContent = targetData.spam_blocked.toLocaleString('pt-BR');
-
         const elSpamPct = document.getElementById('mail-kpi-spam-pct');
         if (elSpamPct) elSpamPct.textContent = `${spamPct}% taxa`;
 
@@ -1263,7 +1413,6 @@
 
         const elBounced = document.getElementById('mail-kpi-bounced');
         if (elBounced) elBounced.textContent = targetData.rejected_bounced.toLocaleString('pt-BR');
-
         const elBouncedPct = document.getElementById('mail-kpi-bounced-pct');
         if (elBouncedPct) elBouncedPct.textContent = `${bouncePct}%`;
 
@@ -1273,20 +1422,17 @@
         // Update Verdict Counts
         const elVRec = document.getElementById('verdict-count-received');
         if (elVRec) elVRec.textContent = `${targetData.received.toLocaleString('pt-BR')} (${recPct}%)`;
-
         const elVSent = document.getElementById('verdict-count-sent');
         if (elVSent) elVSent.textContent = `${targetData.sent.toLocaleString('pt-BR')} (${sentPct}%)`;
-
         const elVSpam = document.getElementById('verdict-count-spam');
         if (elVSpam) elVSpam.textContent = `${targetData.spam_blocked.toLocaleString('pt-BR')} (${spamPct}%)`;
-
         const elVBounce = document.getElementById('verdict-count-bounced');
         if (elVBounce) elVBounce.textContent = `${targetData.rejected_bounced.toLocaleString('pt-BR')} (${bouncePct}%)`;
 
         // Ensure charts are initialized
         initMailCharts();
 
-        // 1. Update Line Chart (7-Day Trend)
+        // 1. Update Line Chart (7-Day Trend) com labels DD/MM
         if (mailTrafficChart7dInstance) {
             mailTrafficChart7dInstance.data.labels = daily.map(d => d.display_date || d.short_date);
             mailTrafficChart7dInstance.data.datasets[0].data = daily.map(d => d.received);
@@ -1314,185 +1460,213 @@
             mailVerdictDonutInstance.update();
         }
 
-        // 3. Update Spam Rate Bar Chart
+        // 3. Update Spam Rate Bar Chart com labels DD/MM
         if (mailSpamRateChartInstance) {
-            mailSpamRateChartInstance.data.labels = daily.map(d => d.short_date);
+            mailSpamRateChartInstance.data.labels = daily.map(d => d.display_date || d.short_date);
             mailSpamRateChartInstance.data.datasets[0].data = daily.map(d => d.spam_pct);
-            mailSpamRateChartInstance.data.datasets[0].backgroundColor = daily.map(d => 
-                d.spam_pct > 15 ? 'rgba(239, 68, 68, 0.85)' : (d.spam_pct > 10 ? 'rgba(245, 158, 11, 0.85)' : 'rgba(16, 185, 129, 0.85)')
-            );
-            mailSpamRateChartInstance.data.datasets[0].borderColor = daily.map(d => 
-                d.spam_pct > 15 ? '#ef4444' : (d.spam_pct > 10 ? '#f59e0b' : '#10b981')
-            );
             mailSpamRateChartInstance.update();
         }
 
-        // 4. Update Hourly Bar Chart
+        // 4. Update Hourly Distribution
         if (mailHourlyChartInstance) {
-            const activeDay = specific || daily[daily.length - 1];
-            if (activeDay && activeDay.hourly && activeDay.hourly.length > 0) {
-                mailHourlyChartInstance.data.labels = activeDay.hourly.map(h => h.hour);
-                mailHourlyChartInstance.data.datasets[0].data = activeDay.hourly.map(h => h.received);
-                mailHourlyChartInstance.data.datasets[1].data = activeDay.hourly.map(h => h.sent);
-                mailHourlyChartInstance.data.datasets[2].data = activeDay.hourly.map(h => h.spam);
-                if (mailHourlyChartInstance.data.datasets[3]) {
-                    mailHourlyChartInstance.data.datasets[3].data = activeDay.hourly.map(h => h.bounced || 0);
-                }
+            const hourlyArr = targetData.hourly || (daily[daily.length - 1] && daily[daily.length - 1].hourly) || [];
+            if (hourlyArr.length > 0) {
+                mailHourlyChartInstance.data.labels = hourlyArr.map(h => h.hour);
+                mailHourlyChartInstance.data.datasets[0].data = hourlyArr.map(h => h.received);
+                mailHourlyChartInstance.data.datasets[1].data = hourlyArr.map(h => h.sent);
+                mailHourlyChartInstance.data.datasets[2].data = hourlyArr.map(h => h.spam);
                 mailHourlyChartInstance.update();
-
-                const subHourly = document.getElementById('mailstats-hourly-subtitle');
-                if (subHourly) subHourly.textContent = `DistribuiÃ§Ã£o horÃ¡ria para ${activeDay.display_date}`;
             }
         }
 
-        // Render Consolidated Table
+        // Render Table: HistÃ³rico dos 7 Dias
         renderMailStatsHistoryTable(daily, selectedDate);
 
-        // Render Top Senders
-        renderMailStatsTopSenders(data.aggregated_top_senders || []);
+        // Render Top Sender Domains
+        const topSenders = specific 
+            ? (specific.top_senders || specific.top_sender_domains || []) 
+            : (data.aggregated_top_senders || (daily && daily.length > 0 ? (daily[daily.length - 1].top_senders || daily[daily.length - 1].top_sender_domains || []) : []));
+        renderTopSendersTable(topSenders);
 
-        // Render Top Recipients
-        const topRecs = (specific ? specific.top_recipients : daily[daily.length - 1]?.top_recipients) || [];
-        renderMailStatsTopRecipients(topRecs);
+        // Render Top Recipient Domains
+        const topRcpt = specific 
+            ? (specific.top_recipients || specific.top_recipient_domains || []) 
+            : (data.aggregated_top_recipients || (daily && daily.length > 0 ? (daily[daily.length - 1].top_recipients || daily[daily.length - 1].top_recipient_domains || []) : []));
+        renderTopRecipientsTable(topRcpt);
 
-        // Render Top Spam Rules
-        renderMailStatsTopRules(data.aggregated_spam_rules || []);
+        // Render Spam Rules Triggered
+        const spamRules = specific 
+            ? (specific.spam_rules_triggered || []) 
+            : (data.aggregated_spam_rules || (daily && daily.length > 0 ? (daily[daily.length - 1].spam_rules_triggered || []) : []));
+        renderSpamRulesTable(spamRules);
     }
 
-    function renderMailStatsHistoryTable(daily, selectedDate) {
+    function renderMailStatsHistoryTable(dailyList, selectedDate) {
         const tbody = document.getElementById('mailstats-history-tbody');
         if (!tbody) return;
-
-        if (!daily || daily.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-3">Nenhum registro de trÃ¡fego disponÃ­vel.</td></tr>';
+        if (!dailyList || dailyList.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center py-4 text-muted">Nenhum histÃ³rico disponÃ­vel no banco de dados.</td></tr>';
             return;
         }
-
-        let html = '';
-        daily.slice().reverse().forEach(d => {
-            const isSelected = selectedDate === d.date;
-            
-            html += `
-                <tr class="${isSelected ? 'table-primary bg-primary bg-opacity-10 fw-bold' : ''}">
-                    <td>
-                        <div class="fw-bold text-dark">${d.display_date}</div>
-                        <small class="text-muted font-monospace" style="font-size: 10px;">${d.date}</small>
+        tbody.innerHTML = dailyList.map(d => {
+            const isSelected = d.date === selectedDate;
+            const rowClass = isSelected ? 'table-primary fw-bold' : '';
+            return `
+                <tr class="${rowClass}">
+                    <td class="ps-4">
+                        <button class="btn btn-link btn-sm p-0 text-decoration-none fw-bold font-monospace ${isSelected ? 'text-primary' : 'text-dark'}" onclick="selectSpecificMailDate('${d.date}')" title="Filtrar dia ${d.date}">
+                            <i class="bi bi-calendar-event me-1"></i> ${d.display_date || d.short_date}
+                        </button>
                     </td>
-                    <td class="text-center fw-bold text-dark">${d.total_processed.toLocaleString('pt-BR')}</td>
-                    <td class="text-center text-success"><i class="bi bi-arrow-down-left me-1"></i>${d.received.toLocaleString('pt-BR')}</td>
-                    <td class="text-center text-primary"><i class="bi bi-arrow-up-right me-1"></i>${d.sent.toLocaleString('pt-BR')}</td>
-                    <td class="text-center text-danger"><i class="bi bi-shield-x me-1"></i>${d.spam_blocked.toLocaleString('pt-BR')}</td>
-                    <td class="text-center text-dark">${d.virus_blocked}</td>
-                    <td class="text-center text-warning">${d.rejected_bounced}</td>
-                    <td class="text-center"><span class="badge ${d.spam_pct > 15 ? 'bg-danger-subtle text-danger' : (d.spam_pct > 10 ? 'bg-warning-subtle text-warning' : 'bg-success-subtle text-success')}">${d.spam_pct}%</span></td>
-                    <td class="text-center"><span class="badge bg-light text-dark border">${d.clean_delivery_rate}%</span></td>
-                    <td class="text-center text-muted font-monospace">${d.avg_latency_ms}ms</td>
-                    <td class="text-end">
-                        <button class="btn btn-xs btn-outline-primary font-monospace py-0.5 px-2 rounded-2" onclick="selectSpecificMailDate('${d.date}')" title="Filtrar mÃ©tricas deste dia">
-                            <i class="bi bi-funnel me-1"></i> Detalhar
+                    <td class="text-muted small">${d.weekday || ''}</td>
+                    <td class="font-monospace fw-bold text-dark">${(d.total_processed || 0).toLocaleString('pt-BR')}</td>
+                    <td class="font-monospace text-success">${(d.received || 0).toLocaleString('pt-BR')}</td>
+                    <td class="font-monospace text-primary">${(d.sent || 0).toLocaleString('pt-BR')}</td>
+                    <td class="font-monospace text-danger">${(d.spam_blocked || 0).toLocaleString('pt-BR')}</td>
+                    <td class="font-monospace text-warning">${(d.rejected_bounced || 0).toLocaleString('pt-BR')}</td>
+                    <td>
+                        <div class="d-flex align-items-center gap-1.5">
+                            <span class="badge ${d.spam_pct > 15 ? 'bg-danger-subtle text-danger' : 'bg-light text-muted'} font-monospace">${d.spam_pct}%</span>
+                            <div class="progress flex-grow-1" style="height: 4px; min-width: 40px;">
+                                <div class="progress-bar bg-danger" style="width: ${Math.min(100, d.spam_pct)}%"></div>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="pe-4 text-end">
+                        <button class="btn btn-xs ${isSelected ? 'btn-primary' : 'btn-outline-secondary'} rounded px-2 py-0.5 font-monospace" onclick="selectSpecificMailDate('${d.date}')">
+                            <i class="bi bi-zoom-in me-1"></i> Detalhes
                         </button>
                     </td>
                 </tr>
             `;
-        });
-
-        tbody.innerHTML = html;
+        }).join('');
     }
 
-    function renderMailStatsTopSenders(senders) {
-        const container = document.getElementById('mailstats-top-senders-list');
-        if (!container) return;
-
+    function renderTopSendersTable(senders) {
+        const listEl = document.getElementById('mailstats-top-senders-list');
+        const tbody = document.getElementById('mail-top-senders-tbody');
         if (!senders || senders.length === 0) {
-            container.innerHTML = '<div class="text-muted small">Nenhum domÃ­nio registrado.</div>';
+            if (listEl) listEl.innerHTML = '<div class="text-center py-3 text-muted small">Nenhum remetente catalogado no perÃ­odo selecionado.</div>';
+            if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="text-center py-3 text-muted small">Nenhum remetente catalogado no perÃ­odo selecionado.</td></tr>';
             return;
         }
 
-        let html = '';
-        senders.slice(0, 5).forEach(s => {
-            const isSpamDomain = s.clean_pct < 50;
-            html += `
-                <div class="d-flex align-items-center justify-content-between p-2.5 rounded-3 bg-light border border-light-subtle mb-1.5">
-                    <div class="overflow-hidden me-2">
-                        <div class="fw-bold text-dark font-monospace text-truncate" style="font-size: 12px;">
-                            <i class="bi ${isSpamDomain ? 'bi-shield-slash-fill text-danger' : 'bi-globe2 text-primary'} me-1"></i>${s.domain}
+        if (listEl) {
+            listEl.innerHTML = senders.slice(0, 5).map(s => {
+                const isGood = s.reputation === 'Boa' || (s.reputacao && (s.reputacao.includes('Excelente') || s.reputacao.includes('ConfiÃ¡vel')));
+                const isSuspicious = s.reputation === 'Suspeita' || (s.reputacao && s.reputacao.includes('Suspeito'));
+                const repBadge = isGood
+                    ? '<span class="badge bg-success-subtle text-success border border-success-subtle" style="font-size: 10px;">ConfiÃ¡vel (SPF Pass)</span>'
+                    : (isSuspicious
+                        ? '<span class="badge bg-warning-subtle text-warning border border-warning-subtle" style="font-size: 10px;">Suspeito</span>'
+                        : '<span class="badge bg-danger-subtle text-danger border border-danger-subtle" style="font-size: 10px;">Bloqueado (RBL)</span>');
+                const spamInfo = (s.spam_count || 0) > 0 
+                    ? `<span class="text-danger fw-bold">${s.spam_count} spams</span>` 
+                    : `<span class="text-success">100% limpo</span>`;
+
+                return `
+                    <div class="p-2.5 bg-light rounded-3 border mb-2 d-flex align-items-center justify-content-between">
+                        <div class="min-w-0">
+                            <div class="fw-bold text-dark font-monospace small text-truncate">${s.domain}</div>
+                            <div class="mt-1">${repBadge}</div>
                         </div>
-                        <small class="text-muted font-monospace" style="font-size: 10px;">${s.reputacao}</small>
+                        <div class="text-end font-monospace ms-2">
+                            <div class="fw-bold text-dark small">${(s.count || 0).toLocaleString('pt-BR')} msgs</div>
+                            <div class="small" style="font-size: 10px;">${spamInfo}</div>
+                        </div>
                     </div>
-                    <div class="text-end flex-shrink-0">
-                        <span class="badge ${isSpamDomain ? 'bg-danger text-white' : 'bg-success text-white'} font-monospace">${s.count} msgs</span>
-                    </div>
-                </div>
-            `;
-        });
-        container.innerHTML = html;
+                `;
+            }).join('');
+        }
+
+        if (tbody) {
+            tbody.innerHTML = senders.slice(0, 8).map(s => {
+                const repBadge = s.reputation === 'Boa'
+                    ? '<span class="badge bg-success-subtle text-success">Boa</span>'
+                    : (s.reputation === 'Suspeita'
+                        ? '<span class="badge bg-warning-subtle text-warning">Suspeita</span>'
+                        : '<span class="badge bg-danger-subtle text-danger">CrÃ­tica</span>');
+                return `
+                    <tr>
+                        <td class="font-monospace fw-semibold text-dark small">${s.domain}</td>
+                        <td class="font-monospace text-end small">${(s.count || 0).toLocaleString('pt-BR')}</td>
+                        <td class="font-monospace text-success text-end small">${s.clean_count || s.count}</td>
+                        <td class="font-monospace text-danger text-end small">${s.spam_count || 0}</td>
+                        <td class="text-center">${repBadge}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
     }
 
-    function renderMailStatsTopRecipients(recipients) {
-        const container = document.getElementById('mailstats-top-recipients-list');
-        if (!container) return;
-
-        if (!recipients || recipients.length === 0) {
-            container.innerHTML = '<div class="text-muted small">Nenhum domÃ­nio local registrado.</div>';
+    function renderTopRecipientsTable(rcpts) {
+        const listEl = document.getElementById('mailstats-top-recipients-list');
+        const tbody = document.getElementById('mail-top-rcpt-tbody');
+        if (!rcpts || rcpts.length === 0) {
+            if (listEl) listEl.innerHTML = '<div class="text-center py-3 text-muted small">Nenhum domÃ­nio de destino catalogado.</div>';
+            if (tbody) tbody.innerHTML = '<tr><td colspan="2" class="text-center py-3 text-muted small">Nenhum destinatÃ¡rio registrado para o dia selecionado.</td></tr>';
             return;
         }
 
-        let html = '';
-        recipients.forEach(r => {
-            html += `
-                <div class="d-flex align-items-center justify-content-between p-2.5 rounded-3 bg-light border border-light-subtle mb-1.5">
-                    <div class="overflow-hidden me-2">
-                        <div class="fw-bold text-dark font-monospace text-truncate" style="font-size: 12px;">
-                            <i class="bi bi-mailbox2 text-success me-1"></i>@${r.domain}
-                        </div>
-                        <small class="text-muted font-monospace" style="font-size: 10px;">${r.mailboxes_active} caixas ativas</small>
+        if (listEl) {
+            listEl.innerHTML = rcpts.slice(0, 5).map(r => `
+                <div class="p-2.5 bg-light rounded-3 border mb-2 d-flex align-items-center justify-content-between">
+                    <div>
+                        <div class="fw-bold text-dark font-monospace small">${r.domain}</div>
+                        <div class="text-muted" style="font-size: 11px;">${r.mailboxes_active || 2} caixas ativas</div>
                     </div>
-                    <div class="text-end flex-shrink-0">
-                        <span class="badge bg-primary text-white font-monospace">${r.count} entregues</span>
+                    <div class="text-end font-monospace ms-2">
+                        <div class="fw-bold text-success small">${(r.count || 0).toLocaleString('pt-BR')} entregues</div>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle" style="font-size: 10px;">100% OK</span>
                     </div>
                 </div>
-            `;
-        });
-        container.innerHTML = html;
+            `).join('');
+        }
+
+        if (tbody) {
+            tbody.innerHTML = rcpts.slice(0, 8).map(r => `
+                <tr>
+                    <td class="font-monospace fw-semibold text-dark small">${r.domain}</td>
+                    <td class="font-monospace text-end small">${(r.count || 0).toLocaleString('pt-BR')} msgs</td>
+                </tr>
+            `).join('');
+        }
     }
 
-    function renderMailStatsTopRules(rules) {
-        const container = document.getElementById('mailstats-top-rules-list');
-        if (!container) return;
-
+    function renderSpamRulesTable(rules) {
+        const listEl = document.getElementById('mailstats-top-rules-list');
+        const tbody = document.getElementById('mail-spam-rules-tbody');
         if (!rules || rules.length === 0) {
-            container.innerHTML = '<div class="text-muted small">Nenhuma regra disparada.</div>';
+            if (listEl) listEl.innerHTML = '<div class="text-center py-3 text-muted small">Nenhuma regra de spam disparada no perÃ­odo.</div>';
+            if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="text-center py-3 text-muted small">Nenhuma regra de spam disparada no perÃ­odo.</td></tr>';
             return;
         }
 
-        let html = '';
-        rules.slice(0, 5).forEach(r => {
-            html += `
-                <div class="d-flex align-items-center justify-content-between p-2.5 rounded-3 bg-light border border-light-subtle mb-1.5">
-                    <div class="overflow-hidden me-2">
-                        <div class="fw-bold text-danger font-monospace text-truncate" style="font-size: 11.5px;">
-                            <i class="bi bi-shield-shaded text-danger me-1"></i>${r.rule}
-                        </div>
-                        <small class="text-muted font-monospace" style="font-size: 10px;">${r.description}</small>
+        if (listEl) {
+            listEl.innerHTML = rules.slice(0, 5).map(r => `
+                <div class="p-2.5 bg-light rounded-3 border mb-2 d-flex align-items-center justify-content-between">
+                    <div class="min-w-0 pe-2">
+                        <div class="fw-bold text-primary font-monospace small text-truncate">${r.rule}</div>
+                        <div class="text-muted text-truncate" style="font-size: 10px;" title="${r.description}">${r.description}</div>
                     </div>
-                    <div class="text-end flex-shrink-0">
-                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle font-monospace">${r.hits} hits</span>
+                    <div class="text-end font-monospace shrink-0 ms-2">
+                        <div class="fw-bold text-danger small">${(r.hits || 0).toLocaleString('pt-BR')} <span class="text-muted fw-normal" style="font-size: 10px;">hits</span></div>
+                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle" style="font-size: 10px;">${r.score_impact || '+3.5'} pts</span>
                     </div>
                 </div>
-            `;
-        });
-        container.innerHTML = html;
-    }
+            `).join('');
+        }
 
-    function handleMailStatsDateChange(dateVal) {
-        loadMailTrafficStats(dateVal);
-    }
-
-    function selectSpecificMailDate(dateStr) {
-        const select = document.getElementById('mailstats-period-select');
-        if (select) select.value = dateStr;
-        loadMailTrafficStats(dateStr);
-        showToast(`Exibindo mÃ©tricas detalhadas para o dia ${dateStr}.`, 'info');
+        if (tbody) {
+            tbody.innerHTML = rules.slice(0, 6).map(r => `
+                <tr>
+                    <td class="font-monospace fw-bold text-dark small">${r.rule}</td>
+                    <td class="text-muted small">${r.description}</td>
+                    <td class="font-monospace text-danger text-end small fw-bold">${(r.hits || 0).toLocaleString('pt-BR')}</td>
+                    <td class="font-monospace text-center small"><span class="badge bg-secondary-subtle text-secondary">${r.score_impact}</span></td>
+                </tr>
+            `).join('');
+        }
     }
 
     function filterMailStatsTable(query) {
@@ -1514,16 +1688,21 @@
     function openSimulateMailModal() {
         const modalEl = document.getElementById('modalSimulateMail');
         if (modalEl && typeof bootstrap !== 'undefined') {
-            const modal = new bootstrap.Modal(modalEl);
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
             modal.show();
         }
     }
 
     async function executeSimulateMailTraffic() {
-        const rec = Number(document.getElementById('sim-input-rec')?.value || 45);
-        const sent = Number(document.getElementById('sim-input-sent')?.value || 25);
-        const spam = Number(document.getElementById('sim-input-spam')?.value || 4);
-        const bounce = Number(document.getElementById('sim-input-bounce')?.value || 1);
+        const btn = document.getElementById('btn-submit-simulate-traffic');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Gravando no Banco...';
+        }
+        const rec = Number(document.getElementById('sim-input-rec')?.value || 35);
+        const sent = Number(document.getElementById('sim-input-sent')?.value || 20);
+        const spam = Number(document.getElementById('sim-input-spam')?.value || 6);
+        const bounce = Number(document.getElementById('sim-input-bounce')?.value || 2);
         const virus = Number(document.getElementById('sim-input-virus')?.value || 0);
 
         try {
@@ -1534,19 +1713,100 @@
             });
             const data = await res.json();
             if (data.success) {
-                showToast(data.message || 'TrÃ¡fego simulado com sucesso!', 'success');
+                showToast(data.message || 'TrÃ¡fego simulado e gravado no banco de dados com sucesso!', 'success');
                 const modalEl = document.getElementById('modalSimulateMail');
                 if (modalEl && typeof bootstrap !== 'undefined') {
                     const inst = bootstrap.Modal.getInstance(modalEl);
                     if (inst) inst.hide();
                 }
-                loadMailTrafficStats(currentSelectedMailDate);
+                loadMailTrafficStats(currentSelectedMailDate, true);
+            } else {
+                showToast(`Erro na simulaÃ§Ã£o: ${data.message || data.error}`, 'danger');
             }
         } catch (err) {
             console.error('Erro na simulaÃ§Ã£o de trÃ¡fego:', err);
             showToast('Erro ao injetar trÃ¡fego simulado.', 'danger');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-cloud-arrow-up-fill me-1"></i> Injetar no Banco de Dados';
+            }
         }
     }
+
+    function openDashboardAuditModal() {
+        const modalEl = document.getElementById('modalDashboardAudit');
+        if (modalEl && typeof bootstrap !== 'undefined') {
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            modal.show();
+            loadDashboardAuditDiagnostics();
+        }
+    }
+
+    async function loadDashboardAuditDiagnostics() {
+        const elTot = document.getElementById('diag-total-records');
+        const elOld = document.getElementById('diag-oldest-rec');
+        const elNew = document.getElementById('diag-newest-rec');
+        const elList = document.getElementById('diag-audit-logs-list');
+        if (elTot) elTot.textContent = '...';
+        try {
+            const res = await fetch('/api/dashboard/audit-diagnostics');
+            const data = await res.json();
+            if (!data.success) throw new Error(data.error || 'Erro');
+            if (elTot) elTot.textContent = (data.total_mail_logs_in_db || 0).toLocaleString('pt-BR');
+            if (elOld) elOld.textContent = data.oldest_record || 'Nenhum registro';
+            if (elNew) elNew.textContent = data.newest_record || 'Nenhum registro';
+
+            if (elList) {
+                const logs = data.recent_audit_logs || [];
+                if (logs.length === 0) {
+                    elList.innerHTML = '<div class="text-muted small p-2 text-center">Nenhum log de auditoria recente do dashboard.</div>';
+                } else {
+                    elList.innerHTML = logs.map(l => `
+                        <div class="border-bottom py-1.5 px-2 d-flex align-items-center justify-content-between">
+                            <div>
+                                <span class="badge bg-secondary-subtle text-secondary font-monospace" style="font-size:10px;">${l.timestamp || l.created_at}</span>
+                                <strong class="text-dark small ms-1">${l.action}</strong>
+                                <span class="text-muted small ms-1">${l.target || ''}</span>
+                            </div>
+                            <span class="badge bg-light text-muted font-monospace" style="font-size:10px;">${l.admin_user || 'admin'}</span>
+                        </div>
+                    `).join('');
+                }
+            }
+        } catch (e) {
+            if (elList) elList.innerHTML = `<div class="text-danger small p-2">Erro ao carregar auditoria: ${e.message}</div>`;
+        }
+    }
+
+    async function ingestMailLogNow() {
+        showToast('Iniciando ingestÃ£o de logs do /var/log/mail.log para o banco de dados...', 'info');
+        try {
+            const res = await fetch('/api/troubleshooting/maillog/ingest', { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                showToast(data.message || 'IngestÃ£o concluÃ­da com sucesso!', 'success');
+                loadDashboardAuditDiagnostics();
+                loadMailTrafficStats(currentSelectedMailDate, true);
+            } else {
+                showToast(`Falha na ingestÃ£o: ${data.message || data.error}`, 'danger');
+            }
+        } catch (err) {
+            showToast(`Erro na requisiÃ§Ã£o: ${err.message}`, 'danger');
+        }
+    }
+
+    async function testDatabaseMailQuery() {
+        showToast('Consultando API /api/dashboard/mail-stats diretamente...', 'info');
+        try {
+            const res = await fetch('/api/dashboard/mail-stats');
+            const data = await res.json();
+            alert('Resposta JSON da API:\n' + JSON.stringify(data.summary, null, 2));
+        } catch (err) {
+            alert('Erro na consulta: ' + err.message);
+        }
+    }
+    
 
     function initCharts() {
         initMailCharts();
@@ -6492,6 +6752,19 @@
     window.setHeuristicCategoryFilter = setHeuristicCategoryFilter;
     window.setSpamRuleCategoryFilter = setSpamRuleCategoryFilter;
     window.setSqlQuery = setSqlQuery;
+    window.showToast = showToast;
+    window.loadMailTrafficStats = loadMailTrafficStats;
+    window.handleMailStatsDatePicker = handleMailStatsDatePicker;
+    window.handleMailStatsDateChange = handleMailStatsDateChange;
+    window.selectSpecificMailDate = selectSpecificMailDate;
+    window.exportMailStatsCsv = exportMailStatsCsv;
+    window.openSimulateMailModal = openSimulateMailModal;
+    window.executeSimulateMailTraffic = executeSimulateMailTraffic;
+    window.openDashboardAuditModal = openDashboardAuditModal;
+    window.loadDashboardAuditDiagnostics = loadDashboardAuditDiagnostics;
+    window.ingestMailLogNow = ingestMailLogNow;
+    window.testDatabaseMailQuery = testDatabaseMailQuery;
+    window.filterMailStatsTable = filterMailStatsTable;
     window.showAlert = showAlert;
     window.showChangeAdminPasswordModal = showChangeAdminPasswordModal;
     window.showCreateAdminModal = showCreateAdminModal;
@@ -6779,28 +7052,41 @@
                                 </li>
                             </ul>
                             <div class="d-flex align-items-center gap-2 flex-wrap" id="mailstats-quick-toolbar">
+                                <!-- Seletor de Data via CalendÃ¡rio -->
+                                <div class="input-group input-group-sm" style="width: auto;" title="Filtrar por data especÃ­fica no calendÃ¡rio">
+                                    <span class="input-group-text bg-light text-primary border-end-0 fw-bold"><i class="bi bi-calendar3"></i></span>
+                                    <input type="date" class="form-control form-control-sm font-monospace fw-semibold" id="mailstats-date-picker" onchange="handleMailStatsDatePicker(this.value)" placeholder="DD/MM/AAAA">
+                                </div>
+                                <!-- Dropdown de PerÃ­odo RÃ¡pido -->
                                 <div class="input-group input-group-sm" style="width: auto;">
-                                    <span class="input-group-text bg-light text-muted border-end-0"><i class="bi bi-calendar-range"></i></span>
-                                    <select class="form-select form-select-sm border-start-0 font-monospace fw-semibold" id="mailstats-period-select" onchange="handleMailStatsDateChange(this.value)" style="min-width: 175px;">
+                                    <span class="input-group-text bg-light text-muted border-end-0"><i class="bi bi-filter"></i></span>
+                                    <select class="form-select form-select-sm border-start-0 font-monospace fw-semibold" id="mailstats-period-select" onchange="handleMailStatsDateChange(this.value)" style="min-width: 180px;">
                                         <option value="all" selected>Todos os 7 Dias (Agregado)</option>
                                     </select>
                                 </div>
-                                <button class="btn btn-sm btn-outline-primary fw-semibold d-flex align-items-center gap-1.5 px-2.5 rounded-3" onclick="loadMailTrafficStats()" title="Recarregar mÃ©tricas de trÃ¡fego de e-mail">
-                                    <i class="bi bi-arrow-clockwise"></i>
+                                <!-- BotÃ£o Atualizar -->
+                                <button class="btn btn-sm btn-outline-primary fw-semibold d-flex align-items-center gap-1.5 px-2.5 rounded-3" id="btn-refresh-mailstats" onclick="loadMailTrafficStats(currentSelectedMailDate, true)" title="Recarregar mÃ©tricas do banco de dados">
+                                    <i class="bi bi-arrow-clockwise" id="mailstats-refresh-icon"></i>
                                     <span class="d-none d-sm-inline">Atualizar</span>
                                 </button>
+                                <!-- BotÃ£o Exportar CSV -->
                                 <button class="btn btn-sm btn-outline-secondary fw-semibold d-flex align-items-center gap-1.5 px-2.5 rounded-3" onclick="exportMailStatsCsv()" title="Baixar relatÃ³rio consolidado em CSV">
-                                    <i class="bi bi-file-earmark-spreadsheet me-1"></i>
+                                    <i class="bi bi-file-earmark-spreadsheet text-success me-1"></i>
                                     <span class="d-none d-sm-inline">Exportar CSV</span>
                                 </button>
-                                <button class="btn btn-sm btn-primary fw-semibold d-flex align-items-center gap-1.5 px-3 rounded-3 shadow-xs" onclick="openSimulateMailModal()" title="Simular injeÃ§Ã£o de trÃ¡fego em tempo real">
+                                <!-- BotÃ£o Simular TrÃ¡fego -->
+                                <button class="btn btn-sm btn-primary fw-semibold d-flex align-items-center gap-1.5 px-3 rounded-3 shadow-xs" onclick="openSimulateMailModal()" title="Simular injeÃ§Ã£o de trÃ¡fego em tempo real no banco de dados">
                                     <i class="bi bi-send-plus-fill me-1"></i>
                                     <span>Simular TrÃ¡fego</span>
+                                </button>
+                                <!-- BotÃ£o DiagnÃ³stico do Banco & Auditoria -->
+                                <button class="btn btn-sm btn-outline-dark fw-semibold d-flex align-items-center gap-1.5 px-2.5 rounded-3" onclick="openDashboardAuditModal()" title="DiagnÃ³stico da tabela mail_logs_history e Auditoria">
+                                    <i class="bi bi-database-check text-info me-1"></i>
+                                    <span class="d-none d-md-inline">DiagnÃ³stico BD</span>
                                 </button>
                             </div>
                         </div>
                     </div>
-
                     <!-- ======================================================== -->
                     <!-- 1.1 SUBVIEW: TRÃFEGO DE E-MAILS & ANTISPAM (RETENÃ‡ÃƒO 7 DIAS) -->
                     <!-- ======================================================== -->
@@ -8752,251 +9038,61 @@
                                                 <th>Alvo (DomÃ­nio / E-mail / IP)</th>
                                                 <th>Score Aplicado</th>
                                                 <th>Origem</th>
-                                                <th>Status</th>
-                                                <th class="text-center" style="width: 100px;">AÃ§Ãµes</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="visual-rules-table-body">
-                                            <tr><td colspan="6" class="text-center py-3 text-muted">Carregando listas de acesso...</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- ============================================================== -->
-                        <!-- TAB 3: SIMULADOR & AUDITORIA FORENSE (Consolidado e Ãšnico)     -->
-                        <!-- ============================================================== -->
-                        <div class="tab-pane fade" id="spam-tab-forensic-sim" role="tabpanel">
-                            <!-- Painel Central de Teste e CenÃ¡rios -->
-                            <div class="card p-4 shadow-sm border-0 mb-4">
-                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3 pb-3 border-bottom">
-                                    <div>
-                                        <h5 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
-                                            <i class="bi bi-shield-check text-primary"></i> Simulador & Auditoria Forense Centralizada
-                                        </h5>
-                                        <p class="text-muted small mb-0">Audite mensagens suspeitas, incidentes ou ataques de phishing com cÃ¡lculo exato de regras ativas e plano de mitigaÃ§Ã£o imediata.</p>
-                                    </div>
-                                    <!-- Quick Scenarios (1 Click) -->
-                                    <div class="btn-group btn-group-sm" role="group">
-                                        <button type="button" class="btn btn-outline-danger fw-semibold" onclick="loadAuditScenario('phishing_bank')">
-                                            <i class="bi bi-lightning-charge-fill me-1"></i> Phishing BancÃ¡rio
-                                        </button>
-                                        <button type="button" class="btn btn-outline-warning text-dark fw-semibold" onclick="loadAuditScenario('ceo_fraud')">
-                                            <i class="bi bi-person-x-fill me-1"></i> Spoofing de CEO
-                                        </button>
-                                        <button type="button" class="btn btn-outline-secondary fw-semibold" onclick="loadAuditScenario('no_rdns')">
-                                            <i class="bi bi-hdd-network me-1"></i> Falha de Reverso (rDNS)
-                                        </button>
-                                        <button type="button" class="btn btn-outline-success fw-semibold" onclick="loadAuditScenario('legit_corp')">
-                                            <i class="bi bi-check2-all me-1"></i> E-mail LegÃ­timo
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <!-- Input Selector (Parametric vs Raw EML) -->
-                                <div class="row g-3 mb-3">
-                                    <div class="col-md-3">
-                                        <label class="form-label small fw-semibold text-dark">IP Remetente de ConexÃ£o</label>
-                                        <input type="text" class="form-control form-control-sm font-monospace" id="forensic-ip" placeholder="ex: 185.220.101.5" value="185.220.101.5">
-                                    </div>
-                                    <div class="col-md-3">
-                                        <label class="form-label small fw-semibold text-dark">HELO / EHLO Declarado</label>
-                                        <input type="text" class="form-control form-control-sm font-monospace" id="forensic-helo" placeholder="ex: mail.itau-validacao.com" value="mail.itau-validacao.com">
-                                    </div>
-                                    <div class="col-md-3">
-                                        <label class="form-label small fw-semibold text-dark">CabeÃ§alho 'De:' (Header From)</label>
-                                        <input type="text" class="form-control form-control-sm font-monospace" id="forensic-from" placeholder="ex: seguranca@itau.com.br" value="seguranca@itau.com.br">
-                                    </div>
-                                    <div class="col-md-3">
-                                        <label class="form-label small fw-semibold text-dark">Envelope Return-Path</label>
-                                        <input type="text" class="form-control form-control-sm font-monospace" id="forensic-envelope-from" placeholder="ex: bounce@attacker-vps.ru" value="bounce@attacker-vps.ru">
-                                    </div>
-                                </div>
-
-                                <div class="row g-3 mb-4">
-                                    <div class="col-md-3">
-                                        <label class="form-label small fw-semibold text-dark">Status SPF</label>
-                                        <select class="form-select form-select-sm font-monospace" id="forensic-spf">
-                                            <option value="PASS">PASS (Autorizado)</option>
-                                            <option value="SOFTFAIL">SOFTFAIL (~all)</option>
-                                            <option value="FAIL" selected>FAIL (-all Reprovado)</option>
-                                            <option value="NONE">NONE (Ausente/Neutro)</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <label class="form-label small fw-semibold text-dark">Status DKIM</label>
-                                        <select class="form-select form-select-sm font-monospace" id="forensic-dkim">
-                                            <option value="PASS">PASS (VÃ¡lido)</option>
-                                            <option value="FAIL" selected>FAIL (InvÃ¡lido/Corrompido)</option>
-                                            <option value="NONE">NONE (Sem Assinatura)</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <label class="form-label small fw-semibold text-dark">Status DMARC</label>
-                                        <select class="form-select form-select-sm font-monospace" id="forensic-dmarc">
-                                            <option value="PASS">PASS (Alinhado)</option>
-                                            <option value="FAIL" selected>FAIL (Violado)</option>
-                                            <option value="NONE">NONE (Ausente/p=none)</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <label class="form-label small fw-semibold text-dark">Score Base SpamAssassin</label>
-                                        <input type="number" step="0.1" class="form-control form-control-sm font-monospace" id="forensic-sa-score" value="2.5">
-                                    </div>
-                                </div>
-
-                                <!-- Accordion for RAW EML Headers Paste (Optional) -->
-                                <div class="accordion mb-4" id="accordionForensicRaw">
-                                    <div class="accordion-item border rounded-3 overflow-hidden">
-                                        <h2 class="accordion-header" id="headingRawHeaders">
-                                            <button class="accordion-button collapsed py-2 px-3 bg-light text-dark small fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRawHeaders">
-                                                <i class="bi bi-file-earmark-text me-2 text-secondary"></i> Ou cole o CabeÃ§alho Completo do E-mail (RAW EML / Headers)
-                                            </button>
-                                        </h2>
-                                        <div id="collapseRawHeaders" class="accordion-collapse collapse" data-bs-parent="#accordionForensicRaw">
-                                            <div class="accordion-body p-3">
-                                                <textarea class="form-control font-monospace" id="forensic-raw-eml" rows="6" placeholder="Received: from mail.attacker.net ...
-From: Banco ItaÃº <seguranca@itau.com.br>
-Authentication-Results: spf=fail ..."></textarea>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="d-flex justify-content-end">
-                                    <button type="button" class="btn btn-primary fw-bold px-4 py-2" onclick="runComprehensiveForensicAudit()">
-                                        <i class="bi bi-play-circle-fill me-1"></i> Executar Auditoria Forense Completa
-                                    </button>
-                                </div>
-                            </div>
-
-                            <!-- Painel de RelatÃ³rio Forense (Exibido apÃ³s teste) -->
-                            <div class="card p-4 shadow-sm border-0" id="forensic-results-panel">
-                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4 pb-3 border-bottom">
-                                    <div>
-                                        <h5 class="fw-bold text-dark mb-0 d-flex align-items-center gap-2">
-                                            <i class="bi bi-file-earmark-medical text-primary"></i> Laudo de Auditoria & MemÃ³ria de CÃ¡lculo
-                                        </h5>
-                                        <span class="text-muted small">Detalhamento de cada regra disparada e opÃ§Ãµes de mitigaÃ§Ã£o imediata.</span>
-                                    </div>
-                                    <div id="forensic-verdict-badge">
-                                        <span class="badge bg-danger fs-6 px-3 py-2"><i class="bi bi-shield-x me-1"></i> ALTO RISCO / IMPERSONATION</span>
-                                    </div>
-                                </div>
-
-                                <!-- Cards de Resumo e Comparativo de Scores -->
-                                <div class="row g-3 mb-4">
-                                    <div class="col-md-3">
-                                        <div class="p-3 bg-light rounded-3 border text-center">
-                                            <div class="text-muted small">Score SpamAssassin Base</div>
-                                            <h4 class="fw-bold text-dark mb-0 font-monospace" id="res-score-sa">+2.500</h4>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <div class="p-3 bg-light rounded-3 border text-center">
-                                            <div class="text-muted small">Score MailAdmin Intelligence</div>
-                                            <h4 class="fw-bold text-danger mb-0 font-monospace" id="res-score-intel">+12.000</h4>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <div class="p-3 bg-danger-subtle rounded-3 border border-danger-subtle text-center">
-                                            <div class="text-danger small fw-semibold">Score Final Consolidado</div>
-                                            <h4 class="fw-bold text-danger mb-0 font-monospace" id="res-score-final">+14.500</h4>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <div class="p-3 bg-light rounded-3 border text-center">
-                                            <div class="text-muted small">ClassificaÃ§Ã£o Final</div>
-                                            <h4 class="fw-bold text-danger mb-0" id="res-classification">IMPERSONATION</h4>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Indicadores RÃ¡pidos de AutenticaÃ§Ã£o -->
-                                <div class="row g-2 mb-4">
-                                    <div class="col-md-2">
-                                        <div class="p-2 bg-light rounded border text-center">
-                                            <span class="small text-muted d-block" style="font-size: 0.75rem;">SPF</span>
-                                            <span class="fw-bold text-danger small font-monospace" id="res-badge-spf">FAIL</span>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-2">
-                                        <div class="p-2 bg-light rounded border text-center">
-                                            <span class="small text-muted d-block" style="font-size: 0.75rem;">DKIM</span>
-                                            <span class="fw-bold text-danger small font-monospace" id="res-badge-dkim">FAIL</span>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-2">
-                                        <div class="p-2 bg-light rounded border text-center">
-                                            <span class="small text-muted d-block" style="font-size: 0.75rem;">DMARC</span>
-                                            <span class="fw-bold text-danger small font-monospace" id="res-badge-dmarc">FAIL</span>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-2">
-                                        <div class="p-2 bg-light rounded border text-center">
-                                            <span class="small text-muted d-block" style="font-size: 0.75rem;">rDNS PTR</span>
-                                            <span class="fw-bold text-danger small font-monospace" id="res-badge-ptr">AUSENTE</span>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-2">
-                                        <div class="p-2 bg-light rounded border text-center">
-                                            <span class="small text-muted d-block" style="font-size: 0.75rem;">FCrDNS</span>
-                                            <span class="fw-bold text-danger small font-monospace" id="res-badge-fcrdns">FALHA</span>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-2">
-                                        <div class="p-2 bg-light rounded border text-center">
-                                            <span class="small text-muted d-block" style="font-size: 0.75rem;">Impersonation</span>
-                                            <span class="fw-boldxœì}‰“WzER×H%REQ¥'P$g¨Áœ$E‡#bf@r¤¹8R¤x©ô Íitƒİ9HJÚÃÎº*ñ‘8q\[ŞìJN²^»¶Gk{7v*U;kïúØSÎz7k%U[•²«RúOÈ÷{ïõ 403<¤%AŸïøŞw¿ï}9ê’Ï*FNµ˜]PtÍ™†/˜†i•ŒcZöXÌRíxZÉæÔ¸V(Æ†F“³É‘ÙÄèÔ`7=dµ±ˆÿ»³ÚB´Ç#>*küÜ‹ñ8›P+XšÂ²*YyOÏ”t“ª¢ç•¬ÂÚ§Û6™Âøo‹Ç#ÔŸ?Ä2:=,6·O›z–IZó¬÷±l|NW—˜¢k9#®9jÁgTÃ!xç”b¼/š[MZci-QĞzÅ1-Q_ÑÒ
-ŠµìÖ†Â;ZÖ;Ö>£æ,Åf£¡Eİ·;" ;(HhDÜÆ:JZWã„>EÓ°µ 9µËüå²’˜(/o.øDZ6«ór{bÌv–u•F(lk×ÕÖÓuø°¥F¬SÔ›W•ly¨ª¼ÓD¢«¹dån/µ¬“`½‡{ŠKÔ~>^şpv;ù–Ššb§K*›Ê˜–¥–X7›0mÁd³+_ÉZÆdYSÖb¶\Geúx<aÄ†¦i¬L›%Šº–Q²¦½fu¨]gâjÉv‹M«v}¤7šX”OèÔú¥Íì2g»s¦¥ÙdâVI'Ìo´€„ƒa³©ƒU‹	+.Çû#)”5J.©:"v¡”²±b&¢9*²Í.^'0±83é¢Îf‡š†ºU(pr\c±XùòÊ©6+¨YMq¨;Ä6'4GË)tçwMV\ùÀÓ­œAh$’hğÁ"7l„YfÉÈªY\2­,2Zço“¨áuUˆ;¯©:¯éz\]¢[ÅÑLC4`Q±ÍÈIÙ3­+†	&ğ\¨²ö H3fõ²]»VRŞ¤HÂ‡?Y,CqÑR¹!0õÇ†Æ²m²ÄJF£V+:ÃA²ÄèCg]'Ä_ù2-ÓQy^e.‰”
-$g	i‰FJZÑ–L¦Äcú¨Jƒ00Ø]ŒØş âÈ!ÅŸø¢¥åH–³%ƒÁ Á&^ªhFdŒâ•¥Kƒ‘\.ó'‹H;£¯« âĞ.0‰}¢¸Vàë¨ñ´®dæuÍvbÌ42ÄÑçÅ®•ègX73ó',³ 7iïh–‹U¢#äãÍÊ@ô«ñ^‰{TÔ¨YXùª¡™İcÓÌPèºlWlI€b)I%@¸a
-»š‰lv¬PT-Û48®!`õ’„ëôCÇ"À
--ÔM/kÅ:Á¶9C`4’\V[Õ¿ºrƒ—?›fXrtlvj†%Î&&W>G†k'Rô®Ì\G}04¬`=;P®øÇIßPÙœ’•F$é…8®[ÊbŒ„ ”5:ÅSz´–œQ¬,+Æ0›Œ6sÄ#Ä( Í	å*Ş"8¡)jsËœµÒ•xZuUÕàl¸Ÿ‹VL{’œh˜»U G6†ùÓÄ?Ñê¹ò_IŸQ¡Ç',â¤Ûw«N¦z^§ft»è]ªò6Ô•¬ÿdVò=«YdW£Šlñâœ–+YR ›YE-ÏLQÓ²i]ÑådŞ„êaoZ%ŠÂßÍ’£“ kÆœ)Y{€yÓ-gªüªùt&¯fæûB$àYÂaÂ–¢ª”%•µÓA4‹×³>bOz'ª„[YP×2()”¢/<\|¿ë…Ô¥>ê¼i8"®Yá *­ğÒ	+Q¾»Hïö®á9(ü"dSÉ7ÖBz6q«–¼­#¶ÊÕ[²nÓ²D\wÒ¥ì&3êà§ÈR'¦RµÈÈ*,‘VØH€iA½*kcµd
-|cÍK“huryÕ¤|$şØu0h­æ|BÎÅMÂ>ÍY÷öTx [ògÚÄ¶H•ds6š	Ê]3bŠ.$ò}n£ò¹HeU’–Ù2|€‹•ğrIJ´aÅÈpa7*¼Yù¾µ0ZI´RªFFS™iÃ³ò~A%v`K¹*ê‡UMrÇmBM`Š¥)£ÃÌğeñ`ÆÌªC]ª±0ØÍÑr[µ´¬iEÀ«×·ù#pJy˜€ Q¼i´—ãv)íÀíxW%yTÎT¥–mBy–È4£ÑÌDCe,—³š¬Ïiâ¸©EÍ"ûLˆ­Q…˜‘b«)ùP»º@$×HŒq:ãZ±[¶¢«–4á#€/2c QÀrM3€Œ©ÇÙø¡¨4­+iU/“Yâ
-Q‘­´
-•#wlèŒ]ZyÏÒÄÓ>:|åL*9Ó1ØÍßo^ÅÓŒbÉ‰çˆu›Ñğ‚È(‚‹Tß}'™3?‘JƒUÁÏ„]\æRSkzÂŒ7C*W(Lˆ¿Ì\.NxY"’EĞb¬¨ÓOà¯ZÇbEÓP	é*qKèŸ^ëI¹Ûk)ÕÈ+åˆ6H¥îeD›W—×Ëàı\¤šË0[À4ğ¾ÂñíJo_ÿ'İN™¶ÃºÙØt9ÊšJÍŞË(—Ï’*N:«I=]_—7áJnízû^éê¡ÿ½Ÿ4„›4Ğú×lÕÓA9ÎM&&’÷2Îe¥–µÎg(µU‰úIC¶iÓr6±œ:=ŞíÚ\¢NÍÜÓìMuòªEümQ­HàkÕúû{­/¦Ex$²İÁ&Lá•®zŒ‰¸PíIÀõ¸Z(æ[³YÁ‰h4³-eÏUÅÎ©u^©ğ§òinx"Š¹;oiÆ<lğh~‰È‡İÜ=Ù‰
-úÕVŞ[P©Ï¤×ÃœÏYÊfŞØœfk1\ßŒ7|3kFi©‹M#ZCáá5<TCÑ	lç…ç< w'ˆqó™¥JåNÂ3ÍĞ¸ÓA”»òeşœ(úN ”D„Jšjd%&pt):¾Í1£0’¦¼ûO„phûˆpö›J¶Ê7Õ»]‰ŠE|<ƒYôEÍ.spÏ¨4°–šS¬ãÕ§]áîˆèÕgÅ%fH1¬ÃsºY,.J¬öæ
-ë×¨Ã=ÛàÎu]Ûá÷àQç¹o Ì‹L´¦²É•¯rRÇT:Ø£ˆ:J©xÆXù²RÓÏ:Ê±¾©	Ñ½«Úµ
-˜ƒK­¹ªEŒŸ‚»üÕãZAS,µ½ö²¼Š((w:VeI¸.×Ôkí¢¹Y$¡“ÑLCÎ›¬`"t955"¢	Õ™Š®Xjêœ¢Ûd¸¨|™¿E÷Œ•÷tÍ?$YeˆKäR‘D¢ÉÎ’H¼ó¾k‰[ek…ßZ’LÅ“UŞl‚;DªµjvÓÎà{¢yªì¯
-vt{o—2Õ¶¹»ß?¬T%KÈÓ…(Ñ¼áS
-²ÄIÆ†şé‹_|ŸMWWôf”úAuvü• ÉMU—ÑO+Y¨r«^¬İŞÛËCÃ{@0¤-#dQ$rùu£˜næ¤ËÁißV"Y_,
-0ù0~¿ÖXT¾çáÓ{’y’ælUâLëX½La}"tå÷Œ¦Øë‹X©Œb˜–-Ò­X7a˜0`=¤&f§ÖvX+ïeI|r0«ïàíÃ¬/±1ê,7ş¦M“ÀëÃ¶ú	»ÜFìÑºš˜Ãv”%…µ'ŒMïN”Íî ²)àÚôf¶U2‚>N(æFUçGëÆºdBÉ“Âí!Ø¿ş¡•mCQÓY‚ÇÂ¯vcÔ©Û‡]³9ÅÑH,¦­’´¯”ÌOåM%RãËx¯m¦ÁÊ±o’5£µ]iAo&l?‰Ú³Æ^²:²²ˆŸÖ<eeQ^eáĞ<a²Œph©v­¤è|¡†a:åæŒí›;drW¡wÂ•¥!PD!…È³/dÀªp±qCÁB"&Ç2ÜP¨µAd"î²¢µò8+ªª‚í"õ0[ª6šJµM¾Ğ¤¾óìöÅÚÁGq¸‹IYùôÌØTŠ ‡¹¢Få•ì’bO_£¨¼»—¢í#oµè¥(ªf1àÊ¾Ë'UÛ‘DëÆÁüOxk³0¥@¿ëQÇƒ®„|àêku¸À#eléaïèdrš†O°NœH0ş¾]ÒxÉóÄZ°ôZà)Áö»\§÷ŠÍZTxÇmUg¤S·Âë¡`•·?Ô±mçÍÅâaÊ§
-&Ì¬¢Grl‡ÇHñÅFUŞIsÁôP¡AÇùx#-ìI•ÒqøêYû°i:XìTd“ÊB|VIÛõS–¼©SCY`ôÅ*[,uç|qZ6
-
-,{á«äŒ—®
-æìÇ- h©¶ĞoL£‰Ù@i:	j†…ƒª7ä‚8|¤ÑzR¿sq%“!Tqlt=Æ0[OÓ‰™ËÉş.*VNuÅv‹7!4Ü·có/´Zf‚ÃrXXÎSÅ²6î½ Ä½ é5›WĞ)Aë>Â!C+a3c~ÕâÀâÕÚ£Z>[Æùâ¸¹Ši²2×|H^Œ€<Q½eßeüø¶ı`wI¨õˆR­©à%#òjƒ†pŞvf8½®w€LMÎ&R,É%W£Uì5ô1È É=‚˜RNËM-ñóêCi\äVFD“jéGE7.V,±Zu¸dg”rí¢Ù%üÂkŞ'ÖüEWB›XX½ƒ¤q=9aJe98Œ‰±£.Pô
-m9º¦,†¦©:y½•äM|<“¨É–Ôdä¨<4zG´!.ğ+ˆqş`h(OEìÇB‹•$vuuÎ«Ë¥"½§!0cù-fÌE»}_­šöu²}âÔ#:Rô‘Dc_3‹çÖ>´•’c6ÇÅåT•Şš5¬ÉR=èÙ/1*Axpöã+T-*©šië‘èA?¨ıÎDïñÅß™«`Sp|‚WŸ´£¤ö4Ë·*S0­:ûR†5*˜~©éìJM’b‹™”†ÆF[O“äAë%L«5kŸ!9ØÑz1ı)‚¥Ös#!‰¯T‰VÑ)WkÚËµgnSïæ,Já¼rµy”…æQ
-(ØH©±Yp
-zŒ‹øşİ–()Â#ÑÕÌ¾–8ÃXŒ%Øh’íÏ­ü›dŠm\e³3‰±ñÆÙõd“¨²1ZÓ6Wã[ŒÛ¶¶yÖ0Í¯/Ü†B¨¡ğÊ„ØQ³–¦ç…ôp¥Â<\M xS©(jj
-§|œF—RË/?Œ1;DôÉÏhk(rÂÂhó%¥W8Š]A…tv­‡®À÷Ñ5yÚ¼-ÍkvšpÜôo
-D„EäÔUXzj¡óåú‹/ò¿_X|UŸğ‚5këÁŠíbj²ÓS:ÙØtG430P=@q
-ôI³ÿ$».·ÿàø8˜«ç]Ÿd«ÆN÷)ÓZE\o>@&“Xµô»&›Q¹¬\MÖŞ„<^l*}UuVa¾%I[°T,ã›^…9Ésf“.ÕÍ¦•eèw³Ê+o¿ıWcjøŞ´[¸İDhJÅ£ƒİdÂKa.o¹o‰¼î'lbj41ÎÚOšfNã$tá^cak¹csÖc²0§ğiì˜F$²t,MWÔXù"R6±à‰D€2¥§úÅLèœMõsy‡*EóËŸt4Oç‘•Ô5+‹%NÚˆı½/d"Ô[œe¾,@»vòCÒ`½Œ[õç³š]Ğ¼f£Ú03 EªÃéº,Ÿwuëe ÕršŒ˜ÌÊY-gº‰{E%±b’gFwcÀÂpË3KŞƒxbÙ»ø7<À
-ÈèRR	^di¼éeI)ä¶afšXÛ=„¨]Ôà—o•™úÒ£bs×cÍtDQ²¸qJ £Xµ¦,k®B¯œ»&®šG–¿”šáI&g§f§ê.8¯¡ÙÙC/¤BF%|1vY¤cÕW®Ò¶ˆfMCaÉwDÃƒØM2çË®|5ÇƒsªEÍmj9¯uŒ¡rHÙñõµ÷ğ1VP–tÕÈ9yÈ×š€lt©ŠcÌ™f>eÕo¥Ï¥6SQŒiğVmG´
-Ë²Õ€Ÿ˜SàÔIÀ{e	—NÃDèÈL21›$}™‡éljòµ©a)TIÏ!f×¼½ÛÄeF!¤[^
-ì¾ÿ§owf¨Óñ@ÑHÁ² @D˜)B9Õ_Z™w¡8]øódï©FÌïòU3×Â<™\³œ­"íˆ—;vˆpMÅ®66!‚€)§>C³U]Í8~7xBÏq¹œ‘ÉG+ÙÑb+)Èª(õe ½¨¸®ŸuĞ,ò`éE/Ñ«Â–aï	"ª|„_†ˆ&»ÅK‘K—úŠF-Dxaoã‡2¶Öõ+$ã˜qî^êºI|=>:ÜÑjÕ"^6­dæ‘¼¥¯‹óCIèU/6ãÏ³vÙ‚–«U—Š%êå…”2$¹õw±$]´rÄ EŸM°wYûëïaÄ~ì5År$h]¢¯²»‰Œ¥ÑÍ‘9¢û1“K!8Ä1gt¸¶Œ®š c=Ê:ÆÙŒš‡è	¤Ğ‘À:²êœfhàÒòUñ;“W³%]•Ì¤I.b/Ÿ‰ÒÒ¯MÙpÚ¦‚zó¤°¶1ëey“F§½‡íÿ#VH‰ı~‰ı¼D›Ùİ¿šBù…
-zh5…f‰‹,Cã.»•/Ù¬§o §E÷­¦`É§™E5;$Ç”à3k%ßªÉIÄİÚ>“õ&ƒ`£Æ¢zØ[Ï2¨o¸8[‹-¬Î]3~<B\ØàIí<„OˆTŸ#{9İ=xeÌJ‰,Æ³EZ÷¾
-È—¼iô3àb·—àµÛÎXZÑ±åoWq¹~Â÷È¦ªŸ\‰'[ŠÀÅ[
-±è]Cd—«~ê3€Js€»ÎtŒr™# 0ä~\]…Ã˜¤%Ü1¬}ªÈWÖ‰€ˆ ljM‡%i@U²4øz|›P11Ä%éò4Gˆº“ZõO:!8Dm K°à	_\TµwA%MÇÏq¦’ş!4Ê+‚wÙùZØVMb²©.f5Ei{øÚi7Ó©ØR’àŠ¦ï~±›ìŞî4ÀŞİ½=Gw³ÊQ²Õ’;LDüE]ÅZRêgWWCÍäM¶Ol,Æùº3‡)dOÆ|Á¾Æ»6)÷“OÜWzCëPC 7é¶iéŞã—MDXˆ™ÇÍHojQµ`­BÈˆw^^ro«Lö1Ï+‡1s”tøâØú¼¿Ñ¥uv
-qÖÙ=T#íZèR=eûe^3ÓP(›K²Vfk¬™‡itj"16Ù”giÔÄôÏ½ç[Jd5™»ÊİÕ,ÄMİ3N µĞŸÊøËŞ]ˆ´bÅfÍB“F,„ˆa.—AèŸÙEL©+:¨5xÌšÃaT£lÙ²TDs 8¡éD,%S•ô°ÈœÛÙƒWŞ["nÆNêfZ+h¸~æà2p¥Bóc.@®•¨Èºqå¾ašàİ!Jn³ 	Šçs$Àt!5F,-ÀÂÖ^$ÆÇ©B‚Ù“
-şÄ¸ğYÑX%µ h}&_æÜôÓ»R¸2‚³–`©•â`yÊ
-±A³[8Y]¡!¢5DRşPuÊ…†¹bêKU¹Ù5%g)…x ^ÜírÃ—ôóAã©é]‘Ø.F“Mh–eZÕÆÒºÈJ"œÑ‹ğGW’PcL¢¤ğ©Z]ÅV@Ÿ”.éé ôİlb¾RWc>DD(ÁAÆæRVŞÃöÖ~T2íx›¿
-åıºåh]™*ß"‰<$Ä¬|¬“9&v#àkÚò&& e^Ò#aaZ¤ÂVùŒ…]–¦Ç 
-3Š¶T¿^Æ7ºGdVd?¼S"/˜MŸ ÿE´'í¢ªç1‘•"ëÏÈr_faù]Ïe-¬;ĞòÊ`Ùã‘ÖVX8ŠÈ¿­:¡ÆxxÒ(~t‹ñ67i~F¶nû´¥­Hò­Û*‹5(Ü>\¿ûÆ¾’óäHiS£mĞ+DîˆÕ£…ÔìÒ« €™—šå†dRóXØ*=Ê
-ƒ(Gæ¶ªU"£ä“«òïûnšêh)²™$şd%ş‘¹ÌVà”÷Ï»¿ LL&b×èÁiÓvæ´%w®uñ£øDšJŸ§©í%\0Şån–i‘üÀ; ÉÏ§XWæL¾æœ^èî¾q=W¶;×Â«Ô§a\3ıœ´óñá©sM©æØA"m.İ{Î·3m‚ŒÑÉ†?©¾%2"=Õ-Å
-ŠM
-›sS\5ó8i¤¤µ)w«†»¬V	„æİU¯™<A©¦/(w²ó|ÇÄè.ß<° 6¬×ñ;í€jİãDhÊáôÉõ7ñ}‰‡ëú¤ ñOœ'¯…T›I¦’³PÃ¾ŸoLÍŒF”n<<gZb÷ÇÁé¤ “ã{zjg8¿w<Póêrˆ÷#à{š‘^“[À–Ëú³ÓiíMÙr-Ih	M0Q_0Šè[j Ú –o]TLÓÛÕxF«`ªb©²‚Ì«Šb©1îæ:ĞYKh^MFÍ3FJ{§ï	Yû’%Ùañœ”<ísY›„Xõ¹zN5TËçè3h(¸,´q|c‰”œ–	D'U¸$9Ÿ0-G­fS/åDDë<¢“¥¶2ä!{•¨¾£Ã]ÖSÂ
-„ı(|b“ñ–#y5"&©LÚé«Hı9ãÊÃ³š­¥5DFÓCª.…«€‹(=®eõ´nÖ‡–Fõ¸ş’öµÒâ ÿ‚cÌœ¥Ì!Ä¨¹@àvğÎ@À±‡C:.¨Ñ.4÷©ˆ|M¥N%ööB_åÖ.w4b²ñ,ÉDâA<ÍÇğ‹bã#3ç§gÉÜœ5]Ô°,Dü²öaİ\œÓì|ËaşünD]B Œ‘ÊxãŒPg•)2[T¦*öèÎVdMoE÷?üÂ]­êêtê:îª¬™ ‚ÙSç)er–éšëé¡k~ê¼æ¤ù]ïófÊfü];øº©O²‡ÎËæ‘•àiE§+Ùl“N:–Ù¹›ütrb0ÄV±>	“ÍEÓb+_µr%]iÉD!ØäLÇl6v	›{«°éd’vK û8ú…ê±lßªõyó)i‘µä«£MÆ¨ú[aÜC|µÅL’÷ñÙjA0p/ó"ö'÷¶t¹=Ş—&:È›aO \â¡í|s§0!²,ğöQ(Èz_3İFU%õÓ¶h±ˆ(İÀ¶í„«šQŸƒV6-šÅÌßj9Û`uP‚@Æ2Õ<J€oF­5/ÑÁlôcƒÇ	(W¤ˆˆd±7R©r$Ö	IÄHS'wM’	¯g†#÷ªÄEŠÀ–¦l-p K9'ÊBàúÅó*ÊM\^<Vi»„?O‘q¥kHÙ@í˜Ÿù®=QTa7®jNÉRº!ieúJÂ–\Ê¿§Ó¨KkëZÙâ‰»Ï…‹±Ç[LvˆeH¹Ì`¶Æ¾°œLÔÕsÃrWf®û·šæˆ?ÿÔû¡Ÿ+2ª¡^F ¯±w)îğÌj	ÓÈ~ú;/Õ{(­3â W ¤{¢Øµõ­2şøs«UW/İ¦#áêÎ‡DlŠ´ãPÓÚ³—E‘í>nê°ñ©“)l‘•šMŒN¥Øè›MN’YØÈÔä>İH‘²–1új‚¼(5ĞDˆ€¿ìYÆm¸%‰Ô¦ÍLş—OF¬áÌ¿ƒ¥Å¨¬rú_bOWClØ6u-Ë}Bdw&ùæ¼üÑ¢½4~q-+Â:¤cC»{j1ÂÕ˜®Ì;r#Jok A¿;æìÚ–9Ôô%%Wµ,­`şåCåh•l©IÇx=ÁTcÊsÉ.›ù/py\_À•1‹ËcJ[YMÓ&ö72:³¨É„TMñ2~¹h©İ·”EÔ¸,A¨l0†2M’2˜¶ $ù‚¿zAY"ÊÇcì@OOqé(3ÈœÓÍÅøò O@p”6Yïé:Üg©…£Œcjœ—8€˜t¶”.C°§IÜÏ0ş§ñ<
-@Ğ3k4mÕ²£³P.UkÑj&_K„6çX”fblvì$öÃùì›IÎ&Xj*1Y²Lh–CLÅ@[P1rn¦ÙU‹•²Ä.u6²á‰&ŠbãxI‘¢‘b2—ªÕ{˜‹‡ÎİÖÊåXè$%ß:ÌYU‡.$ ‘O%7¬›×Jª†åoi-=­Û§5XR46Hv\¬üÁ¤MMQV+YÏ˜j‘ŒwlºS.eä9n%£"œÇ[¿#Vô@W-‹tfØò‚`,­½ïĞ:M³Õ¿Y­hº;éJ2j0d‡™7NØFÖ4âÇÕùÌ*üY<v ‚åŸ¾øù?ğMì'Ò>£^Eİî*)6Sâ›õ5z"ÒNşüó_ºõõ_Gü8_›šNL°öİNØ6uM3Z¬ó±iøÏç—Ùî)÷º–›Q	eøÊØq5·òUR9çf¸lté.‘ÓkµäKT(ETéCCFÆÊ…²ÌÚX×ŸÌ&²<•I¢5Ô4f’'ÇR³3$Ø¤ºÑÍ&§Hİ˜HL‰0«é*“æ½¬l”Å®®¯¶qÕ,Y°C½¼Ñb˜İ…½–Ë$±…1ø©zŸ@­Ã0ïœÆ! ôx–¹ eeXoâ«,Áï†+¼¸úEÇOÇÓ!Sœb{ûb“cå=bòj'K»r« XİK= óL›óvê MÏJó]¥£äx¼½p÷v;Ù¢¹ŞG×8ÈÅ†M$í,c§U‘#"6ä5-¦“–ƒÌë_mºD!²flÈ=jºˆÕ6uÂv*Ã;lº±œÁSv:+ˆ—Pt›¯0×°ÚüÊFóº"*²¶‰êr
-q­»™üÖ.‰ß©ÄäI7>ªÉ%t"å5÷ó×[H÷	˜
-]®æî«Ší½…-0®êNŒÜ¡RÕ#½æ!S¼ŠÊ™Ä±S5·µª˜àßšFö÷¢o1=w°snF”ûÕXqWo•oÀ[s×Ãı"\#8ëF+÷Øl{åà¬{¸F3k+ï8Ò¬kÌF(§ıEÌÆİ³}9Ô*£7¤Šé“Ëmİ8153’å›€¦’³g¦İ­@§ÒÜrØrUäÁ"M[Õ,S†«6Ş”Z‘Q³ŞŞ î°!}Ö2‹boD-ãß!æÍg}é]2ŒÔÛ´¨ô‹a`V•¢zj®Åt.­¶˜ÇZ3ö”Ø‡Ao0ÎTæ–¶m2ß§—bÃsfúKHù–ÍäüT—è´ Öá;–Fã¦«•ëk8Sä¥Ø<P:°‘&65V¾¬°ä’–Ó¸ÌÍ :mRWMó	$Ü4­"O° ‘)"ö˜ºAZ¥ÙÉÌÌÊïÓ•g #Ö`"z@l˜Ê£•ûN$ºiÜ:¦¾ü2ø“E¾ $rŠÎ0‰š±$"%tã×Ó3wËŞ¯‚å`ÓŞUíş*±ûó>°ºßkìİİŒåÆÜaÚÀÇØ´WÃĞ’ãço,ÛÀ¸Š¸»¬·ñPë‹·,b‚o•_<†² ¶jZ]^0S×¢EØ7KÍlÏš™VßvåT'©«8^Ë¶ï«‚À¾.îAì8Jhi.&ÀÛ÷‰ÑÊ "*«¼¸¯“í“Q¦û:Ö	§*‹¤ZMˆêëÜ“!ÜùÇbWbo|ÿÀ‚©eÛ{¨UUn®~ Gitœ’e0.üF »hÁßŠ@\Í+O:e`ÈLâ5õ)„·¡!Îóm[ÚØ•‹Ói¼?°o/ :Mî§C-3çæj¾mYÑ›Ş¤PU¼’ğËq"·š‘Õ‹ñŞ‘ŠaõúyF³2Õê ;«  Öb*K|BÒ¨¹şRÀª¶Æ^®‡@¶Æ>:™b£ÉÙÄØxÔäYÃUd oŞeìQßaßqT­8¬Ã³bsáfôå€3 lób†rõ¼Êçàäô´‰!¹ë|ËQÃµ¦]ÑšOˆèF,VvaÕÌqÅ0H$‹à5	d—/¨–SÈ‡}eÀâµTœ»@|‹TT½2b÷ Øå…qì`º:ç°µ£’:~´é™ã»t«­µÜåû¡ŸK!h†sÍœOFäZjVsÎj6©ŸˆùªFÃÑIW³éåĞwÆq{­"nšâ†kåYÊn™7¡<»dó¾… _µã‡¢1Õš°ÆX‹ª‘Ñô¸}­Däá6 .“ÀN$W¹xÍò“ãXëX!=¨D·‡Õ–…úŠhzjÏ[|Ã-na§cÜ)S‡I—GçÕ¬€.Âáf'ıj¸TÄXÔ˜·ãã­"¬ÀšˆVgîÄ¦Ôıõ,æÊWä¼yú[Ø¨””š<ˆğé–óøu^i lÆ‡‘°ojÍxÇU9X<MÛß¸š~²:õYg-æ|æ äM«ŒÓU2óe½2gât‰šÚ‡İÛ­¯lGt®,¼FˆnËE{a¹nù¿óËDõi>…ßÎƒt9¸‹äùíjì|e}°ÓK=Õéoå„°:™¡ı5Ü÷Â‚Sbv­˜û²‚šİà¤ÚÏ 8Ñ§Ìx•á±OoK"©{eôVfü&—ØşãÀá‚jaıA'K+YÌâÖ$ öcÓe”:¯.—Š-j#Dk8÷¶·Ş¤ ¥5”²´œŠTØˆØòjU¬Ö¤Ò´(¬¶y)b@cCÂµ‰â"÷äX-³17ÜkUdTfùÄÀêx/ÒŞ,ÛšrÃ yé«a¼D9Øw›NMˆc‘ğÎqÚuBK7baÊ9«AˆrXóÛáî y‹š“Écßöz‰©½’«*Ë]X%˜¿”6—¼Ù^G%;„ú± ~ˆ§ëå<ª29	sCÃjk‡($&&Ãà.Ó‰åug’«Šs©‰R&ŸÜêf¯ñÛb²+f5”w–ªØ•úe½àC¤œ·8‹õ3dL+FG2oè:XF1¯ÙyNów!Tı…ßƒõi(ö@aïv«@ÕˆÔ–ša»{ûÔL¬PtÜi«)9cåD‚‘F!ìxAj¼¼#Ø)4Î¹„Ë9±D¾"Ö‰Ö±ÓQpÜÏÀ‰/‡ø
-ª–À÷V›·‘€£,©±¡rã„ô°ÀÒQ$DHÙØ·96$q]ñwÅ´Üå{Ü3ë®­•ÿ90fQ/GŠŸ’š—v7AÚ¼&…¸»Ê=ğU“¡.õSD¯I`”ˆç<á¶‡FÉµ€‰3£c³S3c	–d£ÉÔè™éñ±7AKg)Ö>69KGH|ƒ½™ÙøÔHb¼käDã@)¥D -‰¨	µNê› £3ì¥õğt.é·ÓÓY™3'ÔçÙìâC?£x:eZZÃÒŒ¿Ó›uÎ%…l®“@=¤ŠsO'Ä^ÎBª•íe§ÈRíºkÄuX›µ»®Ğµİğ¹µeÍûF›ZY#"¬|h~Kvñ­•^§\^6ˆøiUrBT¶ĞW¿°/˜œ­§*ØíE§Á´…Oİöê-pµÒ5ø´ck—
-h–XäIòÉ²Ô6³!‰­»q‡ÔÍÇü®®Ú‰4-’\_|CÒ2Şïã•/%ßÓU…
-ò¸C òGå+ÓÕ<á³º£ª9hG±ì 4ôE\NBSœÌšÓö2½ªš%˜5“u	/‚³©I‹~0¨6µø!‡kL3H>2õtÒ*ùÆê:Äæ26K^+‘M§…Ò,19’î:“?ÑãÁõvÁºZS„Rı}á	¥õİU 1ú¸çy0‘‘QÜÖ‡ìé5'İºŒC@j•†£&Şµè‡/İúïÿ>ék‰ÃÇÅOÇŞAÜ»$Îè3¿Ï;¤ÏöxÿúytÏ¼}qÓ[§è÷q¯Ókâàuïñ”w¤ÌÓŸ¿ú²wşztƒ8ÙÚ±,º.l¼/X÷ÙòÜqà¼£¿?ı]â|é ı9ğl‰ş¾Tx¼m“¸ëüÑ¿¢Sv‘>/Oì\~fš>,÷Ãß¿Ş¸â][ºïŒ88Mß'Ş@ÇbÉmâÚ¢|ı§°Ul\˜~Ÿ»y XğŠ¾ØŞñÇ6]“y‚¾yú–TïÁ%ü‡q@êÇ«øx°´eïh¾'EœLÍònè©ŸşÊ	ïô*}şşOCIŸ™ë×ƒ§'é{}ëÕ½7ÏÉNıÎ{½ïˆã—Óß‡nÎyÏoF½diúæ6_œ¼hœ/MlëÃİGÑoíqú}xÏÛÀÇ«tÿÓ=Sô#pŞ¿gé«¬üï©ƒâ§ÍÚñá¦ßí7Ñö-åßœI”	‰‰çéÛIß=À¿èûLÉn… `ŸÚLß¸¯íğĞAGçØ#r°/Ğ÷Xâ& zX°}xäúû’x 3Ëpm»DÚXu;¦ÅïCŞ•¼„·÷éEÙ(4shëóm¹qG»#R@µoß›=Æèom2ømî{ôüÆ½Oâµ-ÛdÛÏÚ÷À,Ú;˜–uzŸ	ïÈ:s!¼/³âgÄ»ğ´T»úqàøğüãWâ§mYÁ3‡Wş`gÅc¼qğ?ÒÖùºŒ®(@pØUï±¶e¿ôYÎì¶ô:h§íqEõ`,u‘¾ôİ÷_ø@ÜTÌã9úßZùÀÀ<v”ş–Äı“Ï=HtoÊÏw>õĞúùşWë=vjãBúœq ñÚ2õíç¾ù•~ù8j»²8÷ã÷qorÓ}?û£`/÷‹ŸÉö`ä’mlò@Æ{ s™‘¸ÿŞÿÂrzéûÎiqù•`©híYq¸ıÕw_Ÿ´wõï/ßÌŞ¯ËáŞÔË±í/…ş¼¥ÑŸ~	à°O=|}#}=²´›~À¶>ÚYBãº¼â€?º€¢¶‚Ò@PºwÿYñsÿ°wÌíE”ñÈcûü[âÚ¶ÿÙÅó>\:?ú¸øaßU`Ø3´¬mpÿü…Ç7€™¼úxğÎ}€ÑË·êùØs—·ˆcğŸñ+=;
-ş°œ>ñÑ?C#o\’Ü¯Í|ò¼öÌ¦ÿù9qŠÆ¿1Ò!ûğZ_|ô¥½à
-#Râñ1›>L81Ş…Ö_”£	T’ğ{Û'—îÍâw(£t¤>{†Ï’Cşÿ>lyš¾ÊîS>ï”¿%ˆñá-Û¯opÀh%‰n˜cer„aˆÃ¥½?ú9^?Ùº]œ^B=háLÛ[›Ş9*.Êfn’=x ÜxT¢}¿@ËK@‡İÓo‚Vî½½ôB°'oŞùøÌ¶ÔqÉ\Æ6ä%_Lo;ıØ®>Gœ<´	m¹ï.iïıK¨9Yè6ÄdA¬/şÔ~é–“§/¿0›ÿk/xŸxSÊÛ6ˆš‡î½%¸'} Øàñ'é;Úvù¢<”²­X|u|Ï}/]j?Ù¶õ‡¨ej§	šùñ§n	
-»ñ˜$¡~	-]¼Œö½*./Å7—I^hyïlı{SôÁ;Şõ•_İà?Å€py„AxŠ”-INêj›Î¢ñ[@	 Ç½ÒÚò ^zü¬qâÃ/öÊÛ§ìLü¸cïœxêÕÚÜØ52xç1‰±ç¼"R{€NÙæpê§_§Úü·É ê›Àz´²ÒdwO›¯Go(íôÑ2‰ÆeC'ÆB;ü8ÊÖ—¶}ë·½[¯½´ìxg¯î{@üÍ¿Äk¾h±¯–•¨÷Ü<šúØ¸¦™†vÛû_§¿İ`\Àlğ¤¿Q\¼:u?(:{ù	¯¤‚Ú»	ë—0œÃ(O[qŸ|é~Ü¦=Ø~ñùşŸø<ë|õíy©Ì<	X Âhàõ7_”ƒùÄ êH J—X uŠ‰C·£~Şlûé¿ø8`n½ŒLCöhº{æûŸyæbusÄça	×™bõ½ú†æú:µ!¼T~ùyÙÄE ï˜e £Ğöù…ñ¥@	Öù/^ğ‡6¹/¿Ë;IƒLÏ:ûäF®öd£À}ƒşìû6§ñ‘bRR­±ÇäE”Ô1*®]ÚèA†ÏvA±/\•Ô—Ás’›¾uı2FòÊÅ—ÎŸB;sĞôÏuWÂí|Yü¾qO?·ß{`Ÿ|XßVâÅLÿÛô3CßâJNüèRİzUê>Ë`Ç·ÿè·ƒo‹´_àaİ’ŠÀ©µK›æ‰ŞãÏºJÁï’d]mïK~Ô;’üCó4T5 öäC§Ş¹ásµİ#İ§Wğ¨Àb°Âƒ`3 9H’#¯ûÑçùøØÛä ^º£|×+õ$Ú†/÷Ifñ²4¹k±“§«!#¡:ëmÓ/Ü´;³ÿ@§]¸1½í'°•ôG®xí‰·÷¢/ÏÙ†0:Oüì7¡ÕìÜğßø½G%]ïøÇ?ú­T¼šşÁW(Ä?y¯·ÛVşù“¯
-SàUC(õènñ¸¹çA	C`ù”÷Ïßò¬àçµıÙÇ´kó@àkıiú»òÄu]¿4İIİòlŠ[‚sä‚e–.ÏËQ9´’ ü˜w\n	—€üÚõßøm_8¿¸£CoŞ¾Õ»úRº[ÒÄSêŸşá-ä	£îŒ÷øfù¾änésîıõ›€‘¸4
-öŞ5m¾Ï·F+á.­¤mŞNLî7Ñí(ğğ6à:úH‹ç€¬Ïlƒœš:x4]f¤¦‚'NOÊW`Møòcâ) h²m°SœnåR~°ë…äğLÿ1J=Û_éäip«Y”|LûÄ.ôîçFïÎ•KÁFXÇï¡bpø‡—2ÿ†œ¥ÍGú%ĞŸ¹p^6çüş¶¹‡€¹€ÎfiEØ`¯HHj{ÒÔ£îí~UùÎçÅgAµÆËÜòÈ¼«p/ê0[ö­ß}©‡¾ûÙ„Š®^é6¼ñ1H¾Óş!ü{ ëŞ)%ÜMg$JÈ‚ÎmªuÅ€Ì{Åç³ÁÚÅ·xgÒ-â³¾'€ŒPÏÍïºğ ÔÇ(CDşùûâ‚à«gU)Ì%‹F¥ËÁ*S.^ÜTÉn‰÷°Ô£¾÷Ÿn	êÛ¼£0ıÜ·~ım”ò‚ôƒœøŞ×Ğ:@dyÔ{;Ã+Ée¦Ù‚Šw‰Ë{åH¿|b3ğ  y$ 7Îr°-/˜äã²:‚›ŞêÜôîßıio|ëßzŞÄ x§§;¿ùi	²G‚%&$`ßÆxÎ_ûş¿û¦K,G!X%¢İ/¥çØï‚€>–h9`Öœ´ ÂK!pÁoó-OK¼%¨ÿĞüøÓr‹`	°ó:¼Gú®^#õ•Á·Ï=19ıÚ$ÍìëùÙgÅÅş×o¾ t‹½üX°?ªsh.ï}ä£?¾åyA:¥c©k—l¥²İ7”}ÅG0«¥pZ‘qî£ßZ’&µÀWæ*1Å×~>R¦^ íûÁ6Û$ÛóZğ6´ïö‡ÏÁÄhç6l‚Œ·±Òeñ@²ë;¿¶ƒ}´Rcİ<9óîÏ»–’÷‘\]ê­ÿã‹€8—O€8šyRñM\Áø<åëşPq÷}øEH,8!IHş¼ê='	éyçˆfçñ×A	…#oW´)ô3ŞÌ:°‰+TÇ ík ¨ìõ>Å{ÒÇš‹À÷í‹ËoçC[¦ 
-BË&:½Çº€ĞÓ[nÙ”üÈğ²İ¨8ÿ—Í ØÚNI¡®ùİ_ £ê7Ş|UZĞ%µ€M;R‚lAS>’Üøx0¯¾)aQ _ a>vâº¾1u£û‚ä6 ñû|‡#dJÿáÿû…?şUó½9²¯£<	¬ø|Sê@õñw¿ı;’©+G@{^%¨ujRŞ{bÿ1ú{TŠ/tŒ]Ÿxú’¸r'#(ü¡~ß	¢=½óÈ÷0QÏùzè®`CŸMøİÁè./‡5/\ôÎ LNï¾å±‡ş‹ËŞÍo~½ho5Ñşó%ş]á#¸Sh•¼¶ƒ/K·`ûBèé<p [Q½…Q8õ®?®—ğê®¿şé|•ˆ¿W%6ıäó£8±Û¶=Óûšd4®VqÂ¹ñÎÁıàÁñcò" Ô“<ÒøÙ“aéJ§Ñ‘Í7Qú°{#ˆñBê{Ÿê•ƒÚ	ñ8ãµõ{M†­ 1çMÀìñyÉË¬É¤ƒ¦íï¿ê[Ÿ§ĞQáÁ7†Ğê‰¿ñáŸxoú¢z3ü!¸ŠãâÊş¬çê•­m`÷têP1dßı%i|^D-¦D‡==Æ·?;èMeıîWú÷ø½eKoç¶8ZÜr~÷Iu*¤!}ÆìAkšùøM´?~
-¶à²U*@ş™Ù—ñˆó´(çº**8½AÄıàW¿û©àİg+î’¦ßM	¡¿–jÉ_ı¡hûì"p³ß{ƒKĞ0¸ıß¾_Q}:À®Sùoò	—èw|ÂÔcj¿/×Û<û¢T‡3»¤š¹qƒ47ÉßãÚÿ  ÿÿ lâ’
+                                                <th>Statxœì}[sÛH–æûüŠlVD™1tó¥kd[[EÛì•D)»wŸI E¢"Q¸PR?LìÄÆÄ<îÃî¾tLD·»:f6ê©g"6æUÿ¤ÿÀÎOØsN&@€H€I¾¸«m^ÀD"óä¹ŸïDÁ‹ípxğW¬âŸá™‚—µP\…†)ÜPø5„×xY»´­p¸Ïvwv¼«çµƒÆÍŸnşM,q+ø…_ş8¾àV…„}i]3ÛzYÛAÄÃ!ï;ÂÀïjçÓ}ZÌ”Nàq÷eíY-g™˜wm<fôÁ(
+…U;hrßîZ’9vò€Y‚qSÜÚÚ‚ç²*/N¿Üàb|àÅ¿Ø¶ìñüË\¢¿.şş†Á^®ô‡ÆœûãøçCöxŸõÚ'oG.û–5ŞµÏ;İvƒ½êt[§½«7¥HÇ¶8lŠ`7¿umS>¤AŞ`“ ë—ï@e‚]pKÔˆŒêFH¾Æ…ô…Ø¦Ø£ó%Jø/w5=Â·áJÖ‚õ¹ƒäx.‚PÀJÀG7}[sç9=W“ûóŒ',Â‚^Áˆõ¥o	ßØa£¾ñ¤ÄAKg¸bø—qésqÇ¸†ŠQŸ²£ ´/®SÂ[74ú"¼ÂeîÁñƒ›>fş¥çÑ—a(G%ü‹…!sõği<ñ‹K¸‘c©ÓoqÿNd—éçÉy
+œí^U6dÇ·ëÛ¬oÁĞe˜Ca~Pwö|{Ä}`o/¶íÖ³G‘ÛâãIˆ,;”¾ÍÙ+"!Ó€ınñ
+hø´Ây6I\‘#î8¸<; ApV‚`B| ± 
+<a§|Äl×´-\¬€Éˆñÿ	b ŞĞ†'wÀGÌ¼ùè˜‘gùŠ‡¿ë§å¡=†àr‡»ôÅÈí™õGÉì‘°l˜°W–›–¦:i?D6ìJ¶›Ó©ªï²¦=\x¾’aR£ºÆÀ—‘Ç’WpÖb@ï+Ó‹~‡Âeáµ¿Voj©[ÑMd:À,€šİ,Px F6RyI×ÄgyYs$·hã­?ˆ·ç}Ÿ»<\‘ÆáäC†2çş@6R0v5‘ŸÅÔpÈ]“8XbV¾¡…»ä>N<ÅJ¯¡)äûŸGÖÊëç	?®q5³n=OÊœœŒf«s_-À×a±®Ë/–+ßû–¬¼TCË2\&¹÷d¡^qgÈq•ºbŒ‹ÉêşÑiïá½Y°ÈD…²ür9b`‡ïMé{+¯I=ƒg)«eŒ¸í°c1¸ù9´G›:%ò"Õ4¹™vÛõ¢õ„#L–¬~Æ}>¡o›l°.¿d­“ãr<Í½}yÉZ9© ‰$J–tŒ‘Uú§ôs‡÷AÏ‹µéõ‰’¾)b™°§ÚAûˆ¥.ñéŠ+—/¶éÇnoÓB*ÆÔ2SAÕ$K¿AÕñ^#éJĞwM­ú&¯íÕP–›b³şËš¸Sô»§[{{;[»;»[OklÌî˜ıtıòı.öæMë¸Ã¶Yëüs$àÇ>hv÷bc†Â‘9[ƒL`T¹È€]{Ëär4¶d“Š¾ÿ<¶«	—Üü	D‡dÄşV#ÀœóÙ+_Ş‹}»ğq7fö-ƒÈ]Š›ƒ[²Õ÷“]ËÿöóØ³–;RöPÒ‡‘ïg<Ş‹zbE[Ö—‘kŠïyróØ¼c/Øò£dÏ
+¾¾1›/Ë8
+¦~ktÑy¬wöª:5¤Kdî¨?J½^H wQUU“^hƒ©Ià¬ÑëÕğoVoDè ³_R—­4v¯óêüU£}¥_±úßÁr®gt™©uÖTÎ®ğ|9^ÛcœvN[µü—(@hûTDp@—ÿÅ¶šñçÁõ8úÏí“»:Ö»¬jÜ¹ø¼»ù*Çš'—BÛîXİc»)}àÚŞÚn—¦Ó±FØ.ìÏ¿Ò©¦Ó“F·yg„:â¾¹FfFşpm<.—TßÙÒÙ(õ^º`H~¥Nh„ò@°ÇGpn9İÕ4L7õU„Vx/k`ò®Aİ¸à\roİVt%§LÃ„ÉXHc0CÖmü0L™S;ã¿ªwˆ´¸Sİ9Ã“áI¥¥H>{¥×¤Ë/—ĞP“a(ö£#RÌuÜ@qL…áÈKch[–p«Pàpoö&CZõøÚv0o½PUY’öAÎÜ$ş\:÷aaÔ{yWq(w}Êãå—Ìz4-r£¡0Œ™ú]şáËÚ7ñWK?=Ó”ûòÂv„!¸ûƒsF/æš}â‡ÖNÍN„,˜d)Ë¾	rİv’±×³ÓçvL¡å=Å4ÇêŞâíá^…«‘<‘@rVtv³ã‹ØìÖxNnÍ
+g%3©YJÃ$¯cNÄ=„	òf8‡ùùüÒ#Ck—ezdÌí®0…=Ö>C[\9¹bÃzË!ÛÚÚú+ôñìS@J²vÈoş•‹¿ÉÁ_-6„e´MìËèŠ rÂ`ŸÁ÷òé	†C
+ŒŸ§jMµxvº9¯€™O‡ù…k•åÀeÂ':R³&d`Oˆ•¥‚'~äâ	÷ÅIc,b§€J½Jğd&*çpx2Û7Ù€fëJ˜lv^È^ñ›ráúòœ¤|şOé
+—9<¼ù³oËdşõÖ•İCˆqïæÏ0Zİ‹vÉ|“és¬’Q&5fú.kICyr_ÒPv6œ†’£˜War'/å˜G%bLû[v"FH#`mê\Me£`î^QBJíà–3ä#Xš¥É-®’I˜eÃO}|
+€§²çd”à}6c²d(”GXk <nDf”^ú1jnqšG`<SÚ1Ãƒ‚œ£«4ÇjŸwX·İkb€ª}rÖêö:§óvçtkQÉth»3
+¢&ü!…­í1m2Ùd‹SŞhÀ»õ\§~î¥uí‰5¡Í‹tâîòjØìùPækÚr%[¶¢A÷>YÀ°ò44Ø'e–‚}Z;ø°Iwv€<¹Kı†.ı<6ö´Í†5‚]mÃ˜ƒpÍõî.1˜ûkã`‹w÷¶v>×=V«aQ?«rf¯µÖ½j 7cÆ_SÃ+Û!Ê•¾B¸ÀY !<ùzØKÿ™Ø›ø…}:šR[h£7³¹“İ4“›¢•[;˜Òîv[+&ˆ¡zk‘ÒĞ½ùˆQ@©´¡2ãÕª.§Oì­¨OTQä³”¸7C‰k Ã´š©MŠ-£ïHóCRZDŒ °#öÙÎÖ/ŸúbôxFÜËk¹wÎ£NÍö
+x©Ä*ä’ª3¸5ÆóÙm·Š/ßÑ~« ó×/ıg®µwµã*RûuËKÿYÃ–cî<;;ïŞÙ®{!<uãm¯uzŞúºíåî°ú¶¿jâÆßÙ¦_˜X!‚gıøMãë®—»Ãê»Ş©ò#Rûïlóí‘¢¦uŞj7:w¿û•<ÿ8Ó®j‹c…JHÆı[2ùaøl®ûmoMñ‚™j!³çXX“È}ĞÌÓ±zW•vÅîø±u°.ŸU³ÅJ ')êWÉ(£gFbj¼!æzèÙ–åm#çŸï¾Sç§<‘BBö	ˆ,t°D°}8ñˆ ıšl×Ò˜öC$XÇ”¾/"¶ÍN$9ğÏoşÙÄú}Ì¿Pw‘Ëã^L=Â=BÆÁì˜ıÏ!_À
+XS÷|R|ÏÆ¹ÏÎD°Ä3ŞàÆ$şª 7Ö¶ñ¤Ú†
+œ`<	0^èÈ3 S` öo`‹¨:ñ{‡ÂQ2'N!Û:êHN¨“T8ì|5páEˆg¤ªOj®²,?¼%QC÷ÊTbz…!®à«©!jº6;®!!jñâUeõô’"Ü ñÿ‰rI]å„]9)á1¨R…€.T±h¤á€†¹Ãğ…‡2B xçÃç@ø7BBg/CAOğŸX|D¢ÈYIĞdÄûÜ¾’ÌvÇ¸ğŸ 0¸Ø/0/{Bíd–=p7# ô	L©¢–JğÑ
+"¾Ä|×8'Ÿ©Ğ}(@åæDçI%şü„Ø‡¨ßb&Wõtšä49Â›¡ÎùIÏá6°e°SGrtó³kËíös9|®çU-m¤Ğ|Æ`áš¢Æ=µšËÊXk\XuÎ='
+ÒëÚDı0ôaa•‚§N‘™Å†Ö¶š!°Â%÷wéÉ>kÔk¼kœŞü#Z¬ˆ;[æÅÃùËğ)à.ùü²*ÜRÉ¬µ;ÈL»E€¤ùâÎj'yóï À#ºüÓğ_€n¿-BMõ×Ù&Û19•—ª4‡ED-ËVòİ²}°«q\Ï³À¤{acê®¾şãb<3³¡Ùm¯¬U±İ©Y{@ÄvÃ.ªò+ói2+ßQù¿Ïzp+~%Xı^Ü9¾Jœ <-ì’•	øX¬gep¤4wÆ°1½ß{!E—UÈ¸W*­òÒ)+Qÿ6Nºßı®À/¢ıŠeóáËIÏ
+_ÉÛi1RoÁºÁÊ7õ¨êó0]ª¨x%OfÌ¡-Vâµ <?Î}y;	Óú·é9l¦‚LY.Ï¹Ü=I^U”À·¦­ÕÁä 	Ôg‡×ÆîÎ”r)f l+Ğ.œ&Üµ¦òBbR6|ª0g$-	Ù=¤ }P¢©BøğHy³ÊÖ-­@”Â5mÁd€˜›? –’J˜1ãû£Ur'æšì„û6?:dîD¿0¥%¶„;~±M/qæğÇ¶%ırxu}›.ÉMŸNêÅ2Éz43™ŠTô®¬¤ÄËE‘‰…Ê>²\b5Ö„Ó b(És˜ØgJlq`F<=}Q]ŒáÈ-cIz26w„¦MøËWš1èëŠ@‡Ò•=ÓE•¼¹5¼qİÛ "¤ÁÉá©¾Ûku«!û¤'NE½Fe$Ç41¦†PåŒ‰ûN3gz£	t6µ_ÙÅ—*2µÊ³Y ª7¼@—Q€ªeªò2ewc,´ãxJ@GÀ|QÒ?½ÁJµ[¡µp‡<Khˆğ)Úq½^*Cïç%Ü9Ciøá”àz¿'z{¿»÷øK#·72±Šç,Kro:½óO™äÒØ›epCB~Í!»İ½_níl~Ã—Ep§r„ZŸÂÅˆuP¢¹ÓÆIëS¦9KkY&8—Ä²õK#¶3é‡œ\÷~8Şm’¨î'ÍŞD8>¢l–Ô<X¾%Híñãg›¥´—”¶;È¨aÊ´Q>Ñ¸¡ì‰ú`Ö“€Ÿbäy`lOE¶µ¡œ¸*ÊØ9S»N7M£\ÆS†¾í~@¼œ_¢´Ã¡F7¹'aükß|xfĞëÑœø|Œ‘7va¶©ÂÈóÍxwbÆ³cÛ®¶Â.3Né5”ªÁX¶”ó"qÀo'u‹½VùĞ™íÚätPãŞü‰®SCßAZhJ rñÂ‰-”eÉ’¸êÚ¡=!¼,ZøŒo ¬w{š:¹¼abıÒ2î®0Ug¿Ä~”F±È,‡rw”ôê+ô*G1ï/éy×³@ûÊ›$ˆT¿¦^èÙFî<×µÿ]\4Ïöö3^ä?bíüéÍÏtÔ1”ìQeõ²ÍÍŸx¡Ÿ97JT_) úÙ»ªãT‹´€y:•°´œ«:İ)æşû«í‘Í}1M^ß²éêUø¾…®Ëµz­c2—Qåæ%IL]îuš*›PŒmLÈä÷G0ÕîûÍ`™~ß¹ˆ§‚¬’.æ%jŒ.Ù;‰wï»Ö´•ñ\'¤˜©GŸºrÆ›ko‘ğWögWv/Y=õXT·Ú@wÿäå´*¨YÂ>(“İAÈ)è{`díà?~÷»?°SàêX®]Ue6CºÀøeúÈu<3ú3nùÔôa¥äÅ¢ìöİ]JßÁÚ2¦,
+u„ñ¸ü+<¼Šb`’.-gp«‡d³T”bòyü~İT4›¾—ĞÓGÍ<As¦®[r„µË8ÛS©û7ÿâš66KX=“».†e=ø*BÖ-#m0 õĞ;9?cXÛáß|ÄRş/‡²öŞeıµãîmìL†ŞÛzÔõ··H]*[×V1ì_qVo¸cÛÙnŒøØR«:jğPd[€ô9‘XœU=H½ÚëÒ·PúÈjû_ÿ
+d¨¨9¬A¹ğ› ®ƒ—êö¨ëVN÷-ìûQÜ/6-ÒkôÓ,ÉnÈªhmiWZÚ›‰¶ßãRĞ„½ds<d™ŒŸå<e3È:)à…+ßÌT-1b?EÜ¡BW†Ys&˜˜;`rx„¦ù]Y6&Š  ab_è„Uåb#ƒc!¦Ğ—îà ×Ú€c¢¾eóÏè¬}jPŒ¶‹ÖÃtNüdË6ò$šÌwİ^®ú(¾Ûbo{ooş¾Ûîô(=ÏõP6+/
+"êÑ¹¦¬¼ÏİK1ÇöÑ_-é¥ğ„ôR®ì{î¤x-‚PÚ8Íÿ	¸©%5î&2ê(é*ÕOœÕ•g]%.P¦L =ì1¦¡ ëÉ«£ß#>.zÉ‡ÀZ°ôZ%àñôüc®S§§bç>şğVÕ™,}ìÆMHpÆû8×±åexX((Tp"-î”rl´SÅb£Gï©Ë„<ø"o©Â^Ô7ĞWÏê‡R†Xìä±S>6Îy?˜ğ"JB§.3ø?V¹©˜§à@©²ª’[°_˜ØO<€ç‹@é7²L§ƒ©ÇÑÔÇ"Ùò0™ ‹êI'g Ò|ä†Øe ?ÛŒ ûaÜ‡@ı…Füëé¦Éj-Í‰ÂX˜å©ª¬-9÷Iâ·x¤×Wp)Aßáœ­1GÊï-ò«%7Z¼«9½uå
+a²EMÜSòD$eß~|+[ÿb;rJjı¸ˆZ­™â%Mıé‚‰o{{h ^·»ÏšÓóFµHrU‹Ïô1”š{¤)%{–+•ø%÷£–1(X¦3¢AµœdE/üûªZõ0
+LÕ.V€•|\A	]ò‚6Î 4`Êô8©<–Î‰	*7[:»&“CSétßéã|Ü–Ôd3-—”Ÿ½£æ`(z'Ñ sSy¦rwˆ
+}iÄv$À?ˆëÈƒßÙ˜˜qø]yÔİéÁ#ö@½M(ú¢Q©ùí qñ(”•ò¸HNÍèíµƒsrj…¯^°¯éw%½Ä~&É
+3E%3‘¶MğŞın²÷¨øSæ¦Ø:>‘W¿ö¹9@=UùÖ4ÓÊèK&0:˜T~©2ºRÅ£¸$’ÒAûhy˜¤x–áLøÔÅ
+äàÃå‡ÁİWÍ—‘¨RM9¬ğP±Öô-iÏdÃï3ŠR>¯\GéY.RJÁFH%l]N¹YèLğıû”Tâ’òjæŞ>k¼% ‹vƒµ@ÑşÇ›ÿİÂş›ø);ï6ÚÇÕ:å IÌØËi›«øKç¶­çaÃˆ´…©†Ê+“cGû¶3äÙöC@á½<W¯EQ¨)¼™¸àløSjIqHğ™Ğ¸°ÑÃ£¢Cp>é&Úº…
+aå¨¤ô=‘Ø{L¢ĞnÀ­Mè
+ti¾®ræiu[šî^>í´Æğo		”\‹ŠÔ–²ôÄˆáÃg)ô«ÅWúÏW‹oÆâS^°ª¶›P¬«Ğä£DxÄÚgË™©Û£¨Ş"GúÒì?Í®³ö_j9>óouŞõ%[}hìl¿‘ş
+¹I<@ƒI¬b-ıQ²® Y¹
+joÃA/Öéÿ(ÂÌ·h¾À2öÙ
+æ$afƒ.µÍÎø5ê÷Ù Ìå•·oÿ„†?Mkp‰¯+¤¦L]úbLx-ÌõWñ¯®û«;é5Yıµ”‡ZHÅ­ ¥¯lÍ4waÌ:eL.8…±kÈìl8"W/k¨éª;Nÿ¡€šXú&€ŒÒ3ûC37f3{n>Ÿ³X“ö´êÊĞNt.•I1­Aıäh± ¸é–ìé@hRœäO÷Ş"×N^_ØEõrh4¤;œ[v0²“iãmóÌ€™]:×ó[1,D >²vˆ<s6Ì›?[ö@ÆÀ½
+DIUL2zœ–G[“0%â×É7ùÀ¿ù	VHŒñ!$¥—xÑÒ*ys’DdRH¶!õH’‹İé<¼tƒ‹ØÔ×•€\…pDePÜÈ€Rdr¿(dYX…>»®:D”¿0	dò¼s~¶?·à¼@³‡cz!‚0*ùÅØ™LÇ4«Ÿ®ÒöáÌJ×ÉaÉw²DDáiê™óŒY7?(q |˜îÒ«ÊÂceW*0Ì/jß¡?56âWpáåkáB.úh†c\HYÀ'ÊTıNû\Š™Z“»&hğ~±£Ü3	Y)ÇpQŒŸ\ptê4Ğ{å+]‚—¦Şæ‰Ğf·Õ8o>‡ÈÃğ®sú«Î¡ª‹¤§IÉ`M`vÕ…è}—&„¯ì½ÿçÄî4á¡ÔĞÁ2æ("äH‹ĞÆ DÕ_[™÷Pœæ-]úğÁŞnmòÈ?Ê¾aç9x2¹ªœm
+v$Á= ZØÕÆÇ"hˆ`ÂT8Ÿ¡Âf8yJ²ÂÔsü8ËÈô¥ÓlÎâ+)Àªğ<ç‰^İx®Ÿõ…ô(YzÌ~ªléÚö êPYåMúíDl0ñb[ı¨ô¨êaĞKıŞ†bzáîkÓK[ûZÆÄT{İ__7.{k•/ÛçæoÙÛb‡ôR‡P=Ü^9:F×³ºÁÒ·W^OùƒR† ×µƒÇ[¬ú`ê™%Öã·¬~Àï0`?Á‚;Â‰%"X^¢¯Øc`§cYFtÑ#ÆQy?fëj?‡†ˆr‹eôÜ¥I;ÖËÔ	,F3ª¾¢¯BG"!ë°Ä…íÚÈ¥àÍğÀ
++r„f&¹Hpíš&Dÿ@‘Ã6SGaw3±Ù.JØúûkõ¿+gÄÇ“Óˆ¹ıx•AŸM}–ôÙ*ƒZÀE®QãU.»›ßlgog‡Ş[e`Í§™ÚEaèıÁ“0aÖ¼ß*ä$êÛbŸÉ¦Aú‰|ì+¸ˆüç0‘Pï<Ë`¾!Ól[XÍ]?nv	Ô1¢p!@¤ù9ÁtOÖË”#¥üb1JÌV°î{S+ç]‡Cé>fH‹Û	Àëv`ú¶úß-ïz>à{iSu®D`K%¸øR)»k$v]õ3ŸL›ä:sp—3€T ¼E~\BW¡5i‰îVïxTY8'¢„°)
+‡µ`CXTï`*¦¶X‘$||F17¨5ñÌ9çêF˜"è,ı†Š‹fzLÓ±Òt&gô¥Q¾Wìx+QÛìÓS)«ÒIÓÔCµÓ1Ò©ê©à“©©ó‹m°{·û°ß~³»óü6½Kˆâm‚Ãï9kIá9·¶¶èÂJö@5#ş‚s!äDÆxÁƒÅ]Ò'“÷ÓŞĞ9§!…M'ã9#,İGúXb†…J‘)`81"zS=á£µŠBFıæo®â¯ãÊ>&\9Ü³÷ó‹cçóşEmØ)”NÄÙ°{¨ v-·TÉ/ó+ÙG…²ÈZÆÖX›‡é¨sÒhŸVò,Iÿ|z¾¥†ekìª¸{gû˜7õÉ8Ö¡?eøMÌŞãYÆŠµä¨¢‹BÄ•cà2˜ú'·€)mõs7µ€Ç¬}2Ê¥y\†¨¶¯lë)`ªÈÉËÌ¹µhJD¾ùxÜŒ½vdŸ£+èp>rpf9ÜhÔÇøX¼ ?E0äÜ‰å½'yšàı%·,@Òâ‚p>›)¦‹R£éÛ)¶~QĞ8n7zK„s'úå³†CãGb X>’¯17'°Æ±Îà,,EO³ªAs<8X]¹)¢"iølra!VÌci›İæŸŒÇ©|ñø™&]ÒO›FĞô±H¬«İd'¶ïKÖXÚˆ¬T$BŒæe­I—®œ’P°'e |fª³ç±Ø©Õ§ú‘ÓO­~Œ&6Qê
+â!*C0F0–róÛ[ïO²i'işª”÷ßø¡½‚©’Rñ%’ÚØÔEJÌêË±Pb7ªiƒ•—€Ö¸¤#`a_AaŠX˜nhrûjş}5ºÇ<HK¡Ş•ÈK£éƒÓ¿:õVà	gˆ¬X®E¾ÌÂ0?ó{Ë¤\ZwjæÓÉ²ß/"-VXˆDôßË:QIèd~y‹ñ÷4¿Ğ[·~æÛ®i{ ß¶±­²ªA!3øÒúıÛûiÎ3 ¥M”k°*vÄêd¡5{†ğ*˜ÀL£Z$a@&0…­ÒËtPx²ÇÑØVECaf”¾r%ÿşÄM3›ÍÓ›IÓ¥éÇCä²€£S½É÷ceb2•»É ¼°¯â[ñ£L4•½DSQÚK¾`¼çn–X¤Iâ$MğçêÑÄäcz¹İ}giÁNZøŒú”³kÓÏA;?>ìü—Jª9vèË«OÏYCy;MÔ&èÀ 1:ÖløKõÕè,‘¦öT/•+¨šVsSü(¹ü4RĞÚø=pÕËjÅE¨î®ú•$€RÛó»|xê˜Xş¡³ÍGªqà¼¿kÔò'˜D%‡Ó—ëo¢>O)àá¹~'-@&'âÉëjİV¯u5ìûùëN÷¨¤t£ôœ3MİŸƒÓ‰#%OwvŠÎ?ÔqãıHùº:ÁËgºlVÖÎN§õ›²Y-Ii	˜èD0ªì[˜ X€£5±.¦Âôéy-®ÀXv™f³XŠRVrˆy¥,–‚=ˆ›ë ÎºXBÓmÊ0jBŒÔögìäÔ¾X ;|Â¤$ØçÌœ”Xpõp…?áè]LhÅ,tq~ãÔñm¦¢×]’ê8¿’~(æ¤ÙÌƒœ(i—t²+C	±/P‰æ;:â²+x0í‡S`“Q§åR^’ #Ó É¶*èÏn,ßÙİ·•·T\§…«Z5ºa›ˆz:õa©]½×_+ø)BXÄßÂä9ğùÂAÉ1,w¸€w¦Â¤ã‘(_¸°0İg*óµ×{Óxº»—J}ÕŸ°ºîhÄôä™ÁD¢$ê9üjX£Ùı¯gç`n¤ŞUêP¢şeõCG^^ØÁpé4ú¶¤‡®¡ Î‘2“}ÆTgÁ¸FË7ÓC#Åãh…%“Šò?|u×•»õl¹»ë£›VğK{êÅ3Ó3£knÒCW=t^4¿÷Ş¹$RÖtí º©/ÙC— yXzy–QÃaÆÜ²*:é–9¼O~:X
+	Ö'a°Ù“>ßüì"‡/e¢ÀÚd(«­Maso1µ6Ø…d°Ô’}~¡y,{bÕåz‰’xJ*,²N¾ztR1GuÒ
+ãâ«K"I.ìã‘ÓjA1ğyû“'-]nÇûR¡ãñfØÓ	nŠğğêÔÜ)OG(-’‹'$d¤Pïá6fn2†tI‹Eeé¦ÚbÔVmw>Z9‹™~µ4ÚàlR‚"ÆŒj^&A¦QTó’ÚŒf¡Ş±dw)O€¿×"¢”Å^Riz'6D$ªc ÂÔé®Iğº{Øh~:¤b(ˆÀ¥&Sœ¢DÎ)S<xºEÖÄ¥á±² ÍHëzı	"±d¥kÎØHÚµ	ò]½á	Ì°;vù|%­†¯`­+ø=¼-[Z;×ÊVWÜO:W.Æ:å[Œ${ÆLP.MŒÖŸ•ƒ‰º:7Ìº23´>ùª2GüËûCî®Èàó’ÉŞSÚ!d5„ii?ıÓËl¥Ò
+.Ò'F@eìÚùV]~wnµÙÛ+E·r&ÜÜxHéÌ¶´H+Ø‡Bk3Ï^F**m÷‘©·Ï;¯{Ø"«×9n5:=vÔaíÓfû¨u
+fá"SĞÖ}º"e9Î*ÉI–€Ê¨"0){ÖyñH
+Ú´Jğ?ŒXcä?ÄÒbOÙtø_SÁÕ ¤c[ä»³EÍySøÑj¾°†m)…p‚tíà›"F¸ŠéÊ’WqFé­&<÷|]»C¡/!-¹feéóÏnUhØR#Æ<ÁTò¼
+2‘ÏÜü‚˜Çí¥üP¦ô®Û©“WY—z}‰ıÓŒNz¶¤ªÄËècÏSïóK5Î „ê	ãVöAR¦arÀ&ıÓGü
+N>^¶ÏììxWÏ™ƒ9çÈKãzŸ ³T“õ­ïö|1zÎˆRqsÒ	¶>FÁŞqÿaŸÑ?ìçs\¸fMa«¥£¬T-¢¯„9,¡Õ‹ZÀœ´ÏÛ¯±Îï°£v·uŞ`½N£[Z²œØ¡=ÀœŠ;Î@[E¨¸ƒive±’v™ÓÈ†€Õ)lxªq¼ZIÑH[À%‹Oµø„¹xnì¶Ëq¤ÉIK¾Ä¬fS—Ò 	$BPr‡ü)6–¿¥6f9xÚø™ÖPRÔ>ÃLÊNû^Uş`Ğ¦P”õ´]¼-‚ñ¶ÏéRFÂ¸	¹É]•Î“Ôï¨ŠTÅEh[g†-/`J‹ûm(Ì6wÿÎmOÆtõ1Z°e)‡Y²OØFVºîãj>³)áa§2Xşãw¿ı?BSıDê]ñ#Şc;®’bİˆšõUL=Q°“ùíïÿßÿı˜¿†Êb{gVïÁ× €G³İ%ï@¼D5ÿË?ıûuü–¼®¸–>ë
+ ªŒ=ƒ›ŸA=Zäœ[ˆp¹è£{"§×Uò¥n¨ETšèsSFÚY¡¬QçúSÒ¸a
+å)#‰Ö¨it[¯Û½ó.6­nl³Ó¨'Ó·%¢š±Âq*?ee#“»ºYmãGùh‡&¸Ñj›ãÂ^?f’ØÂüX«î¨u¸òî4µêçË±mi Ø¤?Ïñ•˜£Çˆ…©etŒ|è8‚B¤8$}
+±IŒ{ó˜¼xÄú±Üq«{á	À<³/’N )PTšºJ—Áx¼İuOºªN¶8İ„îËë´äª!EĞîÒ2öL(ŒˆÚAüª²˜nXCoZ7vòiå•x°dí ~Uyˆ®¤Ôc$/+Ò¸Ùê¬~¼ìwª0·±Úü«²Qı†±ˆ*­m DÎu9å¸Öc$¿õø½iœ¾ó£*–Ğ)ÈkòóÏ+¤û¦rËÕâ¾ªØş1)lAãjn`ä~¦JÍîôÚS¦èÓ‘Ä¹S…m-Òæ*&øçÂÈ“^ôKÂs§.NaÂ]%¤ ïQAÅİ¼*;šÀİ¦­Åõp_Ó5ÒQ÷¼³ò‰EÛ§7gãéUj+ïœh6š³‘Ëi¿ælÜïœòåP+fohsr\n=wãU§ÛlQĞ^ëüíYÜ
+´Ó÷Ñ-‡-WhÚÂö¥NW]Üfa
+ë$éoÂÑ[¾ôToDÛœ|Ì›¢¾ğ[0ŒÄ-µÕ~1Ü˜• !fCsKÂ=Ä4¶m9ÇSZ3öÔÔ‡›¾`ŸK¨ÌKµ­ˆ÷™@l$ÎÌI	)µ|¬‚ù)®àíHÕá‡¾ûæˆé:ÄgŠîPŠÍµãibóW÷æOœµ®ìM~°ôLÂ£Jã	&nJß#€±"ã*÷´Jùˆ¥yó/ğÅX°‰Ùªa*e+ï½jlÃ¾=dúšŒAWzTR¢3'M¢0—D%¡ä6~ı¡{_z¿*–ƒM{Wêşª°ûÏ¹ì”îF=a±Æ>îf¬[“Ãt±²W`héı›4–]`\•ì.›4Z`}ÑÌJ<$U~8.#[•şV’Ì´uéõÃ4ë–4#¬¾İˆ°å|yxİ¶êfVàÁÃ-ò >|d)/ÈëÔn™˜eñ_<xÄè,ÓŸÏI§ÊdR­‚ 1û9y2”;ÿeíGìŠø÷ÇÒ¶ê;0«7Ç«X?ĞÎç°;aä»Œ„ÿóÇ®Ü _•8¤æeAgË4F™	¼fş	¡9,¤yj¼TCàX.&Lgqà‰½€ÙiºŸÌL^\-ıÛrêiJx“rUñiF@pÜ
+3«/İÅ°º~nÚ¾9«°w`}&XË¥€¤[X©ÖªXcÏªç9+»@c?:í±£Öy£}\¼Àrƒ#"xu—q’D}Ç¾ã²ZqŞŸ«æÂUôå”3 Ó¼˜á¸ÎPPN‡§%nÉ½ó-—uOqÔB»b9ŸœU¬¯U•ñÔ665‘•ğš¤²³Õ:„üİDˆ“x}¡’sÇÀ·@Eu¦3vŸRÆ.FÔ·Ïq²_Ø#,FuüyåÈñ=mµµ¾Ä]ê‡ş®İÃ¤Jæê¾=n•äZÂ²Ãwv ê'æ|§Ñ99Âê_çşæ¿^WÆM%n¸.Ï‚Rv3Ş„,ºdußBŠ¯Æ³rLµpmË1VO¸¦íÁOxè2Iu‚¹JâÕ"ŒÉc¬õNUHcj$¢Ûaµ™Tu"*‡öâe3Æ´n†ñ›Œ:º<>¼°Ôêbº#®pÕ _KEíEAÜ&G³ªÀšˆe#wª)õãyóôOtGŞ§‹<ıK4*¥¦‰×§2|¶u±¢N7M¥ÍLÖHÙ7I3Éë–DÓ4®†,‡vıœò¬UÌw! Mm:O—›0•õı…œ •§§©~½|e;fçêÁRt—:IËÇÿ§€Sß§~’t‰	ÜF‘<}=K¿Üu&ĞS&­œ0­N£bjIBÍ÷½°tH,(Ê¹ÏTµÁÉ¬Ÿ‡åCftË|‹xrŞˆJJ©{™ó–1~[Wûì¯¿G	ë±>·0ŠŸªIÀµoŸeNêqyKÔE„¶0ö¶A†;/(H?Y¤;¾=ØI…5UË«•X­„Ñì2¬¶:ÇT9 µåÚÄ”b<9şÒl,N÷ÆZ•™¬Æ{öæ:°ƒÚAœI£¯Âxáä`ßmJœ:Q¯àİqÚ‘eœ1‹iÊAŠrŞôÛ!w€¢¼K;4‡Ø·}0u2’âq3cÅ…UŠùÑG}y•DèÓìÕ1òC¼zæÑœ%ÓAèüœã>aŞóæ¡©©`ºÃÒe:åVyãLr¥<—B’:‘ÜÚf¿¢Šmì*AYå/x0­_ô‚Ï‘rIqë›`L+FG0oàsdŞĞ†tæïáªN
+;0}¿Ö§Ëƒ5¬*¦½Ë.ê¹G-d½N“}³»÷·…À
+ó–œ¶6¸7°A$2#Ğ(”]‚^ÂÏ>v
+5ˆKÄœKä§rXª^¥ãä†R|9ÇW0S¿;½Ø4G` !¿µƒ¬qzXª…t	‘36öm®hZç“®˜~\¾GÙ¸´ÿ9µge?.•?_šF»IP¸Út'Ü]G‚~fb:Õe>DôZ£T>·â	·¥koÚçn»ÁZì¨Õ;z{vÜnÆ(-,ì6z¬Ş>=‡W|ƒ½™Ùq§Ù8Şj¾Zœ(Å#Xê£HeMˆ9Ğ7iGgŞ6áé¼rnÓÓ9™“ëó¬Z|ÓgO§†õ(Ú–*şÎ$ê%å4×ià}@'O'Š½P;‚}ËŞ€$\û7“\#ÒaV]¡ëmø¼\dußh¥:È‚Œ°lhE~WÁœı-‚×ÉÊË?ËJN•K&ôÑöÓÑêÜ8eZáÀn/lf |êÁÄ©¾´W×09;†ÚÛ á´T‘'È'ßlfÛ‰óa:ö„ò·¶ŠL­”\Í_Ô4#ÃOèj"5ßs‡îÊüT™.šxÅ„}ÌõÍÄ Cîii˜0¸:	¥zs.qOë½j–%¨5«
+™TÍ×TÑ 1|V|X&‡k>2ˆ=•yzíGõUÁKì-°ÖO˜tÒ'eÄôFÂjÏ90Ãg%¤¶+Î•Rš
+ğ¤ïåãI-zöXVgqBªÁ`¤#Ëx1R³Ïi™œi:¹sù†Z©íşES¼·XœyœSËˆ™˜ešÁ}Á’P “O”Mz63ü©q]õØÓ¦äbı·Œğ+ÊdÍÊÁ[MÑvV¯}òö¸ÑeíÓ_µëê¼{ó÷¯Z¯éuËÀö£¬öÖ»,
+Üi‡6N›ÅÆ½ïÙ£ÈÑ½õZZ3¿X«™u›ÖUË]X[2MO¸ÖtÏŒ,ûT#û`Rı(ûéÜ¿ùx!T*¯j½9+Ğ¿Š“ÂKG^	½„(¹z=%H¸}K¢£(‰í›ÿk
+wÈ°€6İ|˜†B ÀN@(ZÛ!…­Dn_¸÷ˆïù~Fú×q‡87é·}rİûáÛË¡H¢ˆPÒÈCÛ„cï¸"”Ú²sIey®¢²1&ÇÔ¬¨–ôå•RXŒF¼t3)“Ùîl¦èÓâ×Ûn™G¾¹¡–©Šç>n^¦"¹P…Š¡¾0“VáŸÖ°şõeM¥»¿¬=İYà²ÿö™]¶Ø%„æm"Şz'
+ïÉ–”¦«÷doç³Ü•'~•¶'3lÌvÕyXÖ<7Ë-íB,Æ;òljCö>‡QLÕ”™ñ¸¦¶æ	06¶Í¿Ò]¸ÍêÓ¬&§fjv×±G»óÖ[‘4Ñ èÀ¼»ùÙ‚É‘aõ&ØÊwwÏÍÆ6L,Ù˜YnVm_¾ópM8_±À›Å“ù~Z]7hûÂ}~qhÓÚ´r®.*İÀ4ıÈÒœ'òfŠÆĞôU­Ø!,YG(«sˆbmfô$\ù-˜Ç×§7ÿ³wŞnv0(IF2šÒI{£FïÍa§Ñ=*g9ñ`HA-ŠZ•³³¿ùôË1îS²p+ZfL§g"«0œN\9WVÖŒ}Ô–D2¿(“:å>…]ŸdƒT	+NZRå¾r{‹’M’ëbvêv&˜@0EKA#Ôb(^°3bn67F7¹g*­\U.Ç”M&Ê‚&Põ¦û„4&,p° S	İ¯ZŞéF—,R‰×®úŠÍÂÂæ-›WÔíÉÚa[ ìãOkán~ë üú]­›+.×²n+`}¬·KP©XW‘K#ÀuSmH‘c‚zG¡Ã(ª™dºÔ‘b£–@b/Ì‚U,
+d•ëLT »‡z7fÑ)µĞ‘ÜÊJT%`µ0¾ÒM¤®KLÚO­ÍÑ9-_×¹/Œí)‰”àÛ«àK{ttTtõ‚éÀŞ\ËsN@ÑO3i#± ²´ëIj~¬o#'Qébø-Á-ÈôœÎíeÍ-íjÍïİnÓ	¡‰œÊËJT˜qîú¤›dL0ÃmŸm¹¿û¶Šİ*ÜÔY&6\éWÅ¦«ğô‰±™ÿüÀ?Â#­ªâ*ü	ÿºÒ"ÄîÒ~íÏ|FƒÁ1ÄXëıp¼ú!¼Gæü=‰òn£.ï‡áÄøÿ  ÿÿ jhï

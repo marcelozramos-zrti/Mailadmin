@@ -326,6 +326,9 @@ export interface MailStatsResponse {
   retention_notice: string;
   summary: MailTrafficSummary;
   daily_metrics: DailyMailMetric[];
+  aggregated_top_senders?: TopSenderDomain[];
+  aggregated_top_recipients?: TopRecipientDomain[];
+  aggregated_spam_rules?: SpamRuleTriggered[];
 }
 
 export interface PythonFiles {

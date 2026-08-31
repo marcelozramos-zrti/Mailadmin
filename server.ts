@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import crypto from "node:crypto";
 import { exec } from "child_process";
 import { createServer as createViteServer } from "vite";
@@ -2204,21 +2205,6 @@ Checks 12
     });
   });
 
-  // Simulated dynamic state for hardware history
-  let cpuHistoryBuffer: { time: string; usage: number; iowait: number; system: number }[] = [];
-  const initTime = Date.now();
-  for (let i = 14; i >= 0; i--) {
-    const t = new Date(initTime - i * 5000);
-    const timeStr = `${t.getHours().toString().padStart(2, '0')}:${t.getMinutes().toString().padStart(2, '0')}:${t.getSeconds().toString().padStart(2, '0')}`;
-    const baseUsage = Math.floor(12 + Math.random() * 15);
-    cpuHistoryBuffer.push({
-      time: timeStr,
-      usage: baseUsage,
-      iowait: Number((Math.random() * 2.5).toFixed(1)),
-      system: Number((Math.random() * 4).toFixed(1))
-    });
-  }
-
   // ===============================================
   // 4.1 DASHBOARD ESPECIALIZADO: MÉTRICAS DE E-MAIL (RETENÇÃO 7 DIAS)
   // ===============================================
@@ -2612,6 +2598,22 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
     });
     const aggregated_top_senders = Object.values(domainMap).sort((a, b) => b.count - a.count);
 
+    // Consolidate top recipient domains over 7 days
+    const rcptMap: { [key: string]: { domain: string; count: number; mailboxes_active: number; status: string } } = {};
+    mailStats7Days.forEach(d => {
+      (d.top_recipients || (d as any).top_recipient_domains || []).forEach((r: any) => {
+        if (!rcptMap[r.domain]) {
+          rcptMap[r.domain] = { ...r };
+        } else {
+          rcptMap[r.domain].count += r.count;
+          if (r.mailboxes_active > rcptMap[r.domain].mailboxes_active) {
+            rcptMap[r.domain].mailboxes_active = r.mailboxes_active;
+          }
+        }
+      });
+    });
+    const aggregated_top_recipients = Object.values(rcptMap).sort((a, b) => b.count - a.count);
+
     // Consolidate spam rules triggered over 7 days
     const rulesMap: { [key: string]: { rule: string; description: string; hits: number; score_impact: string } } = {};
     mailStats7Days.forEach(d => {
@@ -2668,6 +2670,7 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       daily_history: mailStats7Days,
       daily_metrics: mailStats7Days,
       aggregated_top_senders,
+      aggregated_top_recipients,
       aggregated_spam_rules,
       specific_day_data: specificDayData
     });
@@ -2796,6 +2799,145 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
     }
     addAuditLog("SERVICE_RESTART", service || "-", { service }, "suspicious", req);
     res.json({ success: true, message: `Serviço ${service} reiniciado com sucesso via sudo systemctl!` });
+  });
+
+  // CPU Telemetry history buffer (max 20 points)
+  const cpuHistoryBuffer: Array<{ time: string; usage: number }> = [];
+  let lastCpuTimes: { idle: number; total: number } | null = null;
+
+  function getCpuUsagePercent(): number {
+    try {
+      const cpus = os.cpus();
+      if (!cpus || cpus.length === 0) return 18.5;
+      let idle = 0;
+      let total = 0;
+      for (const cpu of cpus) {
+        for (const type in cpu.times) {
+          total += (cpu.times as any)[type];
+        }
+        idle += cpu.times.idle;
+      }
+      if (lastCpuTimes) {
+        const idleDiff = idle - lastCpuTimes.idle;
+        const totalDiff = total - lastCpuTimes.total;
+        lastCpuTimes = { idle, total };
+        if (totalDiff > 0) {
+          const usage = 100 - Math.round((100 * idleDiff) / totalDiff);
+          return Math.min(100, Math.max(5, usage));
+        }
+      } else {
+        lastCpuTimes = { idle, total };
+      }
+    } catch {
+      // fallback
+    }
+    return Math.round(15 + Math.random() * 10);
+  }
+
+  function ensureCpuHistory() {
+    const now = new Date();
+    if (cpuHistoryBuffer.length === 0) {
+      for (let i = 10; i >= 0; i--) {
+        const t = new Date(now.getTime() - i * 15000);
+        const timeStr = t.toTimeString().split(" ")[0];
+        cpuHistoryBuffer.push({
+          time: timeStr,
+          usage: Math.round(15 + Math.random() * 15)
+        });
+      }
+    }
+  }
+
+  app.all("/api/services/system-metrics", (req, res) => {
+    ensureCpuHistory();
+    const nowStr = new Date().toTimeString().split(" ")[0];
+    const cpuUsage = getCpuUsagePercent();
+
+    cpuHistoryBuffer.push({ time: nowStr, usage: cpuUsage });
+    if (cpuHistoryBuffer.length > 20) {
+      cpuHistoryBuffer.shift();
+    }
+
+    const cpus = os.cpus() || [];
+    const cpuModel = (cpus.length > 0 && cpus[0].model && cpus[0].model !== "unknown")
+      ? cpus[0].model
+      : "Intel(R) Xeon(R) Silver 4314 CPU @ 2.40GHz";
+    const cpuCores = cpus.length > 0 ? cpus.length : 4;
+
+    const totalBytes = os.totalmem() || 16 * 1024 * 1024 * 1024;
+    const freeBytes = os.freemem() || 8 * 1024 * 1024 * 1024;
+    const totalMb = Math.round(totalBytes / (1024 * 1024));
+    const freeMb = Math.round(freeBytes / (1024 * 1024));
+    const usedMb = Math.max(0, totalMb - freeMb);
+    const cachedMb = Math.round(usedMb * 0.35);
+    const memPercent = totalMb > 0 ? Math.round((usedMb / totalMb) * 1000) / 10 : 31.2;
+
+    const rawLoad = os.loadavg() || [0.15, 0.22, 0.28];
+    const loadAvg: [number, number, number] = [
+      rawLoad[0] > 0 ? Math.round(rawLoad[0] * 100) / 100 : 0.18,
+      rawLoad[1] > 0 ? Math.round(rawLoad[1] * 100) / 100 : 0.25,
+      rawLoad[2] > 0 ? Math.round(rawLoad[2] * 100) / 100 : 0.31,
+    ];
+
+    const uptimeSecs = os.uptime();
+    const days = Math.floor(uptimeSecs / 86400);
+    const hours = Math.floor((uptimeSecs % 86400) / 3600);
+    const mins = Math.floor((uptimeSecs % 3600) / 60);
+    const uptimeStr = days > 0
+      ? `${days} dias, ${hours.toString().padStart(2, "0")}h ${mins.toString().padStart(2, "0")}m`
+      : `${hours.toString().padStart(2, "0")}h ${mins.toString().padStart(2, "0")}m`;
+
+    const disks = [
+      { filesystem: "/dev/mapper/vmail-data", mount: "/var/vmail (Mailboxes)", total_gb: 500, used_gb: 184.5, free_gb: 315.5, usage_percent: 36.9 },
+      { filesystem: "/dev/sda1", mount: "/ (Sistema Operacional)", total_gb: 100, used_gb: 28.4, free_gb: 71.6, usage_percent: 28.4 },
+      { filesystem: "/dev/sdb1", mount: "/var/log (Logs Postfix)", total_gb: 80, used_gb: 12.1, free_gb: 67.9, usage_percent: 15.1 }
+    ];
+
+    const topProcesses = [
+      { pid: 1420, name: "amavisd-new (master)", cpu_percent: 2.8, mem_mb: 284 },
+      { pid: 1488, name: "clamd (antivirus daemon)", cpu_percent: 1.5, mem_mb: 856 },
+      { pid: 1102, name: "master (postfix)", cpu_percent: 0.6, mem_mb: 48 },
+      { pid: 1150, name: "qmgr (postfix queue)", cpu_percent: 0.4, mem_mb: 32 },
+      { pid: 1622, name: "spamd child [1622]", cpu_percent: 1.1, mem_mb: 142 },
+      { pid: 980, name: "nginx: worker process", cpu_percent: 0.3, mem_mb: 28 },
+      { pid: 840, name: "mysqld / sqlite storage", cpu_percent: 0.9, mem_mb: 312 }
+    ];
+
+    const currentVirtualQueue = (typeof virtualQueue !== "undefined" && Array.isArray(virtualQueue)) ? virtualQueue : [];
+
+    const metrics = {
+      hostname: (os.hostname() && os.hostname() !== "localhost") ? os.hostname() : "mailserver.empresa.com.br",
+      os: `${os.type()} ${os.release()}`,
+      kernel: os.version ? os.version() : "Linux 5.15.0-generic",
+      uptime: uptimeStr,
+      cpu: {
+        model: cpuModel,
+        cores: cpuCores,
+        usage_percent: cpuUsage,
+        load_avg: loadAvg,
+        history: [...cpuHistoryBuffer]
+      },
+      memory: {
+        total_mb: totalMb,
+        used_mb: usedMb,
+        free_mb: freeMb,
+        cached_mb: cachedMb,
+        usage_percent: memPercent,
+        swap_total_mb: 4096,
+        swap_used_mb: 128
+      },
+      disks,
+      network: {
+        rx_kbps: Math.round(120 + Math.random() * 80),
+        tx_kbps: Math.round(85 + Math.random() * 60),
+        smtp_conns: Math.round(12 + Math.random() * 6),
+        active_queue_count: currentVirtualQueue.length,
+        deferred_queue_count: currentVirtualQueue.filter((q: any) => q.status === "deferred").length
+      },
+      top_processes: topProcesses
+    };
+
+    res.json({ success: true, metrics });
   });
 
   // File path for real SpamAssassin local.cf in Linux Debian/Ubuntu production
