@@ -828,7 +828,7 @@
     }
 
     function setActiveTab(tabName) {
-        if (tabName === 'dashboard') loadTelemetry();
+        if (tabName === 'dashboard') { loadMailTrafficStats(currentSelectedMailDate); loadTelemetry(); }
         else if (tabName === 'servidores') { loadTelemetry(); loadServiceStatus(); }
         else if (tabName === 'dominios') { loadDomains(); loadDomainAliases(); }
         else if (tabName === 'mailbox') { loadMailboxes(); loadAliases(); }
@@ -868,7 +868,646 @@
     }
 
     // 1. CHART.JS INITIALIZATION (Ajustado para Tema Claro)
+    
+    // =========================================================================
+    // 1.1 DASHBOARD ESPECIALIZADO: MÃ‰TRICAS DE E-MAIL (RETENÃ‡ÃƒO 7 DIAS)
+    // =========================================================================
+
+    let mailTrafficChart7dInstance = null;
+    let mailVerdictDonutInstance = null;
+    let mailSpamRateChartInstance = null;
+    let mailHourlyChartInstance = null;
+    let currentMailStatsData = null;
+    let currentSelectedMailDate = 'all';
+
+    function switchDashboardSubTab(subTab) {
+        const viewMailStats = document.getElementById('dashboard-subview-mailstats');
+        const viewTelemetry = document.getElementById('dashboard-subview-telemetry');
+        const btnMailStats = document.getElementById('subtab-mailstats-btn');
+        const btnTelemetry = document.getElementById('subtab-telemetry-btn');
+        const toolbar = document.getElementById('mailstats-quick-toolbar');
+
+        if (subTab === 'mailstats') {
+            if (viewMailStats) viewMailStats.classList.remove('d-none');
+            if (viewTelemetry) viewTelemetry.classList.add('d-none');
+            if (btnMailStats) {
+                btnMailStats.classList.add('active', 'text-white', 'bg-primary');
+                btnMailStats.classList.remove('text-secondary');
+            }
+            if (btnTelemetry) {
+                btnTelemetry.classList.remove('active', 'text-white', 'bg-primary');
+                btnTelemetry.classList.add('text-secondary');
+            }
+            if (toolbar) toolbar.classList.remove('d-none');
+            loadMailTrafficStats(currentSelectedMailDate);
+        } else if (subTab === 'telemetry') {
+            if (viewMailStats) viewMailStats.classList.add('d-none');
+            if (viewTelemetry) viewTelemetry.classList.remove('d-none');
+            if (btnTelemetry) {
+                btnTelemetry.classList.add('active', 'text-white', 'bg-primary');
+                btnTelemetry.classList.remove('text-secondary');
+            }
+            if (btnMailStats) {
+                btnMailStats.classList.remove('active', 'text-white', 'bg-primary');
+                btnMailStats.classList.add('text-secondary');
+            }
+            if (toolbar) toolbar.classList.add('d-none');
+            loadTelemetry();
+        }
+    }
+
+    function initMailCharts() {
+        if (typeof Chart === 'undefined') return;
+
+        // 1. GrÃ¡fico de Linhas 7 Dias
+        const trafficCanvas = document.getElementById('mailTrafficChart7d');
+        if (trafficCanvas && !mailTrafficChart7dInstance) {
+            const ctx = trafficCanvas.getContext('2d');
+            mailTrafficChart7dInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['Dia 1', 'Dia 2', 'Dia 3', 'Dia 4', 'Dia 5', 'Dia 6', 'Hoje'],
+                    datasets: [
+                        {
+                            label: 'Recebidos (Inbound)',
+                            data: [1380, 1510, 1640, 1780, 990, 910, 1890],
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                            fill: true,
+                            tension: 0.35,
+                            borderWidth: 2.5,
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        },
+                        {
+                            label: 'Enviados (Outbound)',
+                            data: [840, 960, 1080, 1200, 470, 410, 1260],
+                            borderColor: '#3b82f6',
+                            backgroundColor: 'rgba(59, 130, 246, 0.05)',
+                            fill: true,
+                            tension: 0.35,
+                            borderWidth: 2.5,
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        },
+                        {
+                            label: 'SPAM Bloqueado',
+                            data: [460, 480, 410, 340, 260, 220, 195],
+                            borderColor: '#ef4444',
+                            backgroundColor: 'rgba(239, 68, 68, 0.05)',
+                            fill: false,
+                            tension: 0.35,
+                            borderWidth: 2,
+                            borderDash: [4, 4],
+                            pointRadius: 3,
+                            pointHoverRadius: 6
+                        },
+                        {
+                            label: 'Bounces / RejeiÃ§Ãµes',
+                            data: [54, 46, 40, 36, 24, 19, 28],
+                            borderColor: '#f59e0b',
+                            backgroundColor: 'rgba(245, 158, 11, 0.05)',
+                            fill: false,
+                            tension: 0.35,
+                            borderWidth: 1.5,
+                            pointRadius: 3,
+                            pointHoverRadius: 5
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                            padding: 10,
+                            bodyFont: { family: 'monospace' },
+                            titleFont: { family: 'monospace', weight: 'bold' }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: '#f1f5f9' },
+                            ticks: { font: { family: 'monospace', size: 11 }, color: '#64748b' }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: '#f1f5f9' },
+                            ticks: { font: { family: 'monospace', size: 11 }, color: '#64748b' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 2. GrÃ¡fico Donut de Vereditos
+        const verdictCanvas = document.getElementById('mailVerdictDonut');
+        if (verdictCanvas && !mailVerdictDonutInstance) {
+            const ctx = verdictCanvas.getContext('2d');
+            mailVerdictDonutInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Recebidos Limpos', 'Enviados com Sucesso', 'SPAM Bloqueado', 'Bounces / Erros'],
+                    datasets: [{
+                        data: [10100, 6160, 2365, 242],
+                        backgroundColor: ['#10b981', '#3b82f6', '#ef4444', '#f59e0b'],
+                        borderWidth: 2,
+                        borderColor: '#ffffff',
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '72%',
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                            padding: 8,
+                            bodyFont: { family: 'monospace' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 3. GrÃ¡fico de Taxa de SPAM DiÃ¡ria (%)
+        const spamRateCanvas = document.getElementById('mailSpamRateChart');
+        if (spamRateCanvas && !mailSpamRateChartInstance) {
+            const ctx = spamRateCanvas.getContext('2d');
+            mailSpamRateChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['25/08', '26/08', '27/08', '28/08', '29/08', '30/08', '31/08'],
+                    datasets: [{
+                        label: 'Taxa de SPAM (%)',
+                        data: [16.8, 17.1, 13.5, 10.9, 16.3, 15.6, 5.9],
+                        backgroundColor: [
+                            'rgba(239, 68, 68, 0.6)',
+                            'rgba(239, 68, 68, 0.6)',
+                            'rgba(245, 158, 11, 0.6)',
+                            'rgba(245, 158, 11, 0.6)',
+                            'rgba(245, 158, 11, 0.6)',
+                            'rgba(245, 158, 11, 0.6)',
+                            'rgba(16, 185, 129, 0.8)'
+                        ],
+                        borderColor: [
+                            '#ef4444',
+                            '#ef4444',
+                            '#f59e0b',
+                            '#f59e0b',
+                            '#f59e0b',
+                            '#f59e0b',
+                            '#10b981'
+                        ],
+                        borderWidth: 1.5,
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => `Taxa de SPAM: ${ctx.raw}% do trÃ¡fego`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { font: { family: 'monospace', size: 10 }, color: '#64748b' } },
+                        y: {
+                            beginAtZero: true,
+                            max: 25,
+                            grid: { color: '#f1f5f9' },
+                            ticks: {
+                                font: { family: 'monospace', size: 10 },
+                                color: '#64748b',
+                                callback: (v) => `${v}%`
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 4. GrÃ¡fico de HorÃ¡rio 24h
+        const hourlyCanvas = document.getElementById('mailHourlyChart');
+        if (hourlyCanvas && !mailHourlyChartInstance) {
+            const ctx = hourlyCanvas.getContext('2d');
+            const hours = Array.from({length: 24}, (_, i) => `${i.toString().padStart(2, '0')}h`);
+            mailHourlyChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: hours,
+                    datasets: [
+                        {
+                            label: 'Recebidos',
+                            data: [25, 20, 18, 22, 24, 25, 30, 45, 120, 140, 135, 138, 130, 132, 136, 134, 135, 138, 130, 65, 58, 60, 55, 28],
+                            backgroundColor: '#10b981',
+                            borderRadius: 3,
+                            stack: 'combined'
+                        },
+                        {
+                            label: 'Enviados',
+                            data: [15, 12, 10, 14, 15, 16, 20, 30, 85, 90, 88, 92, 86, 88, 90, 87, 89, 90, 85, 42, 38, 40, 36, 18],
+                            backgroundColor: '#3b82f6',
+                            borderRadius: 3,
+                            stack: 'combined'
+                        },
+                        {
+                            label: 'SPAM',
+                            data: [5, 4, 3, 4, 5, 5, 6, 8, 16, 18, 17, 16, 15, 14, 16, 15, 14, 15, 16, 8, 7, 8, 7, 4],
+                            backgroundColor: '#ef4444',
+                            borderRadius: 3,
+                            stack: 'combined'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { font: { family: 'monospace', size: 9 }, color: '#64748b' } },
+                        y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { family: 'monospace', size: 9 }, color: '#64748b' } }
+                    }
+                }
+            });
+        }
+    }
+
+    async function loadMailTrafficStats(selectedDate = 'all') {
+        try {
+            currentSelectedMailDate = selectedDate;
+            const res = await fetch(`/api/dashboard/mail-stats?date=${encodeURIComponent(selectedDate)}`);
+            if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+            const data = await res.json();
+            if (!data.success) return;
+
+            currentMailStatsData = data;
+            renderMailStatsDashboard(data, selectedDate);
+        } catch (err) {
+            console.error('Erro ao carregar mÃ©tricas de trÃ¡fego de e-mail:', err);
+        }
+    }
+
+    function renderMailStatsDashboard(data, selectedDate) {
+        const sum = data.summary;
+        const daily = data.daily_history || [];
+        const specific = data.specific_day_data;
+
+        // Atualizar seletor de perÃ­odo
+        const select = document.getElementById('mailstats-period-select');
+        if (select && select.options.length <= 1) {
+            select.innerHTML = '<option value="all">Todos os 7 Dias (Agregado)</option>';
+            daily.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d.date;
+                opt.textContent = `${d.display_date} (${d.total_processed} msgs)`;
+                select.appendChild(opt);
+            });
+        }
+        if (select) select.value = selectedDate;
+
+        // Decide which numbers to display (aggregated vs specific single day)
+        const targetData = specific || {
+            total_processed: sum.total_processed,
+            received: sum.total_received,
+            sent: sum.total_sent,
+            spam_blocked: sum.total_spam_blocked,
+            virus_blocked: sum.total_virus_blocked,
+            rejected_bounced: sum.total_rejected_bounced,
+            spam_pct: sum.overall_spam_pct,
+            clean_delivery_rate: sum.overall_clean_delivery_rate,
+            avg_latency_ms: sum.avg_latency_ms
+        };
+
+        const total = targetData.total_processed || 1;
+        const recPct = ((targetData.received / total) * 100).toFixed(1);
+        const sentPct = ((targetData.sent / total) * 100).toFixed(1);
+        const spamPct = targetData.spam_pct || Number(((targetData.spam_blocked + (targetData.virus_blocked || 0)) / total * 100).toFixed(1));
+        const bouncePct = ((targetData.rejected_bounced / total) * 100).toFixed(1);
+
+        // Update KPIs
+        const elTotal = document.getElementById('mail-kpi-total');
+        if (elTotal) elTotal.textContent = targetData.total_processed.toLocaleString('pt-BR');
+
+        const elTotalBadge = document.getElementById('mail-kpi-total-badge');
+        if (elTotalBadge) elTotalBadge.textContent = specific ? `${targetData.display_date}` : `+4.8% vol. 7D`;
+
+        const elRec = document.getElementById('mail-kpi-received');
+        if (elRec) elRec.textContent = targetData.received.toLocaleString('pt-BR');
+
+        const elRecPct = document.getElementById('mail-kpi-received-pct');
+        if (elRecPct) elRecPct.textContent = `${recPct}%`;
+
+        const elSent = document.getElementById('mail-kpi-sent');
+        if (elSent) elSent.textContent = targetData.sent.toLocaleString('pt-BR');
+
+        const elSentPct = document.getElementById('mail-kpi-sent-pct');
+        if (elSentPct) elSentPct.textContent = `${sentPct}%`;
+
+        const elSpam = document.getElementById('mail-kpi-spam');
+        if (elSpam) elSpam.textContent = targetData.spam_blocked.toLocaleString('pt-BR');
+
+        const elSpamPct = document.getElementById('mail-kpi-spam-pct');
+        if (elSpamPct) elSpamPct.textContent = `${spamPct}% taxa`;
+
+        const elSpamTrend = document.getElementById('mail-kpi-spam-trend');
+        if (elSpamTrend) {
+            if (sum.spam_reduction_trend < 0) {
+                elSpamTrend.innerHTML = `ğŸ“‰ Queda de ${Math.abs(sum.spam_reduction_trend)}%`;
+                elSpamTrend.className = 'badge bg-success-subtle text-success font-monospace';
+            } else {
+                elSpamTrend.innerHTML = `EstÃ¡vel`;
+                elSpamTrend.className = 'badge bg-light text-muted font-monospace';
+            }
+        }
+
+        const elBounced = document.getElementById('mail-kpi-bounced');
+        if (elBounced) elBounced.textContent = targetData.rejected_bounced.toLocaleString('pt-BR');
+
+        const elBouncedPct = document.getElementById('mail-kpi-bounced-pct');
+        if (elBouncedPct) elBouncedPct.textContent = `${bouncePct}%`;
+
+        const elLatency = document.getElementById('mail-kpi-latency');
+        if (elLatency) elLatency.textContent = `${targetData.avg_latency_ms || 310} ms`;
+
+        // Update Verdict Counts
+        const elVRec = document.getElementById('verdict-count-received');
+        if (elVRec) elVRec.textContent = `${targetData.received.toLocaleString('pt-BR')} (${recPct}%)`;
+
+        const elVSent = document.getElementById('verdict-count-sent');
+        if (elVSent) elVSent.textContent = `${targetData.sent.toLocaleString('pt-BR')} (${sentPct}%)`;
+
+        const elVSpam = document.getElementById('verdict-count-spam');
+        if (elVSpam) elVSpam.textContent = `${targetData.spam_blocked.toLocaleString('pt-BR')} (${spamPct}%)`;
+
+        const elVBounce = document.getElementById('verdict-count-bounced');
+        if (elVBounce) elVBounce.textContent = `${targetData.rejected_bounced.toLocaleString('pt-BR')} (${bouncePct}%)`;
+
+        // Ensure charts are initialized
+        initMailCharts();
+
+        // Update Charts
+        if (mailTrafficChart7dInstance) {
+            mailTrafficChart7dInstance.data.labels = daily.map(d => d.short_date);
+            mailTrafficChart7dInstance.data.datasets[0].data = daily.map(d => d.received);
+            mailTrafficChart7dInstance.data.datasets[1].data = daily.map(d => d.sent);
+            mailTrafficChart7dInstance.data.datasets[2].data = daily.map(d => d.spam_blocked);
+            mailTrafficChart7dInstance.data.datasets[3].data = daily.map(d => d.rejected_bounced);
+            mailTrafficChart7dInstance.update();
+        }
+
+        if (mailVerdictDonutInstance) {
+            mailVerdictDonutInstance.data.datasets[0].data = [
+                targetData.received,
+                targetData.sent,
+                targetData.spam_blocked,
+                targetData.rejected_bounced
+            ];
+            mailVerdictDonutInstance.update();
+        }
+
+        if (mailSpamRateChartInstance) {
+            mailSpamRateChartInstance.data.labels = daily.map(d => d.short_date);
+            mailSpamRateChartInstance.data.datasets[0].data = daily.map(d => d.spam_pct);
+            mailSpamRateChartInstance.update();
+        }
+
+        if (mailHourlyChartInstance) {
+            const activeDay = specific || daily[daily.length - 1];
+            if (activeDay && activeDay.hourly) {
+                mailHourlyChartInstance.data.labels = activeDay.hourly.map(h => h.hour);
+                mailHourlyChartInstance.data.datasets[0].data = activeDay.hourly.map(h => h.received);
+                mailHourlyChartInstance.data.datasets[1].data = activeDay.hourly.map(h => h.sent);
+                mailHourlyChartInstance.data.datasets[2].data = activeDay.hourly.map(h => h.spam);
+                mailHourlyChartInstance.update();
+
+                const subHourly = document.getElementById('mailstats-hourly-subtitle');
+                if (subHourly) subHourly.textContent = `DistribuiÃ§Ã£o para ${activeDay.display_date}`;
+            }
+        }
+
+        // Render Consolidated Table
+        renderMailStatsHistoryTable(daily, selectedDate);
+
+        // Render Top Senders
+        renderMailStatsTopSenders(data.aggregated_top_senders || []);
+
+        // Render Top Recipients
+        const topRecs = (specific ? specific.top_recipients : daily[daily.length - 1]?.top_recipients) || [];
+        renderMailStatsTopRecipients(topRecs);
+
+        // Render Top Spam Rules
+        renderMailStatsTopRules(data.aggregated_spam_rules || []);
+    }
+
+    function renderMailStatsHistoryTable(daily, selectedDate) {
+        const tbody = document.getElementById('mailstats-history-tbody');
+        if (!tbody) return;
+
+        if (!daily || daily.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-3">Nenhum registro de trÃ¡fego disponÃ­vel.</td></tr>';
+            return;
+        }
+
+        let html = '';
+        daily.slice().reverse().forEach(d => {
+            const isSelected = selectedDate === d.date;
+            const spamColor = d.spam_pct > 15 ? 'text-danger' : (d.spam_pct > 10 ? 'text-warning' : 'text-success');
+            
+            html += `
+                <tr class="${isSelected ? 'table-primary bg-primary bg-opacity-10 fw-bold' : ''}">
+                    <td>
+                        <div class="fw-bold text-dark">${d.display_date}</div>
+                        <small class="text-muted font-monospace" style="font-size: 10px;">${d.date}</small>
+                    </td>
+                    <td class="text-center fw-bold text-dark">${d.total_processed.toLocaleString('pt-BR')}</td>
+                    <td class="text-center text-success"><i class="bi bi-arrow-down-left me-1"></i>${d.received.toLocaleString('pt-BR')}</td>
+                    <td class="text-center text-primary"><i class="bi bi-arrow-up-right me-1"></i>${d.sent.toLocaleString('pt-BR')}</td>
+                    <td class="text-center text-danger"><i class="bi bi-shield-x me-1"></i>${d.spam_blocked.toLocaleString('pt-BR')}</td>
+                    <td class="text-center text-dark">${d.virus_blocked}</td>
+                    <td class="text-center text-warning">${d.rejected_bounced}</td>
+                    <td class="text-center"><span class="badge ${d.spam_pct > 15 ? 'bg-danger-subtle text-danger' : (d.spam_pct > 10 ? 'bg-warning-subtle text-warning' : 'bg-success-subtle text-success')}">${d.spam_pct}%</span></td>
+                    <td class="text-center"><span class="badge bg-light text-dark border">${d.clean_delivery_rate}%</span></td>
+                    <td class="text-center text-muted font-monospace">${d.avg_latency_ms}ms</td>
+                    <td class="text-end">
+                        <button class="btn btn-xs btn-outline-primary font-monospace py-0.5 px-2 rounded-2" onclick="selectSpecificMailDate('${d.date}')" title="Filtrar mÃ©tricas deste dia">
+                            <i class="bi bi-funnel me-1"></i> Detalhar
+                        </button>
+                    </td>
+                </tr>
+            `;
+        });
+
+        tbody.innerHTML = html;
+    }
+
+    function renderMailStatsTopSenders(senders) {
+        const container = document.getElementById('mailstats-top-senders-list');
+        if (!container) return;
+
+        if (!senders || senders.length === 0) {
+            container.innerHTML = '<div class="text-muted small">Nenhum domÃ­nio registrado.</div>';
+            return;
+        }
+
+        let html = '';
+        senders.slice(0, 5).forEach(s => {
+            const isSpamDomain = s.clean_pct < 50;
+            html += `
+                <div class="d-flex align-items-center justify-content-between p-2.5 rounded-3 bg-light border border-light-subtle mb-1.5">
+                    <div class="overflow-hidden me-2">
+                        <div class="fw-bold text-dark font-monospace text-truncate" style="font-size: 12px;">
+                            <i class="bi ${isSpamDomain ? 'bi-shield-slash-fill text-danger' : 'bi-globe2 text-primary'} me-1"></i>${s.domain}
+                        </div>
+                        <small class="text-muted font-monospace" style="font-size: 10px;">${s.reputacao}</small>
+                    </div>
+                    <div class="text-end flex-shrink-0">
+                        <span class="badge ${isSpamDomain ? 'bg-danger text-white' : 'bg-success text-white'} font-monospace">${s.count} msgs</span>
+                    </div>
+                </div>
+            `;
+        });
+        container.innerHTML = html;
+    }
+
+    function renderMailStatsTopRecipients(recipients) {
+        const container = document.getElementById('mailstats-top-recipients-list');
+        if (!container) return;
+
+        if (!recipients || recipients.length === 0) {
+            container.innerHTML = '<div class="text-muted small">Nenhum domÃ­nio local registrado.</div>';
+            return;
+        }
+
+        let html = '';
+        recipients.forEach(r => {
+            html += `
+                <div class="d-flex align-items-center justify-content-between p-2.5 rounded-3 bg-light border border-light-subtle mb-1.5">
+                    <div class="overflow-hidden me-2">
+                        <div class="fw-bold text-dark font-monospace text-truncate" style="font-size: 12px;">
+                            <i class="bi bi-mailbox2 text-success me-1"></i>@${r.domain}
+                        </div>
+                        <small class="text-muted font-monospace" style="font-size: 10px;">${r.mailboxes_active} caixas ativas</small>
+                    </div>
+                    <div class="text-end flex-shrink-0">
+                        <span class="badge bg-primary text-white font-monospace">${r.count} entregues</span>
+                    </div>
+                </div>
+            `;
+        });
+        container.innerHTML = html;
+    }
+
+    function renderMailStatsTopRules(rules) {
+        const container = document.getElementById('mailstats-top-rules-list');
+        if (!container) return;
+
+        if (!rules || rules.length === 0) {
+            container.innerHTML = '<div class="text-muted small">Nenhuma regra disparada.</div>';
+            return;
+        }
+
+        let html = '';
+        rules.slice(0, 5).forEach(r => {
+            html += `
+                <div class="d-flex align-items-center justify-content-between p-2.5 rounded-3 bg-light border border-light-subtle mb-1.5">
+                    <div class="overflow-hidden me-2">
+                        <div class="fw-bold text-danger font-monospace text-truncate" style="font-size: 11.5px;">
+                            <i class="bi bi-shield-shaded text-danger me-1"></i>${r.rule}
+                        </div>
+                        <small class="text-muted font-monospace" style="font-size: 10px;">${r.description}</small>
+                    </div>
+                    <div class="text-end flex-shrink-0">
+                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle font-monospace">${r.hits} hits</span>
+                    </div>
+                </div>
+            `;
+        });
+        container.innerHTML = html;
+    }
+
+    function handleMailStatsDateChange(dateVal) {
+        loadMailTrafficStats(dateVal);
+    }
+
+    function selectSpecificMailDate(dateStr) {
+        const select = document.getElementById('mailstats-period-select');
+        if (select) select.value = dateStr;
+        loadMailTrafficStats(dateStr);
+        showToast(`Exibindo mÃ©tricas detalhadas para o dia ${dateStr}.`, 'info');
+    }
+
+    function filterMailStatsTable(query) {
+        const q = (query || '').toLowerCase().trim();
+        const tbody = document.getElementById('mailstats-history-tbody');
+        if (!tbody) return;
+        const rows = tbody.querySelectorAll('tr');
+        rows.forEach(r => {
+            const text = r.textContent.toLowerCase();
+            r.style.display = text.includes(q) ? '' : 'none';
+        });
+    }
+
+    function exportMailStatsCsv() {
+        showToast('Gerando e baixando relatÃ³rio CSV de 7 dias...', 'info');
+        window.location.href = '/api/dashboard/mail-stats/export';
+    }
+
+    function openSimulateMailModal() {
+        const modalEl = document.getElementById('modalSimulateMail');
+        if (modalEl && typeof bootstrap !== 'undefined') {
+            const modal = new bootstrap.Modal(modalEl);
+            modal.show();
+        }
+    }
+
+    async function executeSimulateMailTraffic() {
+        const rec = Number(document.getElementById('sim-input-rec')?.value || 45);
+        const sent = Number(document.getElementById('sim-input-sent')?.value || 25);
+        const spam = Number(document.getElementById('sim-input-spam')?.value || 4);
+        const bounce = Number(document.getElementById('sim-input-bounce')?.value || 1);
+        const virus = Number(document.getElementById('sim-input-virus')?.value || 0);
+
+        try {
+            const res = await fetch('/api/dashboard/mail-stats/simulate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ received: rec, sent, spam, bounce, virus })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast(data.message || 'TrÃ¡fego simulado com sucesso!', 'success');
+                const modalEl = document.getElementById('modalSimulateMail');
+                if (modalEl && typeof bootstrap !== 'undefined') {
+                    const inst = bootstrap.Modal.getInstance(modalEl);
+                    if (inst) inst.hide();
+                }
+                loadMailTrafficStats(currentSelectedMailDate);
+            }
+        } catch (err) {
+            console.error('Erro na simulaÃ§Ã£o de trÃ¡fego:', err);
+            showToast('Erro ao injetar trÃ¡fego simulado.', 'danger');
+        }
+    }
+
     function initCharts() {
+        initMailCharts();
         try {
             if (typeof Chart === 'undefined') {
                 console.warn('Chart.js ainda nÃ£o disponÃ­vel globalmente.');
@@ -6077,8 +6716,366 @@
                             </button>
                         </div>
                     </div>
-                    
-                    <!-- Hardware Telemetry Header Banner -->
+
+                    <!-- SUB-TABS SWITCHER: TRÃFEGO DE E-MAILS (7 DIAS) vs TELEMETRIA DE HARDWARE -->
+                    <div class="card p-2.5 mb-4 bg-white shadow-sm border">
+                        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                            <ul class="nav nav-pills gap-2" id="dashboardSubTabs" role="tablist">
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link active px-3 py-2 fw-bold d-flex align-items-center gap-2 rounded-3" id="subtab-mailstats-btn" onclick="switchDashboardSubTab('mailstats')" type="button">
+                                        <i class="bi bi-envelope-paper-heart-fill text-primary"></i>
+                                        <span>MÃ©tricas de E-mails & SPAM (7 Dias)</span>
+                                        <span class="badge bg-primary text-white font-monospace" style="font-size: 10px;" id="badge-mailstats-days">RetenÃ§Ã£o 7D</span>
+                                    </button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link px-3 py-2 fw-semibold d-flex align-items-center gap-2 rounded-3 text-secondary" id="subtab-telemetry-btn" onclick="switchDashboardSubTab('telemetry')" type="button">
+                                        <i class="bi bi-cpu-fill text-info"></i>
+                                        <span>Telemetria de Servidor (Hardware)</span>
+                                        <span class="badge bg-secondary-subtle text-secondary font-monospace" style="font-size: 10px;">psutil</span>
+                                    </button>
+                                </li>
+                            </ul>
+                            <div class="d-flex align-items-center gap-2 flex-wrap" id="mailstats-quick-toolbar">
+                                <div class="input-group input-group-sm" style="width: auto;">
+                                    <span class="input-group-text bg-light text-muted border-end-0"><i class="bi bi-calendar-range"></i></span>
+                                    <select class="form-select form-select-sm border-start-0 font-monospace fw-semibold" id="mailstats-period-select" onchange="handleMailStatsDateChange(this.value)" style="min-width: 175px;">
+                                        <option value="all" selected>Todos os 7 Dias (Agregado)</option>
+                                    </select>
+                                </div>
+                                <button class="btn btn-sm btn-outline-primary fw-semibold d-flex align-items-center gap-1.5 px-2.5 rounded-3" onclick="loadMailTrafficStats()" title="Recarregar mÃ©tricas de trÃ¡fego de e-mail">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                    <span class="d-none d-sm-inline">Atualizar</span>
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary fw-semibold d-flex align-items-center gap-1.5 px-2.5 rounded-3" onclick="exportMailStatsCsv()" title="Baixar relatÃ³rio consolidado em CSV">
+                                    <i class="bi bi-file-earmark-spreadsheet me-1"></i>
+                                    <span class="d-none d-sm-inline">Exportar CSV</span>
+                                </button>
+                                <button class="btn btn-sm btn-primary fw-semibold d-flex align-items-center gap-1.5 px-3 rounded-3 shadow-xs" onclick="openSimulateMailModal()" title="Simular injeÃ§Ã£o de trÃ¡fego em tempo real">
+                                    <i class="bi bi-send-plus-fill me-1"></i>
+                                    <span>Simular TrÃ¡fego</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ======================================================== -->
+                    <!-- 1.1 SUBVIEW: TRÃFEGO DE E-MAILS & ANTISPAM (RETENÃ‡ÃƒO 7 DIAS) -->
+                    <!-- ======================================================== -->
+                    <div id="dashboard-subview-mailstats">
+                        
+                        <!-- Header Card Informativo com PolÃ­ticas de RetenÃ§Ã£o -->
+                        <div class="card p-3.5 mb-4 bg-light border-0 shadow-xs">
+                            <div class="d-flex flex-column flex-lg-row align-items-start align-items-lg-center justify-content-between gap-3">
+                                <div>
+                                    <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+                                        <h2 class="h5 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                            <i class="bi bi-bar-chart-line-fill text-primary"></i> Painel Especializado de TrÃ¡fego de Mensagens
+                                        </h2>
+                                        <span class="badge bg-primary text-white font-monospace">Janela Ativa de 7 Dias</span>
+                                        <span class="badge bg-success-subtle text-success border border-success-subtle font-monospace" id="mailstats-health-badge">Fila Limpa (0 retries)</span>
+                                    </div>
+                                    <p class="text-muted small mb-0 font-monospace">
+                                        HistÃ³rico consolidado de e-mails recebidos, enviados, bloqueios SpamAssassin/RBL e quarentenas nos Ãºltimos 7 dias de retenÃ§Ã£o de logs (/var/log/mail.log).
+                                    </p>
+                                </div>
+                                <div class="d-flex align-items-center gap-3 text-muted font-monospace small bg-white px-3 py-2 rounded-3 border">
+                                    <div><span class="text-muted">MTA:</span> <strong class="text-dark">Postfix 3.7</strong></div>
+                                    <div class="vr"></div>
+                                    <div><span class="text-muted">Filtro:</span> <strong class="text-dark">SpamAssassin + ClamAV</strong></div>
+                                    <div class="vr"></div>
+                                    <div><span class="text-muted">LatÃªncia MÃ©d.:</span> <strong class="text-primary" id="mail-kpi-latency">310 ms</strong></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 5 KPI Summary Cards -->
+                        <div class="row g-3 mb-4">
+                            <!-- KPI 1: Total Processado -->
+                            <div class="col-xl-2 col-lg-4 col-md-6">
+                                <div class="card p-3 h-100 border shadow-xs d-flex flex-column justify-content-between">
+                                    <div class="d-flex align-items-center justify-content-between mb-2">
+                                        <span class="text-muted small text-uppercase font-monospace fw-semibold" style="font-size: 11px;">Total 7 Dias</span>
+                                        <div class="p-2 rounded-3 bg-primary bg-opacity-10 text-primary">
+                                            <i class="bi bi-envelope-paper-fill fs-5"></i>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <h3 class="h4 mb-0 fw-bold text-dark font-monospace" id="mail-kpi-total">--</h3>
+                                        <div class="d-flex align-items-center gap-1 mt-1">
+                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace" style="font-size: 10px;" id="mail-kpi-total-badge">+4.8% vol.</span>
+                                            <small class="text-muted font-monospace" style="font-size: 11px;">mensagens</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- KPI 2: Recebidos Limpos (Inbound) -->
+                            <div class="col-xl-3 col-lg-4 col-md-6">
+                                <div class="card p-3 h-100 border shadow-xs d-flex flex-column justify-content-between">
+                                    <div class="d-flex align-items-center justify-content-between mb-2">
+                                        <span class="text-muted small text-uppercase font-monospace fw-semibold" style="font-size: 11px;">Recebidos (Inbound)</span>
+                                        <div class="p-2 rounded-3 bg-success bg-opacity-10 text-success">
+                                            <i class="bi bi-inbox-fill fs-5"></i>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div class="d-flex align-items-baseline gap-2">
+                                            <h3 class="h4 mb-0 fw-bold text-success font-monospace" id="mail-kpi-received">--</h3>
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle font-monospace" style="font-size: 10px;" id="mail-kpi-received-pct">--%</span>
+                                        </div>
+                                        <small class="text-muted font-monospace" style="font-size: 11px;">Entregues limpos nas caixas</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- KPI 3: Enviados (Outbound) -->
+                            <div class="col-xl-2 col-lg-4 col-md-6">
+                                <div class="card p-3 h-100 border shadow-xs d-flex flex-column justify-content-between">
+                                    <div class="d-flex align-items-center justify-content-between mb-2">
+                                        <span class="text-muted small text-uppercase font-monospace fw-semibold" style="font-size: 11px;">Enviados (Outbound)</span>
+                                        <div class="p-2 rounded-3 bg-info bg-opacity-10 text-info">
+                                            <i class="bi bi-send-fill fs-5"></i>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div class="d-flex align-items-baseline gap-2">
+                                            <h3 class="h4 mb-0 fw-bold text-info font-monospace" id="mail-kpi-sent">--</h3>
+                                            <span class="badge bg-info-subtle text-info border border-info-subtle font-monospace" style="font-size: 10px;" id="mail-kpi-sent-pct">--%</span>
+                                        </div>
+                                        <small class="text-muted font-monospace" style="font-size: 11px;">Transmitidos Postfix MTA</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- KPI 4: SPAM & AmeaÃ§as Bloqueadas -->
+                            <div class="col-xl-3 col-lg-6 col-md-6">
+                                <div class="card p-3 h-100 border shadow-xs d-flex flex-column justify-content-between">
+                                    <div class="d-flex align-items-center justify-content-between mb-2">
+                                        <span class="text-muted small text-uppercase font-monospace fw-semibold" style="font-size: 11px;">SPAM & AmeaÃ§as Barradas</span>
+                                        <div class="p-2 rounded-3 bg-danger bg-opacity-10 text-danger">
+                                            <i class="bi bi-shield-x fs-5"></i>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div class="d-flex align-items-baseline gap-2">
+                                            <h3 class="h4 mb-0 fw-bold text-danger font-monospace" id="mail-kpi-spam">--</h3>
+                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle font-monospace" style="font-size: 10px;" id="mail-kpi-spam-pct">--% taxa</span>
+                                        </div>
+                                        <div class="d-flex align-items-center gap-1 mt-1">
+                                            <span class="badge bg-success-subtle text-success font-monospace" style="font-size: 10px;" id="mail-kpi-spam-trend">ğŸ“‰ Queda de 38.2%</span>
+                                            <small class="text-muted font-monospace" style="font-size: 10px;">apÃ³s regras</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- KPI 5: RejeiÃ§Ãµes & Bounces -->
+                            <div class="col-xl-2 col-lg-6 col-md-12">
+                                <div class="card p-3 h-100 border shadow-xs d-flex flex-column justify-content-between">
+                                    <div class="d-flex align-items-center justify-content-between mb-2">
+                                        <span class="text-muted small text-uppercase font-monospace fw-semibold" style="font-size: 11px;">Bounces / Rejeitados</span>
+                                        <div class="p-2 rounded-3 bg-warning bg-opacity-10 text-warning">
+                                            <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div class="d-flex align-items-baseline gap-2">
+                                            <h3 class="h4 mb-0 fw-bold text-warning font-monospace" id="mail-kpi-bounced">--</h3>
+                                            <span class="badge bg-warning-subtle text-warning border border-warning-subtle font-monospace" style="font-size: 10px;" id="mail-kpi-bounced-pct">--%</span>
+                                        </div>
+                                        <small class="text-muted font-monospace" style="font-size: 11px;">Erros 5xx / SPF Fail</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- GRÃFICOS LINHA 1: EvoluÃ§Ã£o DiÃ¡ria (7 Dias) + Donut de Vereditos -->
+                        <div class="row g-4 mb-4">
+                            <!-- GrÃ¡fico de Linhas 7 Dias -->
+                            <div class="col-lg-8">
+                                <div class="card p-4 h-100 shadow-sm border">
+                                    <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+                                        <div>
+                                            <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                                <i class="bi bi-graph-up-arrow text-primary"></i> EvoluÃ§Ã£o DiÃ¡ria do TrÃ¡fego (Ãšltimos 7 Dias)
+                                            </h3>
+                                            <small class="text-muted font-monospace">Fluxo comparativo de Recebidos, Enviados, SPAM e Bounces dia a dia</small>
+                                        </div>
+                                        <div class="d-flex align-items-center gap-2 font-monospace small">
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle">Recebidos</span>
+                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle">Enviados</span>
+                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle">SPAM Bloqueado</span>
+                                            <span class="badge bg-warning-subtle text-warning border border-warning-subtle">Bounces</span>
+                                        </div>
+                                    </div>
+                                    <div class="chart-container" style="height: 280px; position: relative;">
+                                        <canvas id="mailTrafficChart7d"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Donut de Vereditos de Mensagens -->
+                            <div class="col-lg-4">
+                                <div class="card p-4 h-100 shadow-sm border d-flex flex-column justify-content-between">
+                                    <div>
+                                        <div class="d-flex align-items-center justify-content-between mb-3">
+                                            <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                                <i class="bi bi-pie-chart-fill text-info"></i> ClassificaÃ§Ã£o das Mensagens
+                                            </h3>
+                                            <span class="badge bg-light text-dark border font-monospace">7 Dias</span>
+                                        </div>
+                                        <div class="chart-container mb-3" style="height: 190px; position: relative;">
+                                            <canvas id="mailVerdictDonut"></canvas>
+                                        </div>
+                                        <div class="space-y-1.5 font-monospace small">
+                                            <div class="d-flex justify-content-between p-2 rounded bg-light border border-light-subtle mb-1">
+                                                <span class="text-success"><i class="bi bi-circle-fill me-1.5" style="font-size: 8px;"></i>Recebidos Limpos:</span>
+                                                <strong class="text-dark" id="verdict-count-received">--</strong>
+                                            </div>
+                                            <div class="d-flex justify-content-between p-2 rounded bg-light border border-light-subtle mb-1">
+                                                <span class="text-primary"><i class="bi bi-circle-fill me-1.5" style="font-size: 8px;"></i>Enviados com Sucesso:</span>
+                                                <strong class="text-dark" id="verdict-count-sent">--</strong>
+                                            </div>
+                                            <div class="d-flex justify-content-between p-2 rounded bg-light border border-light-subtle mb-1">
+                                                <span class="text-danger"><i class="bi bi-circle-fill me-1.5" style="font-size: 8px;"></i>SPAM Bloqueado:</span>
+                                                <strong class="text-dark" id="verdict-count-spam">--</strong>
+                                            </div>
+                                            <div class="d-flex justify-content-between p-2 rounded bg-light border border-light-subtle">
+                                                <span class="text-warning"><i class="bi bi-circle-fill me-1.5" style="font-size: 8px;"></i>Bounces / Falhas:</span>
+                                                <strong class="text-dark" id="verdict-count-bounced">--</strong>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- GRÃFICOS LINHA 2: Taxa de SPAM DiÃ¡ria (%) + Volume HorÃ¡rio 24h -->
+                        <div class="row g-4 mb-4">
+                            <!-- Taxa de SPAM DiÃ¡ria (%) -->
+                            <div class="col-lg-6">
+                                <div class="card p-4 h-100 shadow-sm border">
+                                    <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+                                        <div>
+                                            <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                                <i class="bi bi-shield-check text-success"></i> EficiÃªncia AntiSpam & TendÃªncia (% SPAM)
+                                            </h3>
+                                            <small class="text-muted font-monospace">Percentual de SPAM detectado e barrado sobre o total por dia</small>
+                                        </div>
+                                        <span class="badge bg-success text-white font-monospace" id="mailstats-trend-badge">ğŸ“‰ ReduÃ§Ã£o ContÃ­nua</span>
+                                    </div>
+                                    <div class="chart-container" style="height: 220px; position: relative;">
+                                        <canvas id="mailSpamRateChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- DistribuiÃ§Ã£o por HorÃ¡rio 24h -->
+                            <div class="col-lg-6">
+                                <div class="card p-4 h-100 shadow-sm border">
+                                    <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+                                        <div>
+                                            <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                                <i class="bi bi-clock-history text-warning"></i> DistribuiÃ§Ã£o de TrÃ¡fego por HorÃ¡rio (24 Horas)
+                                            </h3>
+                                            <small class="text-muted font-monospace" id="mailstats-hourly-subtitle">Volume horÃ¡rio de entrada, saÃ­da e tentativas de spam</small>
+                                        </div>
+                                        <span class="badge bg-light text-muted border font-monospace" id="mailstats-peak-hour-badge">Pico: 10:00 - 16:00</span>
+                                    </div>
+                                    <div class="chart-container" style="height: 220px; position: relative;">
+                                        <canvas id="mailHourlyChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- TABELA ANALÃTICA CONSOLIDADA DOS 7 DIAS -->
+                        <div class="card p-4 mb-4 shadow-sm border">
+                            <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+                                <div>
+                                    <h3 class="h6 mb-0 fw-bold text-dark d-flex align-items-center gap-2">
+                                        <i class="bi bi-calendar-week-fill text-primary"></i> RelatÃ³rio AnalÃ­tico Consolidado (Janela de 7 Dias de RetenÃ§Ã£o)
+                                    </h3>
+                                    <small class="text-muted font-monospace">Detalhamento dia a dia com Ã­ndices de entrega limpa, SPAM e latÃªncia de entrega</small>
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <input type="text" class="form-control form-control-sm font-monospace" placeholder="Buscar data ou dia..." style="width: 200px;" oninput="filterMailStatsTable(this.value)">
+                                    <button class="btn btn-sm btn-outline-secondary px-2.5" onclick="exportMailStatsCsv()" title="Exportar CSV">
+                                        <i class="bi bi-download"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0 font-monospace small">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Data / Dia</th>
+                                            <th class="text-center">Total Processado</th>
+                                            <th class="text-center">Recebidos (Inbound)</th>
+                                            <th class="text-center">Enviados (Outbound)</th>
+                                            <th class="text-center">SPAM Barrado</th>
+                                            <th class="text-center">VÃ­rus / Malware</th>
+                                            <th class="text-center">Bounces (5xx)</th>
+                                            <th class="text-center">Taxa de SPAM</th>
+                                            <th class="text-center">Taxa Entrega</th>
+                                            <th class="text-center">LatÃªncia</th>
+                                            <th class="text-end">AÃ§Ãµes</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="mailstats-history-tbody">
+                                        <!-- Populated dynamically -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- PAINÃ‰IS DE INSIGHTS: Top DomÃ­nios & Regras SpamAssassin -->
+                        <div class="row g-4">
+                            <!-- Top DomÃ­nios Remetentes -->
+                            <div class="col-lg-4">
+                                <div class="card p-4 h-100 shadow-sm border">
+                                    <h3 class="h6 mb-3 fw-bold text-dark d-flex align-items-center gap-2">
+                                        <i class="bi bi-globe-americas text-primary"></i> Top DomÃ­nios Remetentes
+                                    </h3>
+                                    <div class="space-y-2" id="mailstats-top-senders-list">
+                                        <!-- Populated dynamically -->
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Top DomÃ­nios / DestinatÃ¡rios Locais -->
+                            <div class="col-lg-4">
+                                <div class="card p-4 h-100 shadow-sm border">
+                                    <h3 class="h6 mb-3 fw-bold text-dark d-flex align-items-center gap-2">
+                                        <i class="bi bi-mailbox2 text-success"></i> DomÃ­nios & Caixas Locais
+                                    </h3>
+                                    <div class="space-y-2" id="mailstats-top-recipients-list">
+                                        <!-- Populated dynamically -->
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Top Regras SpamAssassin Disparadas -->
+                            <div class="col-lg-4">
+                                <div class="card p-4 h-100 shadow-sm border">
+                                    <h3 class="h6 mb-3 fw-bold text-dark d-flex align-items-center gap-2">
+                                        <i class="bi bi-shield-shaded text-danger"></i> Regras AntiSpam Mais Acionadas
+                                    </h3>
+                                    <div class="space-y-2" id="mailstats-top-rules-list">
+                                        <!-- Populated dynamically -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- ======================================================== -->
+                    <!-- 1.2 SUBVIEW: TELEMETRIA DE HARDWARE & SERVIDOR (psutil) -->
+                    <!-- ======================================================== -->
+                    <div id="dashboard-subview-telemetry" class="d-none">
+                        <!-- Hardware Telemetry Header Banner -->
                     <div class="card p-4 mb-4">
                         <div class="d-flex flex-column flex-lg-row align-items-start align-items-lg-center justify-content-between gap-3">
                             <div>
@@ -6205,8 +7202,9 @@
                             <!-- Populated dynamically -->
                         </div>
                     </div>
-                </div>
+                    </div>
 
+                </div>
                 <!-- 2. SERVIDORES TAB -->
                                 <div class="tab-section d-none" id="tab-servidores">
                     <!-- Servidores Nav Tabs -->
@@ -7938,909 +8936,62 @@ Authentication-Results: spf=fail ..."></textarea>
                                     <h6 class="fw-bold text-dark mb-2 d-flex align-items-center gap-2">
                                         <i class="bi bi-shield-fill-exclamation text-warning"></i> Plano de AÃ§Ã£o Imediata (MitigaÃ§Ã£o com 1 Clique)
                                     </h6>
-                                    <p class="text-muted small mb-3">Identificou um ataque real que passou ou quer reforÃ§ar a proteÃ§Ã£o? Execute uma das aÃ§Ãµes abaixo instantaneamente:</p>
-                                    <div class="d-flex flex-wrap gap-2" id="forensic-actions-container">
-                                        <button type="button" class="btn btn-danger btn-sm fw-bold" id="btn-mitigate-blacklist" onclick="quickBlockFromAudit()">
-                                            <i class="bi bi-slash-circle me-1"></i> Bloquear DomÃ­nio/IP na Blacklist
-                                        </button>
-                                        <button type="button" class="btn btn-warning text-dark btn-sm fw-bold" id="btn-mitigate-imp" onclick="quickAddImpersonationFromAudit()">
-                                            <i class="bi bi-shield-plus me-1"></i> Cadastrar Regra de Anti-Impersonation
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- ============================================================== -->
-                        <!-- TAB 4: EDITOR AVANÃ‡ADO (local.cf)                              -->
-                        <!-- ============================================================== -->
-                        <div class="tab-pane fade" id="spam-tab-raw" role="tabpanel">
-                            <div class="card p-4 shadow-sm border-0">
-                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3 pb-3 border-bottom">
-                                    <div>
-                                        <h6 class="fw-bold text-dark mb-1">ConteÃºdo Raw do Arquivo /etc/spamassassin/local.cf</h6>
-                                        <p class="text-muted small mb-0">EdiÃ§Ã£o direta do arquivo de configuraÃ§Ã£o do daemon SpamAssassin.</p>
-                                    </div>
-                                    <div class="d-flex gap-2">
-                                        <button type="button" class="btn btn-outline-info btn-sm" onclick="lintRules()">
-                                            <i class="bi bi-check2-circle me-1"></i> Validar Sintaxe (Lint)
-                                        </button>
-                                        <button type="button" class="btn btn-primary btn-sm fw-bold" onclick="saveRules()">
-                                            <i class="bi bi-save me-1"></i> Salvar local.cf
-                                        </button>
-                                    </div>
-                                </div>
-                                <textarea class="form-control font-monospace mb-3" id="rules-textarea" rows="18" style="font-size: 0.85rem;"></textarea>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="tab-section d-none" id="tab-settings">
-                    <div class="card p-4">
-                        <!-- Header Geral da Aba ConfiguraÃ§Ãµes -->
-                        <div class="d-flex align-items-center justify-content-between mb-4 pb-3 border-bottom">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="p-2.5 rounded-3 bg-primary bg-opacity-10 text-primary">
-                                    <i class="bi bi-sliders fs-3"></i>
-                                </div>
-                                <div>
-                                    <h2 class="h5 mb-1 fw-bold text-dark">ConfiguraÃ§Ãµes de ConexÃ£o do Banco de Dados</h2>
-                                    <p class="text-muted small mb-0">Gerencie os parÃ¢metros de conexÃ£o com o banco de dados MariaDB no arquivo <code>.env</code> do servidor.</p>
-                                </div>
-                            </div>
-                            <span class="badge bg-secondary-subtle text-secondary border font-monospace">System Admin</span>
-                        </div>
-
-                        <form id="db-settings-form" onsubmit="saveDatabaseSettings(event)">
-                            <div id="settings-alert-container"></div>
-                            
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label class="form-label fw-semibold text-dark small">UsuÃ¡rio do Banco (DB_USER)</label>
-                                    <div class="input-group">
-                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-person text-muted"></i></span>
-                                        <input type="text" id="cfg-db-user" class="form-control font-monospace" placeholder="vmailadmin" required>
-                                    </div>
-                                </div>
-
-                                <div class="col-md-6">
-                                    <label class="form-label fw-semibold text-dark small">Senha do Banco (DB_PASS)</label>
-                                    <div class="input-group">
-                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-key text-muted"></i></span>
-                                        <input type="password" id="cfg-db-pass" class="form-control font-monospace" placeholder="senha_vmail_123" required>
-                                    </div>
-                                </div>
-
-                                <div class="col-md-6">
-                                    <label class="form-label fw-semibold text-dark small">Host / IP do Banco (DB_HOST)</label>
-                                    <div class="input-group">
-                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-hdd-network text-muted"></i></span>
-                                        <input type="text" id="cfg-db-host" class="form-control font-monospace" placeholder="127.0.0.1" required>
-                                    </div>
-                                </div>
-
-                                <div class="col-md-6">
-                                    <label class="form-label fw-semibold text-dark small">Nome da Base de Dados (DB_NAME)</label>
-                                    <div class="input-group">
-                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-database text-muted"></i></span>
-                                        <input type="text" id="cfg-db-name" class="form-control font-monospace" placeholder="vmail" required>
-                                    </div>
-                                </div>
-
-                                <div class="col-md-6">
-                                    <label class="form-label fw-semibold text-dark small">Porta MySQL/MariaDB (DB_PORT)</label>
-                                    <div class="input-group">
-                                        <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-ethernet text-muted"></i></span>
-                                        <input type="text" id="cfg-db-port" class="form-control font-monospace" placeholder="3306" required>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="alert alert-info border-0 bg-info bg-opacity-10 text-info-emphasis mt-4 d-flex align-items-center gap-2 small rounded-3">
-                                <i class="bi bi-info-circle-fill fs-5 flex-shrink-0"></i>
-                                <div>
-                                    Ao salvar, as variÃ¡veis serÃ£o gravadas fisicamente no arquivo <code>.env</code> no servidor Linux. Para aplicar as alteraÃ§Ãµes de conexÃ£o no MailAdmin Suite, reinicie o serviÃ§o no Linux.
-                                </div>
-                            </div>
-
-                            <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
-                                <button type="button" class="btn btn-outline-secondary btn-sm rounded-3" onclick="loadDatabaseSettings()">
-                                    <i class="bi bi-arrow-clockwise me-1"></i> Recarregar
-                                </button>
-                                <button type="submit" class="btn btn-primary btn-sm fw-bold px-4 rounded-3">
-                                    <i class="bi bi-floppy-fill me-1"></i> Salvar no .env
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-
-                    <!-- Card 2: ConfiguraÃ§Ã£o e NÃ­veis de Alertas de SeguranÃ§a -->
-                    <div class="card p-4 mt-4 shadow-sm border-0">
-                        <div class="d-flex align-items-center justify-content-between mb-4 pb-3 border-bottom">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="p-2.5 rounded-3 bg-warning bg-opacity-15 text-warning">
-                                    <i class="bi bi-shield-check fs-3"></i>
-                                </div>
-                                <div>
-                                    <h2 class="h5 mb-1 fw-bold text-dark">Limiares de SeguranÃ§a & ClassificaÃ§Ã£o de Eventos</h2>
-                                    <p class="text-muted small mb-0">NÃ­veis operacionais do motor SOC para evitar alarmes falsos e direcionar anÃ¡lise para o Monitoramento ao Vivo.</p>
-                                </div>
-                            </div>
-                            <span class="badge bg-warning-subtle text-warning border border-warning-subtle font-monospace">SOC Classifier</span>
-                        </div>
-
-                        <div class="row g-3">
-                            <div class="col-md-3">
-                                <div class="p-3 rounded-3 border border-success bg-success bg-opacity-10 text-center h-100">
-                                    <span class="badge bg-success mb-2">ğŸŸ¢ Normal</span>
-                                    <h6 class="fw-bold mb-1 fs-7 text-dark">OperaÃ§Ã£o PadrÃ£o</h6>
-                                    <p class="text-muted mb-0" style="font-size: 11px;">0 falhas ou eventos anÃ´malos nos logs recentes.</p>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="p-3 rounded-3 border border-warning bg-warning bg-opacity-10 text-center h-100">
-                                    <span class="badge bg-warning text-dark mb-2">ğŸŸ¡ Evento Suspeito</span>
-                                    <h6 class="fw-bold mb-1 fs-7 text-dark">1 a 2 OcorrÃªncias</h6>
-                                    <p class="text-muted mb-0" style="font-size: 11px;">Scanners pontuais ou conexÃµes SMTP esporÃ¡dicas.</p>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="p-3 rounded-3 border border-warning bg-warning bg-opacity-25 text-center h-100">
-                                    <span class="badge bg-warning text-dark mb-2">ğŸŸ  Incidente Potencial</span>
-                                    <h6 class="fw-bold mb-1 fs-7 text-dark">3 a 9 OcorrÃªncias</h6>
-                                    <p class="text-muted mb-0" style="font-size: 11px;">Bloqueios de taxa (Anvil/Amavis) ou acessos com erros.</p>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="p-3 rounded-3 border border-danger bg-danger bg-opacity-10 text-center h-100">
-                                    <span class="badge bg-danger text-white mb-2">ğŸ”´ PossÃ­vel Ataque</span>
-                                    <h6 class="fw-bold mb-1 fs-7 text-dark">>= 10 OcorrÃªncias</h6>
-                                    <p class="text-muted mb-0" style="font-size: 11px;">Tentativas brutas de autenticaÃ§Ã£o SASL ou ataques intensos.</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="alert alert-light border mt-3 mb-0 d-flex align-items-center gap-2 small rounded-3">
-                            <i class="bi bi-info-circle text-primary fs-5 flex-shrink-0"></i>
-                            <div class="text-secondary">
-                                Ao clicar em qualquer notificaÃ§Ã£o de seguranÃ§a do painel, o sistema redireciona diretamente para a aba <strong>Monitoramento ao Vivo</strong> prÃ©-filtrando os eventos suspeitos em tempo real.
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 8. USUÃRIOS TAB -->
-                <div class="tab-section d-none" id="tab-usuarios">
-                    <div class="card p-4">
-                        <div class="d-flex align-items-center justify-content-between mb-4 pb-3 border-bottom">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="p-2.5 rounded-3 bg-success bg-opacity-10 text-success">
-                                    <i class="bi bi-people-fill fs-3"></i>
-                                </div>
-                                <div>
-                                    <h2 class="h5 mb-1 fw-bold text-dark">GestÃ£o de UsuÃ¡rios e Auditoria do Painel</h2>
-                                    <p class="text-muted small mb-0">Gerencie contas de acesso (<code>vmail_admins</code>), controle de MFA e consulte o histÃ³rico de auditoria do sistema (Audit Trail).</p>
-                                </div>
-                            </div>
-                            <button class="btn btn-success btn-sm fw-bold px-3 rounded-3" onclick="showCreateAdminModal()">
-                                <i class="bi bi-person-plus-fill me-1"></i> Novo UsuÃ¡rio
-                            </button>
-                        </div>
-
-                        <!-- Sub-abas (Bootstrap Nav-Tabs) -->
-                        <ul class="nav nav-tabs mb-4" id="usersTabs" role="tablist">
-                            <li class="nav-item" role="presentation">
-                                <button class="nav-link active fw-bold small text-dark d-flex align-items-center gap-2" id="users-accounts-tab" data-bs-toggle="tab" data-bs-target="#users-tab-accounts" type="button" role="tab">
-                                    <i class="bi bi-person-gear text-success"></i> Contas de UsuÃ¡rio & MFA
-                                </button>
-                            </li>
-                            <li class="nav-item" role="presentation">
-                                <button class="nav-link fw-bold small text-muted d-flex align-items-center gap-2" id="users-audit-tab" data-bs-toggle="tab" data-bs-target="#users-tab-audit" type="button" role="tab" onclick="loadAuditLogs()">
-                                    <i class="bi bi-shield-check text-primary"></i> Auditoria de AÃ§Ãµes (Audit Trail)
-                                </button>
-                            </li>
-                        </ul>
-
-                        <div class="tab-content" id="usersTabsContent">
-                            <!-- SUB-TAB 1: CONTAS E MFA -->
-                            <div class="tab-pane fade show active" id="users-tab-accounts" role="tabpanel">
-                                <div id="admin-alert-container-usr"></div>
-
-                                <!-- Barra de Busca de UsuÃ¡rios -->
-                                <div class="row g-2 mb-3 align-items-center justify-content-between">
-                                    <div class="col-md-6 col-lg-4">
-                                        <div class="input-group input-group-sm">
-                                            <span class="input-group-text bg-light border-light-subtle text-muted">
-                                                <i class="bi bi-search"></i>
-                                            </span>
-                                            <input type="text" id="search-users-vmail-input" class="form-control" placeholder="Buscar usuÃ¡rio..." onkeyup="filterTableRows('search-users-vmail-input', 'vmail-users-table-body')">
-                                        </div>
-                                    </div>
-                                    <div class="col-auto">
-                                        <small class="text-muted">Total de usuÃ¡rios: <span id="vmail-users-count" class="badge bg-secondary font-monospace">0</span></small>
-                                    </div>
-                                </div>
-
-                                <!-- Tabela de UsuÃ¡rios com MFA Granular -->
-                                <div class="table-responsive">
-                                    <table class="table table-custom align-middle">
-                                        <thead>
-                                            <tr>
-                                                <th>ID</th>
-                                                <th>UsuÃ¡rio</th>
-                                                <th>Perfil (Role)</th>
-                                                <th>MFA Status</th>
-                                                <th>Data de Cadastro</th>
-                                                <th>AÃ§Ãµes & Controle MFA</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="vmail-users-table-body">
-                                            <tr><td colspan="6" class="text-center text-muted py-3">Carregando usuÃ¡rios...</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-
-                            <!-- SUB-TAB 2: AUDITORIA DE AÃ‡Ã•ES (AUDIT TRAIL) -->
-                            <div class="tab-pane fade" id="users-tab-audit" role="tabpanel">
-                                <div class="d-flex align-items-center justify-content-between mb-3">
-                                    <div>
-                                        <h6 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
-                                            <i class="bi bi-shield-lock-fill text-primary"></i> Trilha de Auditoria do Sistema (Audit Trail)
-                                        </h6>
-                                        <small class="text-muted">HistÃ³rico imutÃ¡vel de aÃ§Ãµes administrativas registradas na tabela <code>system_audit_logs</code>.</small>
-                                    </div>
-                                    <button class="btn btn-outline-secondary btn-sm rounded-3" onclick="loadAuditLogs()">
-                                        <i class="bi bi-arrow-clockwise me-1"></i> Atualizar Auditoria
-                                    </button>
-                                </div>
-
-                                <!-- Barra de Busca em Logs de Auditoria -->
-                                <div class="row g-2 mb-3 align-items-center justify-content-between">
-                                    <div class="col-md-6 col-lg-4">
-                                        <div class="input-group input-group-sm">
-                                            <span class="input-group-text bg-light border-light-subtle text-muted">
-                                                <i class="bi bi-search"></i>
-                                            </span>
-                                            <input type="text" id="search-audit-input" class="form-control" placeholder="Buscar na auditoria (aÃ§Ã£o, usuÃ¡rio, IP)..." onkeyup="filterTableRows('search-audit-input', 'audit-logs-table-body')">
-                                        </div>
-                                    </div>
-                                    <div class="col-auto">
-                                        <small class="text-muted">Total de registros: <span id="audit-logs-count" class="badge bg-secondary font-monospace">0</span></small>
-                                    </div>
-                                </div>
-
-                                <!-- Tabela de Logs de Auditoria -->
-                                <div class="table-responsive">
-                                    <table class="table table-custom align-middle">
-                                        <thead>
-                                            <tr>
-                                                <th>Data/Hora</th>
-                                                <th>UsuÃ¡rio Admin</th>
-                                                <th>AÃ§Ã£o Realizada</th>
-                                                <th>Alvo / Objeto</th>
-                                                <th>EndereÃ§o IP</th>
-                                                <th>Detalhes / Payload</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="audit-logs-table-body">
-                                            <tr><td colspan="6" class="text-center text-muted py-3">Carregando histÃ³rico de auditoria...</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-            </div>
-        </main>
-    </div>
-</div>
-
-<!-- MFA MODAL (Google Authenticator) -->
-<div class="modal fade" id="mfaModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title text-dark"><i class="bi bi-qr-code-scan me-2 text-success"></i>Configurar AutenticaÃ§Ã£o MFA</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body text-center">
-                <p class="text-muted small mb-3">Digitalize o cÃ³digo abaixo com o aplicativo <strong>Google Authenticator</strong> ou <strong>Authy</strong>:</p>
-                
-                <div id="qr-code-wrapper" class="p-3 bg-white rounded-3 d-inline-block border mb-3">
-                    <div class="spinner-border text-primary" role="status"></div>
-                </div>
-
-                <div class="mb-3 text-start">
-                    <label class="form-label small text-muted">Chave Secreta TOTP:</label>
-                    <input type="text" id="mfa-secret-key" class="form-control text-primary text-center font-monospace" readonly>
-                </div>
-
-                <div class="mb-3 text-start">
-                    <label class="form-label small text-muted">Digite o cÃ³digo de 6 dÃ­gitos gerado:</label>
-                    <input type="text" id="mfa-token-input" class="form-control text-center fs-4 font-monospace" placeholder="000000" maxlength="6">
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-success btn-sm" onclick="enableMfa()">Ativar MFA</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- CREATE / EDIT CRONJOB MODAL -->
-<div class="modal fade" id="createCronModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title text-dark"><i class="bi bi-calendar-plus me-2 text-primary"></i><span id="cron-modal-title">Nova AutomaÃ§Ã£o Agendada</span></h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <input type="hidden" id="cron-job-id">
-                
-                <div class="mb-3">
-                    <label class="form-label text-dark small fw-bold">Modelo Pronto / Preset</label>
-                    <select id="cron-preset-select" class="form-select font-monospace" onchange="applyCronPreset()">
-                        <option value="custom">-- Agendamento Customizado --</option>
-                        <option value="preset_log_ingest">1. IngestÃ£o de Logs de E-mail para MariaDB (Log-to-DB)</option>
-                        <option value="preset_vmail_backup">2. Backup Automatizado de Tabelas vmail (MariaDB)</option>
-                        <option value="preset_expunge_antispam">3. Expurgar Logs do Antispam (> 30 dias)</option>
-                    </select>
-                </div>
-
-                <div class="mb-3">
-                    <label class="form-label text-dark small fw-bold">Nome da AutomaÃ§Ã£o</label>
-                    <input type="text" id="cron-name-input" class="form-control" placeholder="Ex: IngestÃ£o de Logs para DB">
-                </div>
-
-                <div class="row g-2 mb-3">
-                    <div class="col-md-6">
-                        <label class="form-label text-dark small fw-bold">FrequÃªncia Predefinida</label>
-                        <select id="cron-schedule-preset" class="form-select font-monospace" onchange="syncCronPresetExpression()">
-                            <option value="1h">A cada 1 hora (0 * * * *)</option>
-                            <option value="3h">A cada 3 horas (0 */3 * * *)</option>
-                            <option value="6h">A cada 6 horas (0 */6 * * *)</option>
-                            <option value="daily">DiÃ¡rio Ã s 02:00 (0 2 * * *)</option>
-                            <option value="custom" selected>ExpressÃ£o Customizada</option>
-                        </select>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label text-dark small fw-bold">ExpressÃ£o Cron</label>
-                        <input type="text" id="cron-expression-input" class="form-control font-monospace" placeholder="0 * * * *">
-                    </div>
-                </div>
-
-                <div class="mb-3">
-                    <label class="form-label text-dark small fw-bold">Comando Bash do Linux</label>
-                    <textarea id="cron-command-input" class="form-control font-monospace p-2" rows="2" placeholder="python3 /opt/mailadmin/scripts/script.py"></textarea>
-                </div>
-
-                <div class="mb-3 border-top pt-3">
-                    <div class="d-flex align-items-center justify-content-between mb-1">
-                        <label class="form-label text-dark small fw-bold mb-0">
-                            <i class="bi bi-code-slash text-primary me-1"></i> Editor de Script Inline (Opcional)
-                        </label>
-                        <small class="text-muted">Escreva ou cole um script Bash ou Python</small>
-                    </div>
-                    <input type="text" id="cron-script-filename-input" class="form-control form-control-sm font-monospace mb-2" placeholder="Nome do arquivo ex: backup_custom.sh">
-                    <textarea id="cron-script-content-input" class="form-control font-monospace p-2 small bg-dark text-light" rows="4" placeholder="#!/bin/bash&#10;# Escreva ou cole seu script completo aqui...&#10;echo 'Executando tarefa automatizada...'"></textarea>
-                    <div class="form-text text-muted small">
-                        Ao salvar, o script serÃ¡ salvo em <code>/opt/mailadmin/scripts/</code> com permissÃ£o <code>+x</code> e agendado no crontab.
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-primary btn-sm fw-bold rounded-3" onclick="saveCronJob()"><i class="bi bi-floppy-fill me-1"></i> Salvar AutomaÃ§Ã£o</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- CREATE DOMAIN MODAL -->
-<div class="modal fade" id="createDomainModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title text-dark">Adicionar DomÃ­nio Virtual</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="mb-3">
-                    <label class="form-label text-muted small">Nome do DomÃ­nio</label>
-                    <input type="text" id="dom-name-input" class="form-control" placeholder="ex: novadominio.com.br">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label text-muted small">DescriÃ§Ã£o</label>
-                    <input type="text" id="dom-desc-input" class="form-control" placeholder="ex: Filial SÃ£o Paulo">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label text-muted small">Cota MÃ¡xima Global (MB)</label>
-                    <input type="number" id="dom-quota-input" class="form-control" value="10240">
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-primary btn-sm" onclick="submitCreateDomain()">Criar DomÃ­nio</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- CREATE DOMAIN ALIAS MODAL -->
-<div class="modal fade" id="createDomainAliasModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content shadow border-0 rounded-4">
-            <div class="modal-header bg-success bg-opacity-15 border-bottom py-3 rounded-top-4">
-                <h5 class="modal-title h6 fw-bold text-dark d-flex align-items-center gap-2 mb-0">
-                    <i class="bi bi-diagram-3-fill text-success fs-5"></i> Novo Alias de DomÃ­nio (Domain Mirror)
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body p-4">
-                <div class="alert alert-light border small text-muted mb-3">
-                    <i class="bi bi-lightbulb-fill text-warning me-1"></i>
-                    <strong>Exemplo PrÃ¡tico:</strong> Ao cadastrar <code>zrti.tech</code> como alias de <code>zrti.com.br</code>, todos os colaboradores de <code>zrti.tech</code> receberÃ£o e-mails diretamente nas caixas de <code>zrti.com.br</code> correspondentes.
-                </div>
-                <div class="mb-3">
-                    <label class="form-label text-muted small fw-semibold">DomÃ­nio Alias (Espelho / SecundÃ¡rio)</label>
-                    <div class="input-group">
-                        <span class="input-group-text bg-light text-muted font-monospace">@</span>
-                        <input type="text" id="dom-alias-alias-input" class="form-control font-monospace" placeholder="ex: zrti.tech" required>
-                    </div>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label text-muted small fw-semibold">DomÃ­nio Destino (Principal / Registrado no Vmail)</label>
-                    <div class="input-group">
-                        <span class="input-group-text bg-light text-muted font-monospace"><i class="bi bi-globe"></i></span>
-                        <input type="text" id="dom-alias-target-input" class="form-control font-monospace" placeholder="ex: zrti.com.br" list="target-domain-suggestions" required>
-                        <datalist id="target-domain-suggestions"></datalist>
-                    </div>
-                    <div class="form-text small text-muted">O domÃ­nio destino precisa ser um domÃ­nio virtual ativo no Postfix/MariaDB.</div>
-                </div>
-            </div>
-            <div class="modal-footer bg-light py-2 rounded-bottom-4">
-                <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-success btn-sm fw-bold rounded-3 px-3 text-white" onclick="submitCreateDomainAlias()">
-                    <i class="bi bi-check-lg me-1"></i> Criar Alias de DomÃ­nio
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- CREATE MAILBOX MODAL -->
-<div class="modal fade" id="createMailboxModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title text-dark">Nova Caixa Postal (vmail)</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="mb-3">
-                    <label class="form-label text-muted small">E-mail Completo</label>
-                    <input type="text" id="mb-user-input" class="form-control" placeholder="ex: joao@empresa.com.br">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label text-muted small">Nome Completo</label>
-                    <input type="text" id="mb-name-input" class="form-control" placeholder="ex: JoÃ£o Silva">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label text-muted small">Senha</label>
-                    <input type="password" id="mb-pass-input" class="form-control">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label text-muted small">Cota (MB)</label>
-                    <input type="number" id="mb-quota-input" class="form-control" value="1024">
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-info text-white btn-sm" onclick="submitCreateMailbox()">Criar Caixa</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- RESET MAILBOX PASSWORD MODAL -->
-<div class="modal fade" id="resetPasswordModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content shadow border-0 rounded-4">
-            <div class="modal-header bg-amber-500 bg-warning bg-opacity-25 border-bottom py-3 rounded-top-4">
-                <h5 class="modal-title h6 fw-bold text-dark d-flex align-items-center gap-2 mb-0">
-                    <i class="bi bi-key-fill text-warning fs-5"></i> Redefinir Senha da Caixa Postal
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body p-4">
-                <div class="mb-3">
-                    <label class="form-label text-muted small fw-semibold">Caixa Postal (E-mail)</label>
-                    <input type="text" id="reset-mb-email-input" class="form-control bg-light font-monospace fw-semibold" readonly>
-                </div>
-                <div class="mb-3">
-                    <div class="d-flex justify-content-between align-items-center mb-1">
-                        <label class="form-label text-muted small fw-semibold mb-0">Nova Senha</label>
-                        <button type="button" class="btn btn-link btn-sm p-0 text-primary text-decoration-none fw-semibold small" onclick="generateMailboxRandomPassword()">
-                            <i class="bi bi-magic me-1"></i> Gerar Senha Forte
-                        </button>
-                    </div>
-                    <div class="input-group">
-                        <input type="password" id="reset-mb-pass-input" class="form-control font-monospace" placeholder="Digite ou gere uma nova senha" required>
-                        <button class="btn btn-outline-secondary" type="button" onclick="toggleResetPassVisibility()">
-                            <i class="bi bi-eye" id="reset-pass-toggle-icon"></i>
-                        </button>
-                    </div>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label text-muted small fw-semibold">Esquema de Criptografia (Dovecot)</label>
-                    <select id="reset-mb-scheme-select" class="form-select font-monospace small">
-                        <option value="SSHA512" selected>SSHA512 (PadrÃ£o Dovecot - Recomendado)</option>
-                        <option value="SHA512-CRYPT">SHA512-CRYPT</option>
-                        <option value="BCRYPT">BCRYPT (Blowfish)</option>
-                    </select>
-                    <div class="form-text small text-muted">A senha serÃ¡ criptografada e atualizada na tabela <code>mailbox</code> do MariaDB vmail.</div>
-                </div>
-            </div>
-            <div class="modal-footer bg-light py-2 rounded-bottom-4">
-                <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-warning text-dark btn-sm fw-bold rounded-3 px-3" onclick="submitResetPassword()">
-                    <i class="bi bi-key-fill me-1"></i> Redefinir Senha
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- CREATE ALIAS MODAL -->
-<div class="modal fade" id="createAliasModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title text-dark">Novo Alias (Redirecionamento)</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="mb-3">
-                    <label class="form-label text-muted small">EndereÃ§o do Alias</label>
-                    <input type="text" id="al-addr-input" class="form-control" placeholder="ex: contato@empresa.com.br">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label text-muted small">Destinos (separados por vÃ­rgula)</label>
-                    <input type="text" id="al-goto-input" class="form-control" placeholder="ex: suporte@empresa.com.br, vendas@empresa.com.br">
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-warning text-dark btn-sm fw-semibold" onclick="submitCreateAlias()">Criar Alias</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- CREATE ADMIN MODAL -->
-<div class="modal fade" id="createAdminModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title text-dark d-flex align-items-center gap-2">
-                    <i class="bi bi-person-plus-fill text-success"></i> Novo Administrador do Painel
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <form onsubmit="submitCreateAdmin(event)">
-                <div class="modal-body">
-                    <div id="create-admin-alert"></div>
-                    <div class="mb-3">
-                        <label class="form-label text-muted small fw-semibold">Nome de UsuÃ¡rio (login)</label>
-                        <div class="input-group">
-                            <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-person text-muted"></i></span>
-                            <input type="text" id="create-admin-username" class="form-control font-monospace" placeholder="ex: analista_suporte" required>
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label text-muted small fw-semibold">NÃ­vel de Acesso (Perfil RBAC)</label>
-                        <div class="input-group">
-                            <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-person-badge text-muted"></i></span>
-                            <select id="create-admin-role" class="form-select font-monospace">
-                                <option value="admin">Administrador (Acesso Total)</option>
-                                <option value="user">UsuÃ¡rio (Apenas Leitura/CriaÃ§Ã£o, sem ExclusÃ£o)</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label text-muted small fw-semibold">Senha (mÃ­nimo 6 caracteres)</label>
-                        <div class="input-group">
-                            <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-key text-muted"></i></span>
-                            <input type="password" id="create-admin-password" class="form-control font-monospace" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" required minlength="6">
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label text-muted small fw-semibold">Confirme a Senha</label>
-                        <div class="input-group">
-                            <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-shield-check text-muted"></i></span>
-                            <input type="password" id="create-admin-password-confirm" class="form-control font-monospace" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" required minlength="6">
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-success btn-sm fw-bold rounded-3">
-                        <i class="bi bi-check-lg me-1"></i> Criar Administrador
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<!-- MODAL: LOGS CONSOLIDADOS DO INCIDENTE -->
-<div class="modal fade" id="incidentLogsModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content border-0 shadow">
-            <div class="modal-header bg-dark text-white border-0 py-3">
-                <h5 class="modal-title h6 font-monospace d-flex align-items-center gap-2 mb-0">
-                    <i class="bi bi-terminal-fill text-warning"></i> Logs Consolidados do Evento <span id="modal-inc-id-badge" class="badge bg-secondary">#0</span>
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body p-3 bg-dark">
-                <div class="d-flex align-items-center justify-content-between mb-2">
-                    <span class="text-muted small font-monospace" id="modal-inc-timestamp">-</span>
-                    <button class="btn btn-xs btn-outline-light font-monospace rounded-2" onclick="copyIncidentLogs()"><i class="bi bi-clipboard me-1"></i> Copiar Logs</button>
-                </div>
-                <pre id="modal-inc-raw-logs" class="p-3 rounded bg-black text-light font-monospace mb-0" style="max-height: 400px; overflow-y: auto; font-size: 0.82rem; white-space: pre-wrap; word-break: break-all;"></pre>
-            </div>
-            <div class="modal-footer bg-light py-2">
-                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Fechar</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- MODAL: MITIGAÃ‡ÃƒO DIRETA SOAR -->
-<div class="modal fade" id="incidentMitigateModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content border-0 shadow">
-            <div class="modal-header bg-danger text-white border-0 py-3">
-                <h5 class="modal-title h6 fw-bold mb-0"><i class="bi bi-shield-lock me-2"></i>Aplicar MitigaÃ§Ã£o SOAR ao Incidente</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body p-4">
-                <input type="hidden" id="mitigate-inc-id">
-                <div class="mb-3">
-                    <label class="form-label small fw-semibold text-dark">Alvo para Bloqueio / MitigaÃ§Ã£o:</label>
-                    <input type="text" id="mitigate-target-input" class="form-control font-monospace" placeholder="ex: IP ou email@domain.com">
-                    <small class="text-muted">Informe o IP, e-mail do atacante ou domÃ­nio a ser submetido Ã  regra SOAR.</small>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label small fw-semibold text-dark">Tipo de AÃ§Ã£o SOAR:</label>
-                    <select id="mitigate-action-type" class="form-select font-monospace">
-                        <option value="block" selected>ğŸš« Bloqueio Total (Reject / Postfix Rule)</option>
-                        <option value="spam">âš ï¸ Marcar como SPAM (SpamAssassin Rule)</option>
-                        <option value="whitelist">âœ… Whitelist (Permitir Remetente LegÃ­timo)</option>
-                    </select>
-                </div>
-            </div>
-            <div class="modal-footer bg-light py-2">
-                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-sm btn-danger fw-semibold px-3" onclick="submitIncidentMitigation()"><i class="bi bi-shield-check me-1"></i> Executar MitigaÃ§Ã£o</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- MODAL: REGISTRAR AÃ‡ÃƒO / NOTA MANUAL -->
-<div class="modal fade" id="incidentNoteModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content border-0 shadow">
-            <div class="modal-header bg-primary text-white border-0 py-3">
-                <h5 class="modal-title h6 fw-bold mb-0"><i class="bi bi-journal-plus me-2"></i>Registrar AÃ§Ã£o / ObservaÃ§Ã£o no Incidente</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body p-4">
-                <input type="hidden" id="note-inc-id">
-                <div class="mb-3">
-                    <label class="form-label small fw-semibold text-dark">AÃ§Ã£o ou ProvidÃªncia Realizada:</label>
-                    <textarea id="note-action-text" class="form-control font-monospace" rows="4" placeholder="Descreva as aÃ§Ãµes de anÃ¡lise, bloqueio manual ou verificaÃ§Ã£o do evento..."></textarea>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label small fw-semibold text-dark">Atualizar Status do Incidente:</label>
-                    <select id="note-status-select" class="form-select font-monospace">
-                        <option value="Pendente">Pendente</option>
-                        <option value="Em AnÃ¡lise" selected>Em AnÃ¡lise</option>
-                        <option value="Mitigado">Mitigado</option>
-                        <option value="Resolvido">Resolvido</option>
-                        <option value="Ignorado">Ignorado / Falso Positivo</option>
-                    </select>
-                </div>
-            </div>
-            <div class="modal-footer bg-light py-2">
-                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-sm btn-primary fw-semibold px-3" onclick="submitIncidentNote()"><i class="bi bi-check-lg me-1"></i> Salvar AÃ§Ã£o</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- CHANGE ADMIN PASSWORD MODAL -->
-<div class="modal fade" id="changeAdminPasswordModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title text-dark d-flex align-items-center gap-2">
-                    <i class="bi bi-key-fill text-warning"></i> Alterar Senha de Administrador
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <form onsubmit="submitChangeAdminPassword(event)">
-                <div class="modal-body">
-                    <div id="change-admin-password-alert"></div>
-                    <input type="hidden" id="change-admin-id">
-                    
-                    <div class="mb-3">
-                        <label class="form-label text-muted small fw-semibold">UsuÃ¡rio</label>
-                        <input type="text" id="change-admin-username-display" class="form-control bg-light font-monospace" readonly>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label text-muted small fw-semibold">Nova Senha (mÃ­nimo 6 caracteres)</label>
-                        <div class="input-group">
-                            <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-key text-muted"></i></span>
-                            <input type="password" id="change-admin-password" class="form-control font-monospace" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" required minlength="6">
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label text-muted small fw-semibold">Confirme a Nova Senha</label>
-                        <div class="input-group">
-                            <span class="input-group-text bg-light border-light-subtle"><i class="bi bi-shield-check text-muted"></i></span>
-                            <input type="password" id="change-admin-password-confirm" class="form-control font-monospace" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" required minlength="6">
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-warning text-dark btn-sm fw-bold rounded-3">
-                        <i class="bi bi-check-lg me-1"></i> Salvar Nova Senha
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<!-- FORCED MFA SETUP MODAL (ObrigatÃ³rio no Primeiro Acesso) -->
-<div class="modal fade" id="forcedMfaModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content shadow-lg border-0 rounded-4">
-            <div class="modal-header bg-danger text-white rounded-top-4">
-                <h5 class="modal-title fw-bold d-flex align-items-center gap-2">
-                    <i class="bi bi-shield-lock-fill fs-4"></i> MFA ObrigatÃ³rio no Primeiro Acesso
-                </h5>
-            </div>
-            <div class="modal-body text-center p-4">
-                <div class="alert alert-warning border-0 small text-start mb-3">
-                    <i class="bi bi-exclamation-triangle-fill me-1"></i>
-                    <strong>AtivaÃ§Ã£o de SeguranÃ§a Exigida:</strong> Por polÃ­ticas corporativas de acesso externo, vocÃª deve ativar o autenticador (2FA/MFA) antes de acessar o painel.
-                </div>
-                
-                <p class="text-muted small mb-2">Digitalize o cÃ³digo QR abaixo com o aplicativo <strong>Google Authenticator</strong> ou <strong>Authy</strong>:</p>
-                
-                <div id="forced-qr-wrapper" class="p-3 bg-white rounded-3 d-inline-block border shadow-sm mb-3">
-                    <div class="spinner-border text-primary" role="status"></div>
-                </div>
-
-                <div class="mb-3 text-start">
-                    <label class="form-label small text-muted fw-semibold">Chave de ConfiguraÃ§Ã£o Manual:</label>
-                    <div class="input-group">
-                        <input type="text" id="forced-mfa-secret" class="form-control bg-light text-primary text-center font-monospace fw-bold" readonly>
-                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="navigator.clipboard.writeText(document.getElementById('forced-mfa-secret').value); showAlert('Chave copiada!', 'success');"><i class="bi bi-clipboard"></i> Copiar</button>
-                    </div>
-                </div>
-
-                <form action="javascript:void(0);" onsubmit="submitForcedMfa(event); return false;">
-                    <div class="mb-3 text-start">
-                        <label class="form-label small text-dark fw-semibold">Digite o cÃ³digo de 6 dÃ­gitos gerado no app:</label>
-                        <input type="text" id="forced-mfa-token" class="form-control text-center fs-4 font-monospace border-primary" placeholder="000000" maxlength="6" required autocomplete="off">
-                    </div>
-                    <div id="forced-mfa-alert"></div>
-                    <button type="submit" id="forced-mfa-submit-btn" class="btn btn-success w-100 py-2 fw-bold rounded-3">
-                        <i class="bi bi-check-circle-fill me-1"></i> Validar e Entrar no Painel
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- DNS DETAILS MODAL -->
-<div class="modal fade" id="dnsDetailsModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title text-dark fw-bold d-flex align-items-center gap-2" id="dnsDetailsModalTitle">
-                    <i class="bi bi-shield-check text-primary"></i> Detalhes do Registro DNS
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="mb-2">
-                    <label class="form-label text-muted small fw-semibold">Valor do Registro:</label>
-                    <textarea id="dnsDetailsModalContent" class="form-control font-monospace p-3 bg-dark text-success" rows="8" readonly style="resize: vertical; font-size: 0.85rem; text-align: left !important;"></textarea>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Fechar</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- EDIT VISUAL SPAM RULE MODAL -->
-<div class="modal fade" id="editVisualRuleModal" tabindex="-1" aria-labelledby="editVisualRuleModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-lg">
-        <div class="modal-content shadow-lg border-0 rounded-4">
-            <div class="modal-header bg-light rounded-top-4 border-bottom">
-                <h5 class="modal-title fw-bold text-dark fs-6 d-flex align-items-center gap-2" id="editVisualRuleModalLabel">
-                    <i class="bi bi-pencil-square text-danger"></i> Editar Entrada da Lista de Acesso AntiSPAM
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
-            </div>
-            <form id="edit-visual-rule-form" onsubmit="saveEditedVisualSpamRule(event)">
-                <div class="modal-body p-4">
-                    <input type="hidden" id="edit-rule-old-raw">
-                    
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-5">
-                            <label class="form-label text-dark small fw-bold mb-1">ClassificaÃ§Ã£o / AÃ§Ã£o:</label>
-                            <select id="edit-rule-action" class="form-select form-select-sm fw-semibold" required onchange="handleEditTargetChange()">
-                                <option value="blacklist_from">ğŸš« Bloquear (Blacklist)</option>
-                                <option value="spam_from">âš ï¸ Marcar como SPAM</option>
-                                <option value="whitelist_from">âœ… Liberar (White List)</option>
-                            </select>
-                        </div>
-                        <div class="col-md-7">
-                            <label class="form-label text-dark small fw-bold mb-1">EndereÃ§o, DomÃ­nio ou PadrÃ£o Alvo:</label>
-                            <div class="input-group input-group-sm">
-                                <span class="input-group-text bg-light text-muted"><i class="bi bi-at"></i></span>
-                                <input type="text" id="edit-rule-value" class="form-control font-monospace fw-semibold" placeholder="Ex: *@spammer.com, baduser@domain.com ou IP" required onkeyup="handleEditTargetChange()">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-6">
-                            <label class="form-label text-dark small fw-bold mb-1">Origem do Cadastro:</label>
-                            <select id="edit-rule-origin" class="form-select form-select-sm">
-                                <option value="manual">Manual / Operador</option>
-                                <option value="incident">Incidente de SeguranÃ§a</option>
-                                <option value="spam_analysis">AnÃ¡lise de SPAM</option>
-                                <option value="monitoring">Monitoramento</option>
-                            </select>
-                        </div>
-               xœÌYùSÙ}G€T€B€„h8b¸AÜ0\‰$8¤™¦afzèî3âĞ.ÛU‰'®r¶¶²ÙxÄv¹\Éf½önÙ©T-kïåÕÚ¬w³VòSÊ®JUøò>ó¾t7·¼qUBõñ®~ïû¾ßÏ÷óı¾Aè¯Å#ßÜ~QÓZínÅïxõö6›pÀ_‹_tIş­¼Špğ]Šè¨.
-Z@ôûï²Ã¥ø=BÀå¨²·ë¢Ö(ŒIóªØÔRûêµ,âÅVrû$÷¢+jË²îö	!³8Kl&9
-ë»çrÄÚí‚ILhr)» *~VçkØÙÓj—<²îPÃ~É!ºuùdb£%Ï,¾[e|qŞn¨K“2TfÇ÷Zq/9ø$ö6'«ˆBPÆCbÀ©il-9ødZ®`jŞÈİÔµwŸÅv5éKBjPa[V„
-áZXÓe¯ì¡‚Ã‘EXà&Ç;«J¢¦íÛ¦u
-ÁZqh»ò‹nÉÇ¤’˜Éz"MB§_Y
-K²"hŠ_vËºèQ„¢
-¢.²vÁ#	!Ÿ¬ùäàü>*ù¿Õê°K“Ô{âÆ÷7^•4¡?¨KjPÔşZ*º¤}Y¥NÈÌÕta|¸K¸XUİXùeTwÁáºeq>¸ñ
-Ã‹[õxd¶Óï)‚Ã±ÏŒPøöxØKl1§¨z×¼Ã/ÏûtÁ¥¨Ll!ä¨a,z$+qMÇ4¯Il§LıÑƒlg%>2i6/Ó”# -ÄÔÄí¶—ŒŒ t1"ÙÛ\L‹~YÓïxU% ”vx”€”•r·8Ìû÷Ù¿GÒÜö6Âº(èŠGÑv©R@Ò%†ÆõLÃJ`ãÇXèpyÒf«(Ñïğ*Xª©ÿPÔQmhŞ¥èºpÔî‡W˜õ	µ¼b˜Õ¥v›ãµ€iV;ƒ.:\Ó‰™ìm]bĞ-ùEµ¥‚Oú$ËkaW@&·‰­$2v‡ÚÙRPü.Á<bp;çRmáÄ](r0AÈÆ„²à’·bÒ¼@-r›0.úï‰ªàô3'ìcÄıö¹‡[*àğf›e·ü8æ³ƒÃİÎ&Áy£»bx¬ß)ôİ=ãİ7Fú»œ_Ûxv˜Õ…±«cÎqáRÿĞ+õw;Y[÷°00Üå(ïê-‰yø.ô^ÑCU3Uw‡C~IŒRĞE—ÌÔiµÃÉDU9‹ú%+º÷G±€ÌÇúdG
-2BTÃ™b7‚™Cù¦vKÅá†©’‡Z#~‹!wÏ îdšE›eØ³£Ò€ÃNØ=‰O=Ü‘b,ã›eƒŸ1‡®„µæÔÌÓöÂW‹¯nûÄº¬û%Ÿ^ÍQ/x^¿Dæ²A[" Ñ…y1Äü—qZåşfáŞÇ§v¢Ú/‡\
-chJù¶D5È0d©#¤;±Âl†°7¯Ê¦¡Hè“çe)(ßy¨`m±V.9ƒº<>â,Ùö¾º=Tsß0iMŒ×ÿ¾4cÁc«½WrûD»ÙË÷rÃ]p)(\{±¥u°è—T]ˆ=·Ç<‚_D;À¾±d-ºY‡KÒ—%)¸#^Û´¯öœ•‡aï°óÏ|ÉA¯âpËª›A<¶PH•±èƒÕ¶„ã*#Q?3¦&°`Ì^JN·¤iÊ—É¾cİ<± ‰bëÂ,`X|ÇÁm«…ËKÍX|RUi^²­²8¥o¼¢Ê1dË&òËËYØÍÿîX×“ÄÕ½Ã‚Öö^câÊÄ{~Idì`” sx÷"ËW"’›i¢#Lú¸TòDf"U³FCƒTÆ
-#¢GUxeBM/mË«vS×Ù!qò@ÇS•eaşpïøNô-¾úı½…c‹-VıGö·Šn­z¯ªáK!™òXQôÊL§=Kav¦óó„R	dI¦î<ÆWÿdüÀóvN]–¬	‘GÓ£ø  FXXÅ5	5Õ•¡H³ Ü“T¯Ÿ¡1Ú$ˆa]i>lï[	4wF«$ä†S„LÕö’Ştvn(«SÇ\÷@âàšú_üñÿ- ¥«D]V"›ÿòÏìša·Ê‹'ù«¤¨}³¼Æ®Åb£È®LGM!{(\Á×3	wûØ;—÷Õ$\ã…ëÆğq£$.²Ç»ß7êg0èD¯¤—Dy¡|:şˆu9ãJ;×Èz=?ÿ»{å¼©eÚ³aö,œ´%ğV{ÙÇÁ^
-m‘]—³£¹#¬PwŞ:ï£ğwí­;F[äÈ^e÷©[Øa¿½'ƒ·-ÓçŸÿ(âï$cóŞÕZëÄ[ê³¤&,‘ §ØícwX2#ıw¢JªÁC´Î5J-ìîŠ¼2<ÑgtøÇK>ÿz¯Q]`wÓo¾§2Ù5vÿ¾µz•İ÷ÓŠV'iS7ßşnÕ:/gÏ5°çñÕÅ¦6c|"Öm"•¹Ø=Ÿ834œ
-Y'ufT£÷ö-'°Wwráğqr·@Gs*‡Ù‹&Ğğ÷Mv‹ÿdŒªã/›šõèÙ;s²§÷İë*„Ä)v—±»øKbwnX³í©hAëKdÏ[Glù)¬PRÖŸBÆfw«sZí 
-²±‡”|ö,àÊ<Ú2	´öİdğ÷q£ÅGú6®ª	ÌIİõéçm°\%ï¡ió`‘ –½kın¢U`O7e¦ÌÕ'¦â‹Nã³´’ıf_ñ9¨™*jqÑšÆ5h”ÔÓ{ïe‚¿ºŒ†S©ÚîáÀxçâÉ¦;QÈmØøQöaI·®Bÿ¶²TŒšÃVD ¶`³EÍ=²+ê.=¾ß±åóû `]fw»‹÷Â+¼ST:šæÙ{¼µñJ6HmfÏ0ï¿zî{ÖVd²Àyö™ãYìõÁÏUµöÅßsM’Å¡Ä¥(ŒºvÌûÆkh8V»SÌ}úú†|ñªu—¥üõ1ÉËõØ„¡Z·1€\ÆûÿùÒ·ÈUì^åÍW¬³BÚ›¼˜Ù¾Şr}HË«´öG;Wç¡ïëdî„ªÚŞù:{Ü•Ù#Îœ{æ˜õóxvŸhŒ\d/Cú‰²0„+78 lS¥ÃÓàP~£ÿ,í4Z@n0GJjé§ßámŸşbfÊÔKÙãgÀràÃê ,7 ÉvÀ¦	ıSÓ'ã@&í×ÀÁÙÅĞÑåM==õhNãeğÏÀÊ¬€i–ÑŞÇ_…+³Ä~6åô”œ›ğo_ãU««„öéC'
-ŠÀ
-]ñb6™zÊ!ıY)Lú[3İ¥"‘¿‹á5İ…ä}ZÌ§’Éÿû) %‡İâÅcã¦¶Æ7¹3&—¤eŞÓA´ä¢q^a[…cy1Rôñß8’£à“ôL^Å:pÌv7a½™7’˜	´ƒ$h2¾™ Á®ÓMü]XÎGîvÃWÀß
-ò­b\mHÌ>9–1ŞAäÒç#^teŒ¦æUë¼r<²Å÷Ğ‹Ëø~+÷ì ¶p„X`¯vœùğ+›<LÎåOxÀ—Æà©¦Ûom5ÉuE›œ=Ù…ÄÃO³»Û67CEŠ½b¹} ğHÁì¥«¶ô°Êp¶Î‚Ï|úÔ&÷°•Tr¡ş’.ÏA¾vŞ^r$n‹¼È|Fíöw›—¿²n´o|#ÎàAbñF¸…DJ#—£\-á&„Oƒ'¨8ì0f;–„NŞö>z±Šºû4·ãØ±ÊËGµ']j\Éëq®§
-ìçŒ)Æ§:!±	LsL•ø	b2<F½ÔCÊD“‹•63ìŒAûŒ`|¬Áª”¸2ØBnX£¤d¼ùœÑu½¿ ªµöâ$^øõŸã33´há½s‹5u@öLÉÈn«~õ{V€¸€lpÒ'pŠ™…á£ğhÏÜ)c¦€T• á*I‡^XyD%à.8Û\²ÊÏ¯~frÖÔîîEJfšNCX0Ş¿}Œy*PmƒKÂ ğtBåƒõ›œ(¬×mÛç›Ü«—±‚¤]Vğ»ÜÉÙ-¿’I¯c¡İ}%ìEåØTœÃÚ(_>O".¼ıÊàFvÀ6…nD3J@• Î·_œ6MÛSìË3*.¸éd_=ìéøXÚãnÀ„¿ÎÅoÅü‚_&ÉkMÄ¶R#f*éæm³…Ğb¸·¥¢Óæ/÷¹1Øôîı9XòÎLÁTäœG¦?Y±S7ó2ßº‰…GÎ•ŠıÖá@½m›Š—İ5kì5Æî,Ş2Ï_~J·Ú)÷‰‚>:2?~Îú5¿ı‡Nl¯;”µÓ™æT–1üìVRg4u!´­[g>a”ˆïaš¤j öĞñ¾õ“Õ.vUŒB¯à¤@1¨°4ŸC$i¼nNÄ®óşSdÄÙû.åcB¬ã´uÎUY ¼dÁ'ó–wh`vº°[3¤Õ	£–áŸ>Øİ(­-Ó+‹÷mŸá¬äOÉÙñÙ©µ"ìå,ÀÖëœúâÛÈj²ã~ÿúj›É¯³~ÿê·Ò“v|êúğÇ 
-qÉgß­@·mãON_ƒ7†ÁUm˜µù"®#åÃ2.n§ëuÍÉÅ±miD ^zïiö,D<Qø°ò%şvCt}|Ó8Slræ˜·Î[$«Ôg#€Á[^°\Mpÿ¤]¿{ı938_‡Ş±¡µ†Ìt£µÀUA>q¦şüåMòwp¨»aC O¤ï‰İ\“0wé»ß†xS7è	Ü5¢1O£;õN§¤£®c§ƒû*¶‡	2€	lô3D™I€57qj¸®Ùµí:n­ 8¦O›ƒ ß “Şá~€VŠ-e¼šyeÖ×RßÓ9Vó¬T™y¥&%lUBSÑg íŞ<ìî
-œ3Şè¹3kBí€zba0|rÄMøkÓ#‰5¤ôÜé)gªÔæ=äB;‰tŠĞ@WH“rá1€. b©¨¢]|ûyŞs^¼œ²i¸#¸+°‚ı86tX%{ó{Ğ Ğ=v©şıgdŠò*úÙ€¸1‘oôÑËø} ±n=Üå&Ü HĞD“iHµf0øcÑ˜Ş˜°®Î/t75úYÄ¤¾¬^€iáäbŞô1ÊNÂÊ‘¿|‰7P˜ ¯Ş”(˜EvbÑ¨uÉñcË3	;	iÓê¼”G=ü‡Mî}‰Y‘soşÙæƒ{!ú!N<ü	¤ƒF¢İÆ×N;>é‰
-ò4,œÇ›‹ÈÒ—{ƒ q$´7f9j•%_™¦á¿†[5¢súnYÂƒßüÜ…/ŞüKcè*ŒĞdTGËŞxšT–b±ÛIŠ]ƒ=—>øë7¶œ¥•€v”¢WŒ±À%ò<•5Oç¤ğ¦M™7,q“{ıb–#‡Œ%àœWb©^˜‘šÉàÚä©¡‘kC¬4V\ùÅ³¼±æúj>àf¿œjİ¤×g¡¹(åñO7_AÊè‡¥ò<’RÌ4Êæoq¬¦ŸGÈDÁÉÇß‰‡Qvı Å»)fö“Ó¸-½€ì¥ M±Xá5k7²ïKÉ“8âBµŞ¸ø(Ü8CÏñ1PIŞÛßŒ‡Q³wïÌXK­•’Îo”Œ‹XòÖ}aÚs™ˆÒØ:¢âü„·À>gÌÜ)nñ£±üÀ¹½ÚqäHçõ%8MvÇÊ}xB qm‡L{^càn «6!–PµBÛKP¼ìzµhŒ4Q3¼g.GïÖóz[Ú0RÁzH6Xf+ GÒV3,VÀÌ"†€Ë.baß;36[]°æûß„¢[h@}åv;$1’·€¦uŠàm 4ˆò˜Ø¸# ôI·Iğ3uá¹~px¥bšØ>~ÄüÁ1¥¦á¿^øéC$<¾!›¿æ×1Ÿ„&$P5ğ¼Jy >ğà­¿"Réá…à‰· ­¾!ê;UÚÊÍ¾°1a	<‘3Ë[PéÂäÇkÌÁà´£Ùñ‚ø¸×ÌCó¬‚ušÛuZ¢Ñ½5º¦[ZŒ‚Éhiç¦AıéœÑùÆk!-]üSñ„¿Y8>ûQ°ò@_™pÃ9úYºÍï<õ¤ZÏåUX¡ïi×Y|š÷Ş·èÇW~6Z	MŸ=_Öj—fËÈ­ºFD³•Uôê+ëu¥àà_½ŞJP Gœh|öj<Nºô£Qcâ*Â.ÆÃ§Ç>UEF-Cx3$Æz7û“!2"(|J°Ãœ«Ğèñ<ã¶SÑ ı@cûík8C½ù4¯"sÄ‚u·Ú õà£×ıÌøÒÕ‰ôÀà-ş¢ráNºÄq®s¦D‚ÉŞÿ
->g°ŠBp(¬¾õì ´7ì1·¿ó·ÃBs·B¤im>£·¾˜6uq…¼NB4Ñ—Ãfÿ¬µ03€OHºt²g3è% _>3qCôZ/ß±pÓh9ÄQpÆÂûOY{Ïî]NG¿UÒĞ{”–¼û2Z»¹lÖ_Ä¢?|lÿÉK;æcW	èz|Ğ÷ÖóˆO œ³š÷˜œÇôÛ¥3®Kœ¸@é°;ÒÌø8:6&Ğ»Cş   ÿÿ «‰­
+                 xœì}‰“×™ER×H%REQ¥'P$g¨Áœ$E‡#bf@r¤¹8R¤x©ô Íitƒİ9HJò±oU²G²ÉÆå²cKNâ=Ê•8¶wíì¦Råñ®½‡Om¼vv•TmUj·*Uáş	ù~ï½> 4€f†‡dôùï}÷ûŞ÷«ú7Xd]±íc1G]râ…’£f™]PtÒñşØĞXV5mNË˜%V*0ÅQ®•Tf©ŠÎpP¤wé}èÌ¢ës¦µòÅb
++Z¦£®|eåËæ«,¹¤f¨h*AaYÅf
+]ÿ¦J¿iE[2™fØbĞGU
+T:0Ø]j«nmHû³Ú‚Ûƒl|NW—şÄ-¥ÈrJ1ŞcZöXŒš¥¶–‰+G3;1©>ÍP­X´Šxeé’ã˜s–‹ê±˜8‰¹µ§ƒÑ7UŒA‡vÍ-ÆÓ¦Àµ‚æh9ÅQãi]ÉÌëšíÄ˜idt-3,v­D?Ãº™™?a™…D)«9íM47RóZ¤±´·é$ÏhVFWYA÷Æ†»µ!FÕĞÑHš…•¯šÙ=6Í…®ËvEK· ÅrQ±ÍÈ1˜YÅšoS­P¬„f"›+UË6#¿†€Íkªõ’„ëˆBîXØ5gº«,A/kÅ:Áv°›È¡ñ£kğˆ¼]ûş‹ñ8;¶ª,¯S?ÊŸM³,9:6;5Ãg“+ŸIŒN±v" EïÊÌuÔCÃ
+Ö³¾å(éx‘x›S²ªÀj»¨â¸n)‹1f™ºÊÃSz´–œQ¬,+Æ0;¯dÍEOÚ´²ªï‰€üuy«¢k9#®9jx)x¶Å®–l’ËœµÒ•xZuUÕàl¸Ÿ‹VÄÙ„´Iˆ]ˆH„ƒ‘Û{:Èm¸d.B!ZA#WşkÖd3Ê"£Ÿ„EübÁdİª“éüéuúhF·‹NƒİùCM´¡®d%ø'³—,«Yª£ Šlñâœ–+YŠ|†>ŠZ ™¢¦%dÓº¢ËÉhœ?Z=ìB®17KN8®s¦díæM·œ™’®Ú«æÓ™¼š™ï‘€g	‡	#XŠªR–TÖ>NwZì-­ XËUÂÎƒŒ­,¨k”HJÑ.¾ßõBŠ?êRHõŞ´
+œ×dsô'ª1‰ 3ªPi9ƒµ À¸û.Xì"½Û{8ÆlgÜ–¿ik×ÕÖÓuø ¥Jîk!=›¸UKŞVŠ[åê-ËÆÓ²D\wÒ¥ì&3êà§T’V;©Zd
+d–H+l$À´ ŞG•€’Í4!Sh$4/M¢ÕÉåU“ò‘øc×AÂ¢’‘U³hUÎ'ä\Ü$ìÓœåxoCòVTÙW¥ÑkÔc›ÍÙh&(wÍˆ)ºÈ÷¹Êä"•UIZ.dËğä]R—¤DVŒv£¤Ø$^û"VŞH´RªFFS™i“…j­¼_P‰ØR®Šú3f‘Üq›EØ„biÊè03|Y<˜1³êP—j,vóC´ÜV­-kZÑğêõmşñ0ÃÃ%›SZDñ¦AĞ^Û¥´CƒÄ»*É£‚Æ†RË6¡<Kdš1u§ón¨ìƒårV“õ9M!µ¨YdŸ	±5ª3Rl5%jWˆä‰1Ng\+vËVtÕr‚&|ğEf$
+X®i1õx!?•¦u%­êe2K\!*²Õ‚V¡³rä±K+ïYZ€xÚG‡¯œI%g:»ùûÍ«xšQ,9ñ±®b3^Ep‘
+¼$¶šw\æÌO$‚Ò`Uğ3a3Ÿ–Sk„–UMâÍÊ
+â/3—‹^–ˆdct„+êô“'ø«Ö±ØBAÑtTB:‚JÁR³ë¡æÜ}¸–R¼RhÓ‰Tê^F´yuym±ŞÏEª¹Óp±L³ï+ß®ôöõÜĞí”i;¬›M—£Ü©©Ôì½Œrù,©â¤³šÔÓõepy®ä¦Ñ®·ï•®úßûqC¸I³ ­pÍV=”ãÜdb"y/ã\VjYëŒp†RP[•¨7d›6-GaË©Óãİ®Á%êÔÌ=ÍŞT'¯ZÄßÖÕŠ¾P­¿¿çĞúbZ„G"ÛÜ¨aÂ´>QéªÇ˜ˆÕ\«…b^±5›œøVß±Ñ'eÏUÅÎ©u^©ğ§Æç4*lÎsvŞÒŒyØàÑü‘	2º¹{²“)6£_må½•úLz=Ìùœ¥,`æÍi¶–ÓÈõÍxÃ7ãÙ¸f”–ºØ´b)L)êT€…jÀp^xÎzw‚Ø7ŸYªDPî$<Ó;D¹+_áÏ‰¢ïBID¨t¡©FVbG—¢ã;Ñ3
+#iÊ»ğD‡¶xg¿©d«|Q½Û•Ø©XdÁÇ3˜E_Ôì2÷ŒJk©9ÅŠ0Q}Úåàîˆ^}V\¢h†Ã:<§›Åâ² Äjo>¡ °~:ÜĞ³î\×µ~åxûÊ¼ÈDk*›\ù*'uL¥ƒ=*ü0¥âcå+JM?sè\(Çú¦&D?ò®j7Ô"(`
+#oµêª1|
+îğWkM±ÔJôÚËFğ*¢ ÜéX•%áº\S¯µ‹æf‘„NF38o²‚éˆJMÀ—­0uAs tÅ*PSçİ&ÃEåÓÈü-ºg¬¼§ƒ÷ñHV™†Fep©H"ÑdgI$ŞyßµÄ­2Ïµ‡ŠÂo-I¦âÉ*o6ÁÆ"ÕZµ?»igpˆ=Ñ<Uöi²¬÷v)“Qm›»ûıÃJUP²„<]ˆİÁ>¥ ë ¬ì‹ıÓ¿ø>›$®®èÍ(õ!!‚êìø+A’›*ª.£ŸV²På¢‡Y„R§¥YÜŞŞâÒÑØP†´e„,ª‚„A.ß îÑaÓÍœMÊ§}[‰d}±(ÀäÃøıZcQuø‡OïIæIš³]T‰3­bõ2…õ±©ŒiY+¿od4Å^_ÄJeÃÀ´l‘n•Àº	Ã„Á ë!51;ÍT›,Ù•÷²$G>>˜ÕwğöaÖ—Øu–Ó¦ƒIàõa[ı„]Gn#v‰h]MÌa;Ê’ÂÚÆ‚¦w'
+Ê‚fw Ùpmz3Û*A%s£ªs£uc]²
+¡äIáöì_ƒĞÊ¶¡¨é,Ácá×»†1êÔíÃ®Y‚œâh$ÓVIÚWJ	fŒ§ò¦©qe¼×6Ó`åØ·ÉšÑÚ‚®´ 7¶DíYc/YYYÄOk²²(¯²ğh0YF8´Ô»VRt¾PÃ0rsÆöÍ29Šˆ«Ğ;áÊÒ(¢BäÙ2`U¸Ø¸…¡`!“c™Fn(ÔÚ 2wYÑZù=8+ªª‚í"õ0[ª6šJµM¾Ğ¤¾óìöÅÚÁGq¸‹IYùäÌØTŠ ‡¹¢Få•ì’bO_£¨¼º—¢í#oµè¥(ªf1àÊ¾Ë'UÛ‘DëÆÁüç‹ZLKãô;Íéw="êxĞ•\İ`íÂ³.x¤Œ-=ìLNÓğ	Ö‰	Æß·Kº/yXËÊ×-Mà)Áö»\§÷ŠÍZTxÇmUg¤S·Âë¡`•·?Ô±mçÍÅâaÊ§
+&Ì¬¢Grl‡ÇHñÅFUŞIsÁôP¡AÇùx#-ìI•ÒqøêYû°i:XìTd“ÊB|VI“&Z7è·äMÊ£/V¹pWÃÁ§e£ À²¾J®ÁxéZ `Î~ÜŠ–jıÆ4š˜İ”¦“ fX8¸ zC.ˆÃ7AèÎÅ•L†PÅ±ÑõÃl}<M'f.'û¸¨X9Õ9Û-Ş„ĞpßUÌ¿xĞj™	rËaI`9OËÚ<º÷‚÷‚¤×l^Ao¤­û‡­`„ÍŒ-øU‹‹Wkjùlç‹ãæ*¦ÉÊ\óåQé|Àò„„‹œ-ãÇ·eè»KzD­@”jM/‘W4„ó¶3Ãqèu½ldjr6‘bI.¹êqµ°†xúd€äAL)§å¦–øyõ¡4.r+#¢Iµô£¢—…+–X­:\²3J¹vÑ¨ó• ^ó>±æ/ºÚÄZÀÊè†=WWA®WN †cbì¨½B[®)‹¡iªN^o%yÏä#j²e5¹#*Şmˆ|ç
+bœ?ÊS»Ã±Ğb%‰ƒ]]]à€óêr©HïiÌ ÊÖÕsÑnßW«¦}lŸ8õˆı´™]Ş×Ìâ¹fVO¶¶Ğè«”³©8..§ªôöØĞ¬é`M–êAÏx‰Q	Âƒ³?X¡jQIÕL[DúAíw&z/şFÈ\›‚ã¼ú¤¥%°§Y¾%ĞÃ‚›Ş°Á¯#ö¿WVEeˆÑQ£,hÙ¬µLQn^U"Æ­ùïX-0'?46:ØM?-½ëAë%L«5kŸ!9ØÑz1ı)‚%»õ2ˆÄWª‰D«è”«5íåÚ3·ƒ©Í—Go41¨(¿)´tÀ«xƒÏ+›ÔÚA'‘^q,v(VÆ¥¤P°‹ËpºŒˆØ,8=ÆE|Ÿú“jhwTîÄ{zûb>ƒjfß Kœá	,Æl4IŠögVşM2EŠ6®²Ù™ÄØx}“šY?›D•Ñš¶¹ßbäØ¶µÍóĞĞtkVÏ	µ¡j(¼2!vÔ¬¥éyaD=\©0WŞT*ŠššÂ)ß§Ñ%„ÔrÅÁËÏãBƒ‡GÌ}ò3Ú
+„„°ğ Ú|IébWD!İ€]ë¡+ğGÃ}tMG6oKóÚ£‡&œ!àuRH<ˆ‹È1¨«°ôÔCçË1ô—_ä¿´øª,>ákÖÖ#†âO´‹©ÉNOèdcÓÑÌÀ@õ0 Å)8ÒÇÍş“ìºÜş€ã£`ş­w}œ­>;İ§LKY½ñç&“Xµôe“Í¨\VfWÑ¢„<^l*}UuVa¾%I[°T,ã›^…9©1æI—êfÓÊ2ô»Ù å•·ßş«15|oZƒ-Ün"4¥âÑÁn2á¥0—·Ü·8ã„‡dbj41ÎÚOšfNã$tá^cak¹csÖc²0§ğiì˜F$²t,MWÔXùb<«)„M,x" Lé©~1:gSı\ç¡
+AÑÁüÁò'ÍÓ¹D$E¥uÍŠÃb‰“6b@ï™õ'A™/ã®üÁ†4X/£ÁVı¹Á¬f4¯Ù¨6ÌA‘jàpº]˜e ÕršŒ˜ÌÊ×³ZÎt÷Š$JbÅ¤Ã—YÊ(¯0ÜòCÀÌ’÷ Xöî„'ş°2º#†””Å@‚—¢\×Äƒ7ı ¢,)…Ü6LÃLó‚k»'‚µ‹¼ãò­2S_zTlîz¬™(J7n@	´s«Ö”eÍUè•s×ÄUóÈò—R3<ÉäìÔìô@İç54{"{è…TÒ¨„/Æ.‹t²úÊUÚÑ¬iè!,ù€ˆcx»IæbÙ•¯æx0bNµ¨¹-CÍ1çU£1T);~ ş¢öş/Æ
+Ê’®9'ùZ.UqŒ9Ó¬Á'¢¬ú­ô¹Ôfj#Š‘!ŞªíãˆVaY@VÀ±£ãs
+œ:	x¯,Á¡#ğÒÀi˜™I&f“¤Ï!ó0MM¾65,…j#é™áÁ`#Äìš¢w›¸Ì(„€tËKİâÿôíÎu:()Xˆ³ Eh"‡¡úK+ó.§a ì=Õˆù]¾j¦ãZ˜ƒ§!“k–³U¤ñrÇ®©ºÉ¦©9,£iL9õš­êjÆñ»Áƒ¬zËåŒL>ZÉ¶ˆóXIAVE±¨/éEÅuı¬ƒf‘K/(z‰^¶tlˆèN`‡ˆ*á—a'šDsƒİâ¥È¥ŠÎÀK}E£"¼°·‹ñC[ëú’qÌ‰‰8w/uİ$¾îhµj/›V2óHŞÒ×Å†ù¡$GôŒª›ñçY»lAËÕªKÅõòŠBJ’\Ç†ú»X’.Z9b¢Ï&OX»¬}ˆõ÷0b?vƒ‰b9´.Ñ×ÙİÄNÆÒŠèæHGÑı˜É¥â˜3:\[F×MĞ±e@ãlFÍCôRèˆ…H`YuN34péy‹ªxˆÉ«Ù’®JfÒ$±—ŒÏDié×&Œl8mSA
+½yÒX†äëey“F§½‡íÿ#VH‰ı~‰ı¼D›Ùİ¿šBù…
+zh5…f‰‹,Cã.»•/Ù¬§o §E÷­¦`É§™E5;$Ç”à3k%ßªÉIÄİÚ>“õ&ƒ`£Æ¢zØ[Ï2¨o¸8[‹-¬Î]3~<B\ØàIí<„OˆTŸ#{9İ=xeÌJ‰,Æ³EZ÷¾
+È—¼iô3àb·—àµÛÎXZÑ±åoWq¹~Â÷È¦ªŸ\‰'[ŠÀÅ[
+±è]Cd—«~ê3€Js€»ÎtŒr™# 0ä~\]…Ã˜¤%Ü1¬}ªÈWÖ‰€ˆ ljM‡%i@U²4øz|›P11Ä%éò4Gˆº“ZõO:!8Dm K°à	_\TµwA%MÇÏq¦’ş!4Ê+‚wÙùZØVMb²©.f5Ei{øÚi7Ó)ŸévIğ@EÓw¿ØMvowš`ïîŞ£»Yå(ÙjÉ&"ş¢®b-)õ³««‹¿¡fò&Û'6ãüİ™Ã²§@c¾`_ã]‚”ÇûÉ'î+½¡u¨!›ÎtÛŒ´tïñË&",DˆL†ãf¤ƒ7µ¨Z°V!dÄ;//¹·U¦û˜ç•Ã˜9J:|ql}ŞßèÒ:;…‚8ëìª‘v-t©²Àı2¯™i(”Í%Y+³5ÖÌÃ4:5‘›lÊ³4jbúçŞó-%²šÌ]ånGÇÎjâ¦î'ĞZèOeüÆeï.DZ±b³f¡I#BÄ0ˆË ôÏì"¦Ô•Ô<fÍá0ª‚Q¶lÈY*¢9œĞt"–‰©JzXdÎmƒÀˆ‰ìÁ+ï-7c'u3­À4\?sp8ŒR!ù1 ×JTd]ˆ¸ÆrOß0Mğî%·Y€ÅÏó9`º#–`ak/
+ãc‰T!AÈl‡Ib\ø¬‰h¬’Ú@P´>“/snúi])\ÁYK°ÔÊq°<e&ñ
+'«+4D´†HÊªN¹Ğ0WLc©*7»¦ä,¥ïÄ‹»}Bn˜à’~>h<5½+ÛÅh²	Í²L«ÚXZY)P„3šc±şèªCjŒI”>U«³ë±Ø
+èó‚Ò%=€¾›MÌWêjÌ‡ˆ28ÈÁ\ÊÊ{–Á´°Õ€L;Şæ¯By¿n9Z—C¦J@Å7Hb`	1+ëd‰İøš6‚¼‰	h™—´FÁHX˜©°U>ca—¥é1¨ÂŒ¢-Õ¯—!ãƒÌŠì‡wJä³é“àâ¿ ˆö¤]Tõ<&²RdıYîËl Ã#¿ë¹L¢…uZ^,{¼a"ÒÚ
+Gù·U!ÔOåÁn1ŞÆñ&ÍÏÑÈÖmŸ¶4#£I¾uc[e±…›ÁgëwßØWr)mj´­b…È±z´š=Cz0óR³\ÂLÊa[¥GÙAa²åÈÜVµŠBd”|rUş}ßMSÍ3E6“ÄŸ¬ÄŸ"2—Ù
+œ2ğşy÷„‰ÉDì=8mÚÎœ¶äîÑÑµ.~HSéó4¡½„Æ»ÜÍR#-’xÇ$ùùëêÑœÉ×œÓİİ7®çÊ¶`çZx•ú2Œk¦Ÿ“v>><u®)Õ;H¤Í¥{ÏYÃãvF Mp‚1º ÙğÇÕW#£DF¤§º¥XA±IasnŠ«¦b'”´6å.pÕp—Õ*Ğ¼»ê5“'(ÕôåNvï˜½Óå›ÄÆõ:~§P­{œ¨M9œ>¾ş&¾ÏS ñp]¿“ ¾ã‰óäµj3ÉTrÖjØ÷ó©™ÑˆÒ‡çLKìş(8`rü`OOíç÷j^]ñ~|O32ÀËbrØrYÿQv:­½)[®%	-¡	&êF}KTäÑò­‹Šiú`»¯ÀhLÕQ,µBVByUQ,5ÆÀİ\:kc	Í«‰Â¨yÆHiïã=!k_²$;,“’§}.k“«>WÏ©†jù}—…6o¬ ñ‚’Ó2Aƒè¤
+—¤ ç¦å¨uÂlê¥œˆhGt²ÔV†<do Õwt¸ËzJXÁƒ°…Ol2¾Ór$¯FÄ#•I;½a©?g\yxV³µ´¦“ÈhzHÕå pp¥Çµ²ÖÍúĞÒ¨Ş×_Ò¾VBZäßBpŒ™³”9¤ƒ5ÜNŞ8öpAÇ5úÂ…†á>‘¯©Ô©ÄÁŞ¾@è«¼ÂÚåFL6Å±!™H<ˆ§ù~Ql|dæüô,™³¦‹–…ˆ_Ö>¬›‹sšo9ÌŸßè¡K”1Roœê¬2EfË¡“ÊCÁİÙŠ¬é­Èàş‡_ºë¢U]½N]Ç]•õ1Tğ#{ê<Å³lCÎ2]s==tÍO×œ4¿ë½sŞLÙŒ¿k_7õqöĞyÙ<²<­¨áÔb%›mÒIÇÓ2;w“ŸNN¬†Ø*Ö'a²¹hZlaå«V®¤+-™(›œé˜ÍÁÆ.asoµ6lBÒn	dE¿P=–í[u¡^"o>%0-²–|ut¢ÉU+Œ{ˆ¯¶˜I²á>![-îe^ÄşäŞ–.·ÇûÒCy3ìé„«@<t¡oî¦#D–ŞÃ>
+ÅYïk¦Û¨ª¤~Ò-¥Ø£pU3êsĞÊ¦E³˜ù[-g¬JÈX¦šG	PàÍ¨µæ%0:˜Í‚ŞÑbŒ‚bğ8åŠ‘,ö¦S*UÄ:!‰Ø1iêä®I2áõÌpbäŞA•¸HØÂ”­`	2çDY\¿x^E¹‰Ë‹ÇÊ‚ #m—ğç)#®t)¨ó3ßµ'Š*"ìÆUÍ)YJ7$­L_I8À’Kâ÷tuim]+[<qwâ¹p1¶óx‹‚É±)—ÌÖØ÷–“‰ºznXîÊ,ÃuÿVÓñï?ñ~èÇçŠŒj¨—Èkì]Š;<³šEÂ4²ŸşãKõJëŒ8À éC (vm}«Œ?~çÜjÕÕE·éH¸ºó!‘#Û‚"­Æ8Ô´6Ãìe`Qd»›zl|êd
+[d¥¦ÆÇF£S)6:ÅÆ&GÆF““d625¹O7R¤¬eŒ€¾š`/J@D4"à/{–qnI"µi3“ÿå“k8óï`i±*«œş—ØÅÓÕ¶M]ËrŸÙI¾9o ´h/_\Ë
+…°NéØĞîZŒp5¦+óÜˆÒÛHĞïy»¶¥D5}	AÉU-K+˜ùP9ZA%[ª@Ò1^O0Õ˜ò\²Ëf>Cã\×ğCeÌâòX€ÒÃVVÓ£Å´‰ıƒŒÎ,j2!US¼Œ_.ZjE÷-e‘'5.K*Œ¡L“¤¦-I¾àïŸ^P–ˆòñØ ;ĞÓS\:ÊÌ2çts1¾<ÀeMÖ{º÷Yjá(ã˜ç% &§-¥Ëìi÷óŒÿÄi<ôÌM[µìè,”KÕÚBô„šÉ×¡Í9¥€™›;‰ıp>=ÅFÇf’³	–šJÌD–,š£åSq‡#ĞV#TŒœ›ivÕb¥,±Klx"GA…‰¢Ø8^@R¤häC ˜Ì¥jõæâ¡s·µr9$:IÉ·sVÕ¡KÁ	H$ÂSÉëæµ’ªaù[``ZKOëöi–M#Ò†G§+0iSS”ÕJÖ3f Z$ã›î”KyGÉ(†çñÖïˆ=PÅUGË"¶¼ Kkï;´NÓluÇoV+šîNº’ŒYÀaæ¶‘58Æqu>³
+Ï‡ˆ`ù§/~î|Dû‰´Ï¨WQG·»JŠÍ”øf}M†ˆ´“ÿ¹/İúÖo"~†/‹MM'&X{Šn'l›º¦-ÖÀy‰Ø4üï?ÿ«ì÷”{]K‹Í¨„2|eì¸š[ù*©Gœs3\6ºt—ÈéµZò%*”"*ˆô¡!#cåBYfm¬ëO	æYÊ$Ñj3É“c©ÙlRİèf“S¤nL$&ÏD˜ÕtIó^V6ÊbW×WÛ¸j–,Ø¡^Şh1ÌîÂ^Ëe’ØÂ…ü‚T=Œ¡Öa˜wNãPGz<Ë\Ğ²2¬·?OñU–`wÃ^\ıˆ¢c„§ãé€)N±½}
+±IŒ±ò1yµ“¥]¹UP¬î¥y¦Íy;u¦Àg¥ù®ÒQr<Ş^¸{»ŠlÑ\ï£ëäbCŠ&’vG–±ÓªÈršÓÉKÈAæõ¯6]¢Y36ä5]ÄŒj›:a;•á6]ÈXÎà);H•GÄËN(ºÍW˜kXmşKe£ù
+]YÛ€Du9…¸ÖİL~k—ÄïTbò¤Õä:‘òšûùë-¤ûL….Ws÷UÅöŞÂWu'FîÎP©ê‘^ó)^EåLb„Ø©šÛZULğïM#û{Ñ·˜;Ø97„	£NJH}j¬¸«·Ê7àÎ†­¹ëá~®œu£•{l¶½rpÖ=\£™µ•wiÖ5f#”Óş2fãîÙˆ¾j•ÑRÅôÉå¶Çnœ˜šIòM@SÉÙ3ÓîV Sin9l¹*ò`‘¦­j–)ÃUï
+J­È¨Ù	ooPwØ>k™E±7¢–ñïóæ³¾ô.FêmÚNTúÅ00«J	Q=5×bºÇÖF[Ìã	­û	JìÃ 7ç*sKÛ6™ïÓK±á93ı%¤|ËÇfr~ªKtZëğK£qÓÕÊuˆ5œ)r‡Rl(GØH›¿+_QXrIËiÜæf 6©«¦ù„nšV‘§ X‰È{Lİ ­Òìdffå÷éÆ‚Ê3Ğk0= 6LåÑÊ}'İ4nS_~üÉ"_9EgH˜DÍX„ºñëé™»eïWÁr°iïªv•ØıGyØ
+İï	‹5öînÆrcî0màclZƒ«ahÉñó7–m`\EÜ]ÖÛx¨õÅ[1Áƒ·Ê¯FCY [5­./˜©kÑ"ì›¥f¶gÍL	«o»rª“ÔU/eÛ÷UA`_G÷ v%´4à†íûÄhe•U^Ü×ÉöÉ(Ó}Gë„S•ER­&DõuîÉîüc±«
+±7¾ˆ`ÁÔ²í=Ôª*7Ç	W?Î£4:NÉ2şG#]4‚àoE 
+®æ•'²	0d&ñšúÂÛĞçù¶À-mìÊEé4ŞØ·&÷Ó¡–™ssµ@ßÀ¶¬èMoR¨*^Éøå8‘[ÍÈêÅxoOHÅ°zı<£Y™ju€U k1•%>!iÔ\)`U[c/WÏC Û@cL±Ñälbl<jò‚¬aª2€7ï2ö‚¨ï°ï8ªVÖáY±¹p3úrÀP¶y1C¹z^åsprzÚÄÜu¾å¨á
+ZÓ®hÍ'Dt#+»°jf¸bG$’Eğš²ËTË)äÃ¾2àñZªÎ] ¾E*ª^±{GìòÂ8ö0]sØ‹Z‹QI?ÚôÌñ]ºÕÖÚîòıĞÏ¥4Ãƒ¹fÎŒ'#r-5«9g5›ÔOÄ|Õ£áè¤«Ùôrè;ã¸½V7MqÃµò,e·Ì›P]²yßB€¯ÚñCÑ˜jMØFc¬EÕÈhzÜ¾V"òp —I`'H’«\¼fyÉq¬õ¬ÆÔ@¢ÛÃjËB}E4=µç‚-¾Àá·°Ó1î”©Ã¤Ë£ójV@á€p³“~5\*b,jÌÛñÆñVV`MD«3wbSêşzså+rGŞƒ<ı-lTJJÍDøtËyüÆŠ:¯46ãÃHØ75‚f¼ãª,¦ío\M?Yú,³s¾s ò¦UÆé*™y„²^™³À	qºDMíÃîíÖW¶#:W^#D·å¢½°\·üÏÿ*Q}šOá·ó ]ÎnÇ"y~»;_YìôROuú[9!¬NfDhDD÷½°à”˜]+æ¾¬ f78©ö3(Nô)3^e¸EìÓÇ’Hê^½•¿É¥¶ÿ8p¸ ZXĞÉÒJ³ø5	€ıØt¥Î«Ë¥bË„ÚÑÎ½­#Ã­7)È_i¥§,-§b'6"¶¼Z«5©4-
+«mcŠĞØpm"¤¸È=9VËlÌ÷ÆZ•Y>1°:Ş‹´7Ë¶fÇ†Ü0H^új/QöİæSâX¤¼sœvĞÒ˜E˜rÎj¢Ö<Áv¸;@`Ş¢ædòØ·½^bj¯$ÁãªÊrV	æÇ/¥Í%o¶€×QÉ¡~,€âéz9ê€LNB‡ÇÇĞÃ°ÃÚ!
+‰‰É0¸Ã‚Ët¢Ayİ™äªâ\j¢Ô„É'·ºÙk|Å¶˜ìŠ€Yå¥*v¥~Yc/ø)ç-ÎÂbıSÄŠ‘Á‘Ìº–QÌkvÓü]UaÂ÷Ç`}Š½PEØ»İ*Pg5"5‡¥¦FØîŞ¾#5+ÔwÚjJÎXùº"ÁŒH£v	¼ 5^Şìç\ÂåœX"_ëÄëØé(8Oîg`ˆÄ—C|UKà{+ÍÛHÀQ–ÔØP¹qBzX`é("¤lìÛ’¸®ø»bZîò=î™u×ƒÖÊÿ³¨—#ÅÏGÉÍK»ƒ  m^“BÜ]å	øª†ÉP—ú)¢×$0JÄspÛC£äZÀÄ™Ñ±Ù©™±K²ÑdjôÌôøØˆ›… ‰¥‚3‰k›œ¥#$¾ÁŞÌl|j$1Ş5r¢q ”R"P–DÔ„Z'õMĞÑöÒzx:—ôÛéé¬Ì™êólvñ¡‹ŸQ<2­G­aiÆßéÍºç’B6×I RÅ¹§b/g!ÕÊö²Sd©†vİ5â:¬ÍÚ]WèÚnøÜÚ2Èæ}£M­ƒ¬V¾´@¿%»ÎøÖJ¯S./Dü´*9!*[è«…_ØLÎV‡ÎSìö¢Ó`ÚÂ§nûNõ–¸Zé|Ú‰‹±µK4K,ò$ùdYj›ÙÄÖİ¸Cjæc~WWíDšI®†‹/¾!i™ï÷ñÊ’ïéªByÜ!ù£ò•éêğÙG]QÕ´£XvPzŒÀ"® '¡)NfMŒi{™^UÍÌÈÉº„ÁÙÔ¤E?˜?T›ZüÃ5¦$Ÿ
+™z:i•Š|cõbs›%¯•È¦Ó…Bi–˜IwŠÉŠèñàz»`]­©FB©ş¾ğ„Rúî*Ğ‚}\ó<ÈÈ(nŒ@ëCö‚ôˆš“n]Æ! µJÃ¿QïZôC—nı÷ÿFŸ‹ôµÄáãâ§cï î]gô™ßçÒg{¼ı<ºçŞ¾¸é­SôûŒ¸×¿é5qğº÷xÊ;RæéÏ_|Å;
+=ºAœlíX]6Ş¬Îûlyîˆ8p^ŠÑß_ü‡….q¾t€şx¶D_*<Ş¶I\uşô_Ñ)»HŸ—'v.?3MŸ–ûÁïŠßo\ñ®-İwFœ¦ïo ‡c±ä6qmQ¾ş‹?Ø*6.L?ŒÎÏİ<,xÅ_lïøc›®É†<Aß<}Kª÷àƒşÃ¸ õãU|<XÚ²w4Hß†"N¦fOy7ôTÇ/~í„wz•¾÷Ç¡À¤ÏÌõëÁÓ“ô½¾õêŞ›çd§Î~ÿ½ŞwÄñÎË‡éïC7ç†¼ç7£Ş	²4}s›/N^4Îƒ…&¶õáî£è·öÀ8ıŒ>¼çmàÇãÕºÿé)ú‘8ïŠß³ôUVş‹÷ÔAñÓfíøà?Óïö›hû–‡òoÎ$Ê„ÄÄóôí¤ïàßô}¦d·…ÂP°Om¦¿oÜ×vø…Gè £sì9Øè{,qP=,Ø‰><òı}I<Ğ™e¸¶]"m¬º‚Óâ÷!ïJ^ÂÛûôÎ¢lš9´õù6Œ\¸#‹İ…) Ú·‚ïÍcô7ƒ‡¶ü6÷=z~ãŞ'ñÚ–m²ígOí{`íLË:½Ï„wd¹Ş—Yñ3â]xÚª]ı8p|xşñ+ñÓ¶¬à™Ã+°³â±Ş8	øië|O]FW 8ìª÷XÛ²ßGú,gö?[z´Óö‚¸¢¿ú
+0ÈºHßúîû‡/|]ÜTÌã9úßZùº1xì(ı-‰û'Ÿ{şèŞ”ï|ê¡ôó£ß{®÷Ø©ésrÄÄkËÔ·œûÎïõËÇQÛ•½À¹Ÿ½{“›îûÛo{¹_üüT¶#—lc“2Şh ˜ËŒÄıÿóşŞãĞKßwN‹Ë¯KEkÏŠÃí¯¾3øú¤½«'xyøfğ~}X÷¦^mşkôç-şlğK ‡}êÁàëéûè‘¥İôÆ°õÑÎ×å=üÑµ”‚Ò½ûÏŠŸû‡½+`n/¢ŒGÛÿ³ß×¶ıìO.÷áÒùá§ÀåÀû®Ã) eh3€ûç/<¾ÌäÕ×ÀƒwîŒ^¾%PÏÇC¸¼EƒÿŒ_éÙQğ‡åô‰ÿyã’ä~mæ“çµg6ıÏÏˆS4ş‘Ù‡Ğúâ£/íW‘Ùô9`Â‰ñ.´ş¢M¤’„ßÛ>¹to¿û@ı£{$õÙ;0|–òÿ÷	`ËÓôUv?˜òaxÿ „ø-AŒwlÙ~}ƒF+ItÃ+“£ C.íıé”Èñğ2øÉÖíâôêAgÚŞÚôÎQqQ6s“ìÁ€äÆ£5èóä€øí Z^:ì~k´rß8èí¥‚Í8yxóÎÇg¶¥Kæ2¶!/ùbzÛéÇvõ9âä¡MhËıxpI{ï_BÍÉ
+D@·! b}ñ§~ü+·„˜<}ù…Ù,ø_{Á{øüÀ›RŞ¶AÔ<|pï-Á=éÅ?IßÑ¶Ëå¡”½hÅâ«ã{î{éRûÉ¶­?A-S;Mğ,ĞÌÏ>qKPØÇ$	ıäKhéâe´ïUq	|)¾¹LòB3È{gèß›âøÃ¯¿ã]_ùõşY—G„7 HÙ’ä¤®¶é,¿”`1ğPpÜ+í¡-à¥ÇÏ'>øb¯¼}ÊÎÄÏ€;öÎ‰§^} ıÈ]#Ó‰w“X{Î+"µètm §~úEpªÍ™JÀ ¾	¬G+; Mv÷´ùzäğ†Ò^@-“hüàá P6tb,´Ãï€£l}iÛw?ëİz}ì¥eÇ;{ußâà¯ş%^óE‹}µô¨D½çæÑÔÇÆ5Èô0´ÛŞ?ûıíãfƒ'ı5ˆââÕ©ûAÑÙËOx%ÔŞMh\÷¼„áFyÚ’ˆûäK÷à6íÁö‹ÏşÈçYç«oÏKefàIÀîD¯¿ù¢Ì'6 U‡@’ PºÄ©SLº%EğófÛ/şıÃÇsëeÔ`²—@+Ğİ3?úÔ3«›#>K¸Î«ïuĞ÷4$0×Ğ©ñà} òËÏË&.yÇ¤(Å€¶È/$ˆ/% J°Îïñ‚?´É}ù]ŞIdzîÔ!Ø'7rµ'sşôÛôgß÷8]ˆ“’j}Œ=&/¢¤QqíÒ@2|n°ûŠ}áª¤¾“Üô­ë—1’W.¾tşÚ™ƒ¦®»6hçËâ÷³¨xú¹ıŞûôàãÀú¶2/fúß¦ŸúîWrâG—êÖ«R÷Yû8¾ı§Ÿ¾->Ğ~‡	toH*W¤Ö.mš'vx?ë*¼K’uA´½,ùQïHò{ÍÓPÕ€Ø“zç†ÏÕvtŸ\ÁG Z ‹Á
+‚Í€æ I¼îDŸçãcOl“ƒxézŒò]¯@Ô“h¾Ü'™ÄËĞä®Å
+Lbœ^¬†Œ„ê¬w¶M¿pĞîÌşváÆüõ¶ŸÃVÒyºâµ'ŞŞ‹¾<dÂè<ñ·¿­fç†üöï8*ézÇ?~ó·¶>PñjúÇ_¢@wüü½nÜn[ùçO¾j(LW¡Ô£»Åãæ%åSRdÜ?Ë³6‚Ÿ×ôgWĞ®Íc !€¯ıå'éïÈS<ÖuMüfĞt'uË³)n	Î‘–Yº</GåĞNHpğcŞ]p¹%\:òj×?|û³¾p~pG‡Ş>¼}«wõ¥t·¤‰§0Ô¿øÚ-ä£îŒ÷øfù¾änésîıñÛ€‘¸4
+öŞ5m¾Ï·F+á.­¤mŞNLî7Ñí(ğğ6à:úsH‹ç€¬Ïlƒœš:x4]f¤¦‚'NOÊW`Møòcâ) h²m°SœnåR~°ë…äğLÿO0J=Û_éäip«Y”|LûÄ.ôîçFïÎ•KÁFXÇ¢bpø‡—2ÿ†œ¥ÍGú%ĞŸ¹p^6çüş¶¹‡€¹€ÎfiEØ`¯HHj{ÒÔ£îí~UùşçÄgAµÆËÜòÈ¼«p/ê0[öİ/‚¾@ÏÆÔC?øtBEW¯tHŞø$ßé¾ÿÀÈºwJI wÓ‰² s[ j]D1àó^ñùÂl°vñÁí#Ş™t‹ø¬oÇ	 #ÔÂsó».<(5…Ç1Ê‘ú¾¸ ÅøêYU
+sÉ"‡Qér°ÊÔƒ‹7U2¤[Aâ=,õ¨ş§[‚ú6ï(L?÷İß|å¼ ı '~ø´YõŞNÄğJr™ig¶ â]âò^9Ò/ŸØ<(H	èM€³ÜlËæùø_¬àæ…·:7½û7œÆßı·Ş£71ŞééÎï|R‚ì‘`‰£		Ø·1ó×~ôï¾ãËQV‰h÷KéÅ9ö»  €%Z˜µ#'í¨ğR\ğÛ|ËÓo	ê?4¿#ş´ä"Xì¼ï‘¾«—ÁH}eğísOLN¿6IG3ûzşöÓâbÿë7_ ºÅ^~,ØÕ9´—÷>òáŞò¼ Ò±ÔµK¶RÙîÊ¾âC˜ÕÒ8-‡È8÷áï,I
+“Úàƒ+s•˜âk?O)S/Ğöı`›m’‹íy-xÚwûÃç`â´s6FAÆÛXé²x ÙõıßØˆAÎ>Z©±îœy÷ç]KÉûH®.õÖÿñ…E@œË'@Í¼©ø¿¿!®`|òu¨¸û>ø"$–œ$$^õ“„ô¼sD³óøë „Â‘·+Úú™ïfØÄªc€ö5€TözŸâ=écÍEàûöÅå·‰ó¡-SP¡eŞc]@èé-7lŒJş1dxÙnTœÿs‰flm§¤Ğ×üÁo ĞÇ€Ñ@õo¾*-	hŒ’ZÀ¦)Á‡À¶ )Jn|¼ ˜Wß”°(€/€0» q]ß˜ºÑ}ArĞø}¾Ã2¥ÿğÿıÂş
+Ï¿®ùŞÙˆ×Q
+Ç„
+V|¾)õ úø»ßû¼d*ÃÊÁA‰Çß jš”÷ØŒş•âc×À'¾$®ÆÉ
+¨ßw‚hOï<òCL$Aãs¾º+ØĞg~w0:ƒËËáFÍ‹#½3“Óû‡oyìá'ÿâ²wó;ß*Ú[M´ÿüF‰—@øÀîÔZe¯í ÃËÒ­ Ø¾z:ÈVToaN½ëë%¼ºë/K:_%âïÄU‰M?ÿ\ç(NGì¶mÏô¾&«Uœpn¼sp?xğŸ}û˜¼@õ$Ï€4~öäFXºÒitdóMT„>ìŞb¼úá'zå vB<Îx-F}gÇF“!AA+ BÃyğ{|^2Æ2«F²é iû»oÁ†úî'Å)4GTxğ!´zâƒoğGŞ›¾¨ŞÌ ®â¸¸òã?é¹zekÇ} §:TÙ~EŸQ‹)ÑaOñ½OO zSY¿û•¾Ã=~oÙÒÀÛ¹m'N€·œß}CR
+iFß…1û_ĞZG€f¾~ÓíŸ‚m¸l•
+ĞŸ~jöe<â<­Ê¹®ŠŠNoq?xÆÕ|"x÷ÙŠ§»¤éwSBè/¥Zò_“mŸ]nö{opé·ÿë÷+Ê£OØuj"ÿ½ÏA>á}âÏA˜zLí÷åÚs›g_”êpf—T37nfã&ù{\ûÿ   ÿÿ auô

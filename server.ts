@@ -2143,6 +2143,253 @@ Checks 12
   }
 
   // ===============================================
+  // 4.1 DASHBOARD ESPECIALIZADO: MÉTRICAS DE E-MAIL (RETENÇÃO 7 DIAS)
+  // ===============================================
+
+  interface DailyMailMetric {
+    date: string;
+    display_date: string;
+    short_date: string;
+    day_name: string;
+    received: number;
+    sent: number;
+    spam_blocked: number;
+    virus_blocked: number;
+    rejected_bounced: number;
+    total_processed: number;
+    spam_pct: number;
+    clean_delivery_rate: number;
+    avg_latency_ms: number;
+    hourly: { hour: string; received: number; sent: number; spam: number; bounced: number }[];
+    top_senders: { domain: string; count: number; spam_count: number; clean_pct: number; reputacao: string }[];
+    top_recipients: { domain: string; count: number; mailboxes_active: number; status: string }[];
+    spam_rules_triggered: { rule: string; description: string; hits: number; score_impact: number }[];
+  }
+
+  function initialize7DaysMailStats(): DailyMailMetric[] {
+    const stats: DailyMailMetric[] = [];
+    const now = new Date();
+    const dayNames = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+    const shortDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+    // Base mock profile representing the last 7 days with a realistic spam-drop trend
+    const baseProfiles = [
+      { rec: 1380, sent: 840, spam: 460, bounce: 54, virus: 16, latency: 360, spamDrop: 0 },
+      { rec: 1510, sent: 960, spam: 480, bounce: 46, virus: 14, latency: 345, spamDrop: 0 },
+      { rec: 1640, sent: 1080, spam: 410, bounce: 40, virus: 12, latency: 330, spamDrop: 1 },
+      { rec: 1780, sent: 1200, spam: 340, bounce: 36, virus: 9, latency: 310, spamDrop: 2 },
+      { rec: 990, sent: 470, spam: 260, bounce: 24, virus: 5, latency: 280, spamDrop: 2 },
+      { rec: 910, sent: 410, spam: 220, bounce: 19, virus: 4, latency: 275, spamDrop: 3 },
+      { rec: 1890, sent: 1260, spam: 195, bounce: 28, virus: 6, latency: 290, spamDrop: 4 }
+    ];
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      const isoDate = d.toISOString().substring(0, 10);
+      const dayIdx = d.getDay();
+      const prof = baseProfiles[6 - i] || baseProfiles[0];
+      const total = prof.rec + prof.sent + prof.spam + prof.bounce + prof.virus;
+      const spamRatio = Number(((prof.spam + prof.virus) / total * 100).toFixed(1));
+      const cleanRatio = Number(((prof.rec / (prof.rec + prof.bounce)) * 100).toFixed(1));
+
+      // Hourly pattern (24 hours)
+      const hourly = [];
+      for (let h = 0; h < 24; h++) {
+        const hourLabel = `${h.toString().padStart(2, '0')}:00`;
+        let weight = 0.01;
+        if (h >= 8 && h <= 18) weight = 0.07;
+        else if (h >= 19 && h <= 22) weight = 0.03;
+        else weight = 0.012;
+
+        const hRec = Math.round(prof.rec * weight + (Math.random() * 5));
+        const hSent = Math.round(prof.sent * weight + (Math.random() * 4));
+        const hSpam = Math.round(prof.spam * weight + (Math.random() * 3));
+        const hBounced = Math.round(prof.bounce * weight);
+
+        hourly.push({
+          hour: hourLabel,
+          received: hRec,
+          sent: hSent,
+          spam: hSpam,
+          bounced: hBounced
+        });
+      }
+
+      stats.push({
+        date: isoDate,
+        display_date: `${isoDate.substring(8, 10)}/${isoDate.substring(5, 7)} (${shortDays[dayIdx]})`,
+        short_date: `${isoDate.substring(8, 10)}/${isoDate.substring(5, 7)}`,
+        day_name: dayNames[dayIdx],
+        received: prof.rec,
+        sent: prof.sent,
+        spam_blocked: prof.spam,
+        virus_blocked: prof.virus,
+        rejected_bounced: prof.bounce,
+        total_processed: total,
+        spam_pct: spamRatio,
+        clean_delivery_rate: cleanRatio,
+        avg_latency_ms: prof.latency,
+        hourly,
+        top_senders: [
+          { domain: "gmail.com", count: Math.round(prof.rec * 0.28), spam_count: Math.round(prof.spam * 0.12), clean_pct: 95.8, reputacao: "Excelente (SPF/DKIM Válidos)" },
+          { domain: "outlook.com", count: Math.round(prof.rec * 0.22), spam_count: Math.round(prof.spam * 0.10), clean_pct: 96.2, reputacao: "Excelente (DMARC Pass)" },
+          { domain: "parceiro.com.br", count: Math.round(prof.rec * 0.18), spam_count: 0, clean_pct: 100.0, reputacao: "Confiável (Whitelist Ativa)" },
+          { domain: "suanotaemdia16.roxa.org", count: Math.round(prof.spam * 0.35), spam_count: Math.round(prof.spam * 0.35), clean_pct: 0.0, reputacao: "Bloqueado (Blacklist/DNSBL)" },
+          { domain: "neocomunicar1.com", count: Math.round(prof.spam * 0.25), spam_count: Math.round(prof.spam * 0.25), clean_pct: 0.0, reputacao: "Bloqueado (Blacklist/Bayes99)" }
+        ],
+        top_recipients: [
+          { domain: "empresa.com.br", count: Math.round(prof.rec * 0.72), mailboxes_active: 8, status: "Normal (99.8% Entregue)" },
+          { domain: "zrti.com.br", count: Math.round(prof.rec * 0.24), mailboxes_active: 4, status: "Normal (100% Entregue)" },
+          { domain: "meudominio.com", count: Math.round(prof.rec * 0.04), mailboxes_active: 2, status: "Normal (100% Entregue)" }
+        ],
+        spam_rules_triggered: [
+          { rule: "BAYES_99", description: "Classificador Bayesiano de SPAM > 99% de probabilidade", hits: Math.round(prof.spam * 0.42), score_impact: 4.5 },
+          { rule: "URIBL_BLACK", description: "Domínio ou link listado em Blacklists URI globais", hits: Math.round(prof.spam * 0.28), score_impact: 3.5 },
+          { rule: "SPF_FAIL / DMARC_REJECT", description: "Falha de autenticação de remetente SPF ou DMARC", hits: Math.round(prof.spam * 0.19), score_impact: 3.0 },
+          { rule: "FORGED_GMAIL_RCVD", description: "Tentativa de spoofing / falsificação de cabeçalho", hits: Math.round(prof.spam * 0.14), score_impact: 2.8 },
+          { rule: "MIME_HTML_ONLY", description: "E-mail sem conteúdo texto puro (somente HTML suspeito)", hits: Math.round(prof.spam * 0.11), score_impact: 1.5 }
+        ]
+      });
+    }
+
+    return stats;
+  }
+
+  let mailStats7Days: DailyMailMetric[] = initialize7DaysMailStats();
+
+  // GET Mail Stats (7-Day Retention Window & Aggregations)
+  app.get("/api/dashboard/mail-stats", (req, res) => {
+    const period = req.query.period as string || "7d";
+    const selectedDate = req.query.date as string || "all";
+
+    // Summary calculations across 7 days
+    const total_received = mailStats7Days.reduce((acc, d) => acc + d.received, 0);
+    const total_sent = mailStats7Days.reduce((acc, d) => acc + d.sent, 0);
+    const total_spam_blocked = mailStats7Days.reduce((acc, d) => acc + d.spam_blocked, 0);
+    const total_virus_blocked = mailStats7Days.reduce((acc, d) => acc + d.virus_blocked, 0);
+    const total_rejected_bounced = mailStats7Days.reduce((acc, d) => acc + d.rejected_bounced, 0);
+    const total_processed = mailStats7Days.reduce((acc, d) => acc + d.total_processed, 0);
+
+    const overall_spam_pct = total_processed > 0 ? Number(((total_spam_blocked + total_virus_blocked) / total_processed * 100).toFixed(1)) : 0;
+    const overall_clean_delivery_rate = (total_received + total_rejected_bounced) > 0 
+      ? Number(((total_received / (total_received + total_rejected_bounced)) * 100).toFixed(1)) 
+      : 100;
+
+    // Trend: compare first 3 days spam rate vs last 3 days spam rate
+    const first3DaysSpam = (mailStats7Days[0]?.spam_pct || 0) + (mailStats7Days[1]?.spam_pct || 0) + (mailStats7Days[2]?.spam_pct || 0);
+    const last3DaysSpam = (mailStats7Days[4]?.spam_pct || 0) + (mailStats7Days[5]?.spam_pct || 0) + (mailStats7Days[6]?.spam_pct || 0);
+    const spam_reduction_trend = Number((((last3DaysSpam - first3DaysSpam) / (first3DaysSpam || 1)) * 100).toFixed(1));
+
+    // Consolidate top sender domains over 7 days
+    const domainMap: { [key: string]: { domain: string; count: number; spam_count: number; clean_pct: number; reputacao: string } } = {};
+    mailStats7Days.forEach(d => {
+      d.top_senders.forEach(s => {
+        if (!domainMap[s.domain]) {
+          domainMap[s.domain] = { ...s };
+        } else {
+          domainMap[s.domain].count += s.count;
+          domainMap[s.domain].spam_count += s.spam_count;
+        }
+      });
+    });
+    const aggregated_top_senders = Object.values(domainMap).sort((a, b) => b.count - a.count);
+
+    // Consolidate spam rules triggered over 7 days
+    const rulesMap: { [key: string]: { rule: string; description: string; hits: number; score_impact: number } } = {};
+    mailStats7Days.forEach(d => {
+      d.spam_rules_triggered.forEach(r => {
+        if (!rulesMap[r.rule]) {
+          rulesMap[r.rule] = { ...r };
+        } else {
+          rulesMap[r.rule].hits += r.hits;
+        }
+      });
+    });
+    const aggregated_spam_rules = Object.values(rulesMap).sort((a, b) => b.hits - a.hits);
+
+    let specificDayData: DailyMailMetric | null = null;
+    if (selectedDate && selectedDate !== "all") {
+      specificDayData = mailStats7Days.find(d => d.date === selectedDate) || null;
+    }
+
+    res.json({
+      success: true,
+      retention_period_days: 7,
+      retention_policy: "7 dias de logs em disco (/var/log/mail.log rotacionados via logrotate & MariaDB/SQLite)",
+      selected_date: selectedDate,
+      summary: {
+        total_processed,
+        total_received,
+        total_sent,
+        total_spam_blocked,
+        total_virus_blocked,
+        total_rejected_bounced,
+        overall_spam_pct,
+        overall_clean_delivery_rate,
+        spam_reduction_trend, // e.g. -38.5%
+        avg_latency_ms: Math.round(mailStats7Days.reduce((acc, d) => acc + d.avg_latency_ms, 0) / mailStats7Days.length),
+        active_domains_count: virtualDomains.length,
+        active_mailboxes_count: virtualMailboxes.length
+      },
+      daily_history: mailStats7Days,
+      aggregated_top_senders,
+      aggregated_spam_rules,
+      specific_day_data: specificDayData
+    });
+  });
+
+  // POST Simulate Mail Traffic Inflow / Outflow
+  app.post("/api/dashboard/mail-stats/simulate", (req, res) => {
+    const { received = 25, sent = 15, spam = 4, bounce = 1, virus = 0 } = req.body || {};
+    const today = mailStats7Days[mailStats7Days.length - 1];
+    
+    if (today) {
+      today.received += Number(received);
+      today.sent += Number(sent);
+      today.spam_blocked += Number(spam);
+      today.rejected_bounced += Number(bounce);
+      today.virus_blocked += Number(virus);
+      today.total_processed = today.received + today.sent + today.spam_blocked + today.rejected_bounced + today.virus_blocked;
+      today.spam_pct = Number(((today.spam_blocked + today.virus_blocked) / today.total_processed * 100).toFixed(1));
+      
+      // Update current hour in hourly distribution
+      const curHour = new Date().getHours();
+      if (today.hourly && today.hourly[curHour]) {
+        today.hourly[curHour].received += Number(received);
+        today.hourly[curHour].sent += Number(sent);
+        today.hourly[curHour].spam += Number(spam);
+        today.hourly[curHour].bounced += Number(bounce);
+      }
+    }
+
+    addAuditLog(
+      "MAIL_STATS_SIMULATE",
+      "Simulação de Tráfego de E-mails",
+      { received, sent, spam, bounce, virus, updated_total: today?.total_processed },
+      "normal",
+      req
+    );
+
+    res.json({
+      success: true,
+      message: `Simulação de tráfego injetada com sucesso! +${received} Recebidos, +${sent} Enviados, +${spam} SPAMs barrados.`,
+      today_stats: today
+    });
+  });
+
+  // GET Export CSV of 7-day Mail Statistics
+  app.get("/api/dashboard/mail-stats/export", (req, res) => {
+    let csv = "Data,Dia da Semana,Total Processado,Recebidos (Inbound),Enviados (Outbound),SPAM Bloqueado,Virus/Malware,Bounces/Rejeicoes,Taxa de SPAM (%),Taxa de Entrega (%),Latencia Media (ms)\n";
+    mailStats7Days.forEach(d => {
+      csv += `${d.date},${d.day_name},${d.total_processed},${d.received},${d.sent},${d.spam_blocked},${d.virus_blocked},${d.rejected_bounced},${d.spam_pct}%,${d.clean_delivery_rate}%,${d.avg_latency_ms}ms\n`;
+    });
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="relatorio_trafego_emails_7dias_${new Date().toISOString().substring(0,10)}.csv"`);
+    res.send(csv);
+  });
+
+  // ===============================================
   // 4. SERVIÇOS, MÉTRICAS DE HARDWARE & LOGS
   // ===============================================
 
