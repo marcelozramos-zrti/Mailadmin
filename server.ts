@@ -457,8 +457,6 @@ whitelist_from *@zrti.com.br
 blacklist_from *@spammerdomain.net
 blacklist_from contato@sugardns.net
 blacklist_from *@suanotaemdia16.roxa.org
-
-# Regras de Demonstração e Auditoria de Duplicidades
 blacklist_from *@sensoebs.com
 blacklist_from @sensoebs.com
 blacklist_from *@residuos3.com
@@ -467,38 +465,63 @@ blacklist_from *@neocomunicar1.com
 blacklist_from *@uraprods.com
 
 # ==========================================================
-# BLOQUEIO ZRTI: PHISHING PEDAGIO / RECLAME AQUI (V2 - Sem Acentos)
+# INTELIGÊNCIA SPAM ZRTI: GOLPES, PHISHING E FRAUDES
 # ==========================================================
-
 # 1. Pega palavras no Assunto (Subject) ignorando acentos
-header   LOCAL_GOLPE_ASSUNTO Subject =~ /ped.gios?|vi.ria|rodovi.rio|pend.ncia/i
-score    LOCAL_GOLPE_ASSUNTO 15.0
-describe LOCAL_GOLPE_ASSUNTO ZRTI - Bloqueio de Assunto Phishing
+header   LOCAL_GOLPE_PEDAGIO Subject =~ /ped.gios?|vi.ria|rodovi.rio|pend.ncia/i
+score    LOCAL_GOLPE_PEDAGIO 15.0
+describe LOCAL_GOLPE_PEDAGIO ZRTI - Phishing de Notificacao de Pedagio / Rodovia
 
 # 2. Pega nomes falsos no Remetente (From) ignorando acentos
 header   LOCAL_GOLPE_REMETENTE From =~ /Regulariza..o|Pend.ncias|Cobran.a|ReclameAqui/i
 score    LOCAL_GOLPE_REMETENTE 15.0
-describe LOCAL_GOLPE_REMETENTE ZRTI - Bloqueio de Remetente Phishing
+describe LOCAL_GOLPE_REMETENTE ZRTI - Phishing Remetente Falso Reclame Aqui / Cobranca
 
-# 3. Pega o dominio de Reply-To hackeado (A falha deles)
-header   LOCAL_GOLPE_REPLYTO Reply-To =~ /vidracariarubi\\.com\\.br/i
+# 3. Pega o dominio de Reply-To hackeado / sequestrado
+header   LOCAL_GOLPE_REPLYTO Reply-To =~ /vidracariarubi\.com\.br/i
 score    LOCAL_GOLPE_REPLYTO 15.0
-describe LOCAL_GOLPE_REPLYTO ZRTI - Bloqueio de Dominio Sequestrado
+describe LOCAL_GOLPE_REPLYTO ZRTI - Bloqueio de Dominio Sequestrado em Reply-To
+
+# 4. Phishing de Comprovantes PIX e Boletos Fraudulentos
+header   LOCAL_GOLPE_PIX_FATURA Subject =~ /comprovante.*pix|fatura.*vencida|boleto.*atualizado|duplicata.*vencendo/i
+score    LOCAL_GOLPE_PIX_FATURA 12.0
+describe LOCAL_GOLPE_PIX_FATURA ZRTI - Phishing de Boleto Falso e Comprovante PIX
+
+# 5. Phishing de Falsa Notificacao de Assinatura DocuSign
+header   LOCAL_GOLPE_DOCUSIGN Subject =~ /docusign.*assine|documento.*pendente.*assinatura|contrato.*aguardando/i
+score    LOCAL_GOLPE_DOCUSIGN 15.0
+describe LOCAL_GOLPE_DOCUSIGN ZRTI - Phishing de Falsa Assinatura DocuSign / Contrato
 
 # ==========================================================
-# BLOQUEIO ZRTI: OFUSCACAO E ERROS DE ENCODING (Spammer Amador)
+# INTELIGÊNCIA SPAM ZRTI: LINKS NO E-MAIL E ENCURTADORES
 # ==========================================================
+# 6. Links Encurtados e Redirecionadores Suspeitos no Corpo
+uri      LOCAL_LINK_SUSPEITO /(bit\.ly|tinyurl|is\.gd|cutt\.ly|t\.co|wa\.me|goo\.gl)\/[a-zA-Z0-9]+/i
+score    LOCAL_LINK_SUSPEITO 12.0
+describe LOCAL_LINK_SUSPEITO ZRTI - Link Encurtador ou Redirecionamento Suspeito no Corpo
 
-# 1. Pega multiplas interrogacoes seguidas no Assunto (Falha de charset do spammer)
-header   LOCAL_ASSUNTO_QUEBRADO Subject =~ /\\?{2,}/
+# 7. Links com Endereco IP Direto no E-mail
+uri      LOCAL_LINK_IP_DIRETO /https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/i
+score    LOCAL_LINK_IP_DIRETO 14.0
+describe LOCAL_LINK_IP_DIRETO ZRTI - Link com Endereco IP Direto no E-mail
+
+# ==========================================================
+# INTELIGÊNCIA SPAM ZRTI: OFUSCAÇÃO E CARACTERES ESTRANHOS
+# ==========================================================
+# 8. Multiplas interrogacoes no Assunto (Falha de charset)
+header   LOCAL_ASSUNTO_QUEBRADO Subject =~ /\?{2,}/
 score    LOCAL_ASSUNTO_QUEBRADO 5.0
 describe LOCAL_ASSUNTO_QUEBRADO ZRTI - Assunto com erro de codificacao (??)
 
-# 2. Pega pontuacao/simbolos repetidos no meio de letras no Remetente (Ofuscacao ex: S.e.r.v.i.c.o)
-header   LOCAL_REMETENTE_OFUSCADO From =~ /[a-z][._\\-*&%][a-z][._\\-*&%][a-z]/i
+# 9. Remetente com Caracteres Ofuscados (ex: S.e.r.v.i.c.o)
+header   LOCAL_REMETENTE_OFUSCADO From =~ /[a-z][._\-*&%][a-z][._\-*&%][a-z]/i
 score    LOCAL_REMETENTE_OFUSCADO 5.0
 describe LOCAL_REMETENTE_OFUSCADO ZRTI - Remetente com caracteres ofuscados
-`;
+
+# 10. Caracteres Invisiveis, Zero-Width e Homografos
+header   LOCAL_CARACTERES_ESTRANHOS Subject =~ /[\u200B-\u200D\uFEFF]|[\u0400-\u04FF].*[\u0041-\u007A]/
+score    LOCAL_CARACTERES_ESTRANHOS 10.0
+describe LOCAL_CARACTERES_ESTRANHOS ZRTI - Caracteres estranhos, zero-width ou homografos no assunto`;
 
   let virtualMainCf = `# /etc/postfix/main.cf - Debian 12 Production Config
 # Gerenciado via MailAdmin Suite Web
@@ -769,11 +792,20 @@ Checks 12
 
   // Gestão de Administradores (vmail_admins)
   app.get("/api/auth/admins", (req, res) => {
-    res.json({ success: true, admins: virtualAdminsList });
+    const formattedAdmins = virtualAdminsList.map(a => ({
+      id: a.id,
+      username: a.username,
+      email: (a as any).email || `${a.username}@zrti.com.br`,
+      role: a.role || 'admin',
+      active: (a as any).active !== undefined ? (a as any).active : true,
+      mfa_enabled: a.otp_enabled || (a as any).mfa_enabled || false,
+      created_at: a.created_at || new Date().toISOString()
+    }));
+    res.json({ success: true, admins: formattedAdmins });
   });
 
   app.post("/api/auth/admins", (req, res) => {
-    const { username, password, role } = req.body || {};
+    const { username, password, role, email } = req.body || {};
     if (!username || !password) {
       return res.status(400).json({ success: false, message: "Nome de usuário e senha são obrigatórios." });
     }
@@ -788,13 +820,48 @@ Checks 12
     const newAdmin = {
       id: nextId,
       username: username.trim(),
-      role: (role === 'user' ? 'user' : 'admin'),
+      email: email ? email.trim() : `${username.trim()}@zrti.com.br`,
+      role: role || 'admin',
       otp_enabled: false,
+      mfa_enabled: false,
+      active: true,
       created_at: new Date().toISOString().replace("T", " ").substring(0, 19)
     };
-    virtualAdminsList.push(newAdmin);
+    virtualAdminsList.push(newAdmin as any);
     addAuditLog("ADMIN_CREATE", newAdmin.username, { role: newAdmin.role }, "suspicious", req);
     res.json({ success: true, message: `Usuário "${username}" (${newAdmin.role}) criado com sucesso!`, admin: newAdmin });
+  });
+
+  // Configurações Globais do Sistema (MTA, Amavis, ClamAV, Let's Encrypt)
+  let systemSettingsState = {
+    server_hostname: 'brsaolxmail.zrti.com.br',
+    server_ip: '177.153.61.166',
+    message_size_limit_mb: 50,
+    mailbox_size_limit_mb: 5120,
+    relayhost: '',
+    tls_security_level: 'may',
+    spam_required_score: 5.0,
+    spam_auto_learn: true,
+    clamav_scan_enabled: true,
+    clamav_max_scan_size_mb: 25,
+    log_ingestion_interval_min: 5,
+    log_retention_days: 7,
+    log_auto_truncate: true,
+    log_safety_backup: true,
+    cert_domain: 'brsaolxmail.zrti.com.br',
+    cert_issuer: "Let's Encrypt Authority X3",
+    cert_valid_until: '2026-11-30'
+  };
+
+  app.get("/api/settings", (req, res) => {
+    res.json({ success: true, settings: systemSettingsState });
+  });
+
+  app.post("/api/settings", (req, res) => {
+    const updated = req.body || {};
+    systemSettingsState = { ...systemSettingsState, ...updated };
+    addAuditLog("SYSTEM_SETTINGS_UPDATE", virtualAdmin.username, updated, "suspicious", req);
+    res.json({ success: true, message: "Configurações do sistema atualizadas com sucesso!", settings: systemSettingsState });
   });
 
   app.post("/api/auth/admins/:id/password", (req, res) => {
@@ -2310,25 +2377,38 @@ function parseDatabaseMailLogsFor7Days(): Record<string, any> | null {
 
       const dayBucket = resultByDate[dateIso];
       const hourBucket = dayBucket.hourly[hour] || { received: 0, sent: 0, spam: 0, bounced: 0 };
-      const statusLower = (r.status || '').toLowerCase();
+      const statusLower = (r.status || '').toLowerCase().trim();
       const msgLower = (r.message || '').toLowerCase();
+      const senderLower = (r.sender || '').toLowerCase().trim();
+      const rcptLower = (r.recipient || '').toLowerCase().trim();
 
-      if (statusLower === 'received' || msgLower.includes('passed clean') || msgLower.includes('saved_to_mailbox') || msgLower.includes('relayedinbound')) {
-        dayBucket.received++;
-        hourBucket.received++;
-      } else if (statusLower === 'sent' || msgLower.includes('status=sent') || msgLower.includes('queued mail for delivery')) {
-        dayBucket.sent++;
-        hourBucket.sent++;
-      } else if (statusLower === 'spam' || msgLower.includes('blocked spam') || msgLower.includes('bayes_99')) {
-        dayBucket.spam++;
-        hourBucket.spam++;
-      } else if (statusLower === 'virus' || msgLower.includes('infected') || msgLower.includes('blocked infected')) {
+      // Classificação precisa e estrita
+      if (statusLower === 'virus' || msgLower.includes('infected') || msgLower.includes('clamav') || msgLower.includes('blocked infected')) {
         dayBucket.virus++;
         hourBucket.spam++;
-      } else if (statusLower === 'rejected' || statusLower === 'bounced' || statusLower === 'authfail' || msgLower.includes('reject') || msgLower.includes('denied')) {
+      } else if (statusLower === 'spam' || msgLower.includes('blocked spam') || msgLower.includes('bayes_99') || (msgLower.includes('hits=') && (statusLower.includes('blocked') || statusLower.includes('spam')))) {
+        dayBucket.spam++;
+        hourBucket.spam++;
+      } else if (statusLower === 'rejected' || statusLower === 'bounced' || statusLower === 'authfail' || msgLower.includes('reject:') || msgLower.includes('status=bounced') || msgLower.includes('554 5.') || msgLower.includes('550 5.')) {
         dayBucket.bounced++;
         hourBucket.bounced++;
-      } else {
+      } else if (statusLower === 'received' || msgLower.includes('lmtp') || msgLower.includes('saved_to_mailbox') || msgLower.includes('postfix/virtual') || msgLower.includes('relay=127.0.0.1') || msgLower.includes('dovecot') || msgLower.includes('250 2.0.0 ok saved')) {
+        dayBucket.received++;
+        hourBucket.received++;
+      } else if (msgLower.includes('postfix/smtp[') || msgLower.includes('relay=mail.') || msgLower.includes('relay=mx.') || msgLower.includes('queued mail for delivery')) {
+        dayBucket.sent++;
+        hourBucket.sent++;
+      } else if (statusLower === 'sent' || msgLower.includes('status=sent') || msgLower.includes('250 2.0.0 ok')) {
+        // Se destinatário pertence a domínios locais, é recebido na caixa
+        const isLocalRcpt = rcptLower.includes('@zrti.com.br') || rcptLower.includes('@empresa.com.br') || rcptLower.includes('@zrti.tech') || rcptLower.includes('@brsaolxmail.zrti.com.br') || rcptLower.includes('@emporiomisticosaboaria.com.br');
+        if (isLocalRcpt) {
+          dayBucket.received++;
+          hourBucket.received++;
+        } else {
+          dayBucket.sent++;
+          hourBucket.sent++;
+        }
+      } else if (rcptLower && rcptLower !== '-') {
         dayBucket.received++;
         hourBucket.received++;
       }
@@ -2336,25 +2416,32 @@ function parseDatabaseMailLogsFor7Days(): Record<string, any> | null {
       // Senders
       const sender = (r.sender || '').trim();
       if (sender && sender !== '-' && sender.includes('@')) {
-        const domain = sender.split('@')[1].toLowerCase();
-        if (!dayBucket.senders[domain]) {
-          dayBucket.senders[domain] = { count: 0, spam: 0 };
-        }
-        dayBucket.senders[domain].count++;
-        if (statusLower === 'spam' || statusLower === 'virus' || msgLower.includes('spam')) {
-          dayBucket.senders[domain].spam++;
+        const domain = sender.split('@')[1].toLowerCase().replace('>', '').replace('<', '').trim();
+        if (domain) {
+          if (!dayBucket.senders[domain]) {
+            dayBucket.senders[domain] = { count: 0, spam: 0 };
+          }
+          dayBucket.senders[domain].count++;
+          if (statusLower === 'spam' || statusLower === 'virus' || msgLower.includes('spam') || msgLower.includes('blocked')) {
+            dayBucket.senders[domain].spam++;
+          }
         }
       }
 
       // Recipients
-      const recipient = (r.recipient || '').trim();
+      const recipient = (r.recipient || '').trim().toLowerCase();
       if (recipient && recipient !== '-' && recipient.includes('@')) {
-        const domain = recipient.split('@')[1].toLowerCase();
-        if (!dayBucket.recipients[domain]) {
-          dayBucket.recipients[domain] = { count: 0, mailboxes: new Set() };
+        let domain = recipient.split('@')[1].replace('>', '').replace('<', '').trim();
+        if (domain) {
+          if (domain === 'brsaolxmail.zrti.com.br' || domain === 'localhost') {
+            domain = 'brsaolxmail.zrti.com.br (Host do Sistema / Alertas)';
+          }
+          if (!dayBucket.recipients[domain]) {
+            dayBucket.recipients[domain] = { count: 0, mailboxes: new Set() };
+          }
+          dayBucket.recipients[domain].count++;
+          dayBucket.recipients[domain].mailboxes.add(recipient);
         }
-        dayBucket.recipients[domain].count++;
-        dayBucket.recipients[domain].mailboxes.add(recipient);
       }
 
       // Spam rules in message
@@ -2629,10 +2716,36 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
 
     let specificDayData: DailyMailMetric | null = null;
     if (selectedDate && selectedDate !== "all") {
-      specificDayData = mailStats7Days.find(d => d.date === selectedDate) || null;
+      specificDayData = mailStats7Days.find(d => d.date === selectedDate || d.date.includes(selectedDate)) || null;
     }
 
-    const summary = {
+    const summary = specificDayData ? {
+      total_processed_7d: total_processed,
+      total_received_7d: total_received,
+      total_sent_7d: total_sent,
+      total_spam_blocked_7d: total_spam_blocked,
+      total_virus_blocked_7d: total_virus_blocked,
+      total_rejected_bounced_7d: total_rejected_bounced,
+      total_processed: specificDayData.total_processed,
+      total_received: specificDayData.received,
+      total_sent: specificDayData.sent,
+      total_spam_blocked: specificDayData.spam_blocked,
+      total_virus_blocked: specificDayData.virus_blocked,
+      total_rejected_bounced: specificDayData.rejected_bounced,
+      avg_daily_volume: Math.round(total_processed / 7),
+      overall_spam_pct: specificDayData.spam_pct,
+      clean_delivery_rate_pct: specificDayData.clean_delivery_rate,
+      overall_clean_delivery_rate: specificDayData.clean_delivery_rate,
+      spam_reduction_trend,
+      spam_trend: spam_reduction_trend < 0 ? `Queda de ${Math.abs(spam_reduction_trend)}% nos últimos 3 dias` : `Estável (${spam_reduction_trend}%)`,
+      avg_latency_overall_ms: specificDayData.avg_latency_ms,
+      avg_latency_ms: specificDayData.avg_latency_ms,
+      is_single_day: true,
+      selected_date_label: specificDayData.displayDate,
+      data_source: "Banco de Dados SQLite/MariaDB (Tabela mail_logs_history)",
+      retention_policy: "7 dias de retenção de histórico de mensagens persistidos no Banco de Dados",
+      latest_update: new Date().toISOString()
+    } : {
       total_processed_7d: total_processed,
       total_received_7d: total_received,
       total_sent_7d: total_sent,
@@ -2653,6 +2766,8 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       spam_trend: spam_reduction_trend < 0 ? `Queda de ${Math.abs(spam_reduction_trend)}% nos últimos 3 dias` : `Estável (${spam_reduction_trend}%)`,
       avg_latency_overall_ms: Math.round(mailStats7Days.reduce((acc, d) => acc + d.avg_latency_ms, 0) / mailStats7Days.length),
       avg_latency_ms: Math.round(mailStats7Days.reduce((acc, d) => acc + d.avg_latency_ms, 0) / mailStats7Days.length),
+      is_single_day: false,
+      selected_date_label: "Consolidado 7 Dias",
       data_source: "Banco de Dados SQLite/MariaDB (Tabela mail_logs_history)",
       retention_policy: "7 dias de retenção de histórico de mensagens persistidos no Banco de Dados",
       latest_update: new Date().toISOString()
@@ -2669,9 +2784,9 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       summary,
       daily_history: mailStats7Days,
       daily_metrics: mailStats7Days,
-      aggregated_top_senders,
-      aggregated_top_recipients,
-      aggregated_spam_rules,
+      aggregated_top_senders: (specificDayData ? specificDayData.top_senders : aggregated_top_senders) || [],
+      aggregated_top_recipients: (specificDayData ? (specificDayData.top_recipients || (specificDayData as any).top_recipient_domains) : aggregated_top_recipients) || [],
+      aggregated_spam_rules: (specificDayData ? specificDayData.spam_rules_triggered : aggregated_spam_rules) || [],
       specific_day_data: specificDayData
     });
   });
@@ -3935,7 +4050,7 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       const line = lines[i].trim();
       if (!line || line.startsWith("# ==") || line.startsWith("# --")) continue;
 
-      const headerMatch = line.match(/^header\s+([A-Za-z0-9_]+)\s+([A-Za-z0-9_\-]+)\s*=~\s*(.+)$/i);
+      const headerMatch = line.match(/^header\s+([A-Za-z0-9_]+)\s+([A-Za-z0-9_\-]+)\s*(?:=~)?\s*(.+)$/i);
       if (headerMatch) {
         const name = headerMatch[1];
         const target = headerMatch[2];
@@ -3950,7 +4065,21 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
         continue;
       }
 
-      const bodyMatch = line.match(/^body\s+([A-Za-z0-9_]+)\s*=~\s*(.+)$/i);
+      const uriMatch = line.match(/^uri\s+([A-Za-z0-9_]+)\s*(?:=~)?\s*(.+)$/i);
+      if (uriMatch) {
+        const name = uriMatch[1];
+        const rawPattern = uriMatch[2].trim();
+        if (!rulesMap.has(name)) {
+          rulesMap.set(name, { id: name, name, target: "URI / Links", pattern: rawPattern, score: 12.0, describe: "", enabled: true });
+        } else {
+          const r = rulesMap.get(name);
+          r.target = "URI / Links";
+          r.pattern = rawPattern;
+        }
+        continue;
+      }
+
+      const bodyMatch = line.match(/^(?:body|rawbody)\s+([A-Za-z0-9_]+)\s*(?:=~)?\s*(.+)$/i);
       if (bodyMatch) {
         const name = bodyMatch[1];
         const rawPattern = bodyMatch[2].trim();
@@ -3959,20 +4088,6 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
         } else {
           const r = rulesMap.get(name);
           r.target = "Body";
-          r.pattern = rawPattern;
-        }
-        continue;
-      }
-
-      const uriMatch = line.match(/^uri\s+([A-Za-z0-9_]+)\s*=~\s*(.+)$/i);
-      if (uriMatch) {
-        const name = uriMatch[1];
-        const rawPattern = uriMatch[2].trim();
-        if (!rulesMap.has(name)) {
-          rulesMap.set(name, { id: name, name, target: "URI", pattern: rawPattern, score: 5.0, describe: "", enabled: true });
-        } else {
-          const r = rulesMap.get(name);
-          r.target = "URI";
           r.pattern = rawPattern;
         }
         continue;
@@ -4002,12 +4117,15 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
     }
 
     return Array.from(rulesMap.values()).map(r => {
-      let cat: 'phishing' | 'obfuscation' | 'hijack' | 'custom' = 'custom';
+      let cat: 'phishing' | 'obfuscation' | 'links' | 'hijack' | 'custom' = 'custom';
       const nameLower = r.name.toLowerCase();
       const descLower = (r.describe || '').toLowerCase();
-      if (nameLower.includes('golpe') || nameLower.includes('phish') || descLower.includes('phishing') || descLower.includes('golpe')) {
+      const targetLower = (r.target || '').toLowerCase();
+      if (nameLower.includes('link') || nameLower.includes('uri') || targetLower.includes('uri') || descLower.includes('link') || descLower.includes('encurtador')) {
+        cat = 'links';
+      } else if (nameLower.includes('golpe') || nameLower.includes('pedagio') || nameLower.includes('reclame') || nameLower.includes('pix') || nameLower.includes('fatura') || nameLower.includes('docusign') || descLower.includes('phishing') || descLower.includes('golpe') || descLower.includes('boleto')) {
         cat = 'phishing';
-      } else if (nameLower.includes('quebrado') || nameLower.includes('ofuscado') || descLower.includes('ofusca') || descLower.includes('encoding')) {
+      } else if (nameLower.includes('quebrado') || nameLower.includes('ofuscado') || nameLower.includes('caracteres') || descLower.includes('ofuscado') || descLower.includes('charset') || descLower.includes('homografo') || descLower.includes('zero-width')) {
         cat = 'obfuscation';
       } else if (nameLower.includes('replyto') || descLower.includes('sequestrado') || descLower.includes('reply-to')) {
         cat = 'hijack';
@@ -5399,6 +5517,7 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
   };
   app.get("/api/antispam/impersonation/profiles", getProfilesHandler);
   app.get("/api/antispam/impersonation-profiles", getProfilesHandler);
+  app.get("/api/antispam/profiles", getProfilesHandler);
 
   const addProfileHandler = (req: any, res: any) => {
     const { brand_name, official_domains, category, severity, is_active } = req.body || {};
@@ -5447,6 +5566,7 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
   };
   app.post("/api/antispam/impersonation/profiles", addProfileHandler);
   app.post("/api/antispam/impersonation-profiles", addProfileHandler);
+  app.post("/api/antispam/profiles", addProfileHandler);
 
   const deleteProfileHandler = (req: any, res: any) => {
     const id = parseInt(req.params.id);
@@ -5482,6 +5602,7 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
   };
   app.delete("/api/antispam/impersonation/profiles/:id", deleteProfileHandler);
   app.delete("/api/antispam/impersonation-profiles/:id", deleteProfileHandler);
+  app.delete("/api/antispam/profiles/:id", deleteProfileHandler);
 
   // POST /api/antispam/rdns/test e /api/antispam/rdns/diagnose
   const rdnsTestHandler = (req: any, res: any) => {

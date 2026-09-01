@@ -162,16 +162,27 @@ def parse_syslog_timestamp(line):
 
 def classify_status(line):
     line_lower = line.lower()
-    if 'status=sent' in line_lower or '250 2.0.0 ok' in line_lower or '250 ok' in line_lower or 'saved to inbox' in line_lower:
-        return 'Sent'
+    if 'clamav' in line_lower or 'blocked infected' in line_lower or 'virus' in line_lower:
+        return 'Virus'
+    elif 'blocked spam' in line_lower or 'bayes_99' in line_lower or 'passed spam' in line_lower:
+        return 'Spam'
     elif 'status=bounced' in line_lower or 'bounced' in line_lower or 'undeliverable' in line_lower:
         return 'Bounced'
-    elif 'passed spam' in line_lower or 'hits=' in line_lower and ('spam' in line_lower or 'tag' in line_lower):
-        return 'Spam'
-    elif 'reject:' in line_lower or 'status=rejected' in line_lower or '554 5.7.1' in line_lower or 'access denied' in line_lower or 'blocked' in line_lower:
+    elif 'reject:' in line_lower or 'status=rejected' in line_lower or '554 5.7.1' in line_lower or '550 5.' in line_lower or 'access denied' in line_lower:
         return 'Rejected'
     elif 'sasl authentication failed' in line_lower or 'password mismatch' in line_lower or 'authentication failure' in line_lower:
         return 'AuthFail'
+    elif 'lmtp' in line_lower or 'saved_to_mailbox' in line_lower or 'postfix/virtual' in line_lower or 'relay=127.0.0.1' in line_lower or 'dovecot' in line_lower or 'status=received' in line_lower:
+        return 'Received'
+    elif 'postfix/smtp[' in line_lower or 'relay=mail.' in line_lower or 'relay=mx.' in line_lower or 'queued mail for delivery' in line_lower:
+        return 'Sent'
+    elif 'status=sent' in line_lower or '250 2.0.0 ok' in line_lower or '250 ok' in line_lower:
+        # Check if recipient is a local domain or server host
+        rcpt_m = re.search(r'to=<([^>]+)>', line, re.IGNORECASE)
+        rcpt = rcpt_m.group(1).lower() if rcpt_m else ''
+        if any(d in rcpt for d in ['zrti.com.br', 'empresa.com.br', 'zrti.tech', 'brsaolxmail.zrti.com.br', 'emporiomisticosaboaria.com.br']):
+            return 'Received'
+        return 'Sent'
     return 'Info'
 
 def extract_log_fields(line):

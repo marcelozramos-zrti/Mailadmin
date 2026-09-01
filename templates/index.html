@@ -1434,7 +1434,7 @@
 
         // 1. Update Line Chart (7-Day Trend) com labels DD/MM
         if (mailTrafficChart7dInstance) {
-            mailTrafficChart7dInstance.data.labels = daily.map(d => d.display_date || d.short_date);
+            mailTrafficChart7dInstance.data.labels = daily.map(d => d.short_date || d.display_date || d.displayDate || (d.date ? d.date.substring(5).replace('-', '/') : ''));
             mailTrafficChart7dInstance.data.datasets[0].data = daily.map(d => d.received);
             mailTrafficChart7dInstance.data.datasets[1].data = daily.map(d => d.sent);
             mailTrafficChart7dInstance.data.datasets[2].data = daily.map(d => d.spam_blocked);
@@ -1552,27 +1552,37 @@
         }
 
         if (listEl) {
-            listEl.innerHTML = senders.slice(0, 5).map(s => {
-                const isGood = s.reputation === 'Boa' || (s.reputacao && (s.reputacao.includes('Excelente') || s.reputacao.includes('Confi√°vel')));
-                const isSuspicious = s.reputation === 'Suspeita' || (s.reputacao && s.reputacao.includes('Suspeito'));
-                const repBadge = isGood
-                    ? '<span class="badge bg-success-subtle text-success border border-success-subtle" style="font-size: 10px;">Confi√°vel (SPF Pass)</span>'
+            listEl.innerHTML = senders.slice(0, 6).map(s => {
+                const isBlocked = s.is_blocked || s.reputation === 'Cr√≠tica' || (s.spam_count && s.spam_count === s.count);
+                const isSuspicious = s.reputation === 'Suspeita' || (s.spam_count > 0 && !isBlocked);
+                
+                const repBadge = isBlocked
+                    ? '<span class="badge bg-danger-subtle text-danger border border-danger-subtle" style="font-size: 10px;"><i class="bi bi-shield-x me-1"></i>Bloqueado (SPAM)</span>'
                     : (isSuspicious
-                        ? '<span class="badge bg-warning-subtle text-warning border border-warning-subtle" style="font-size: 10px;">Suspeito</span>'
-                        : '<span class="badge bg-danger-subtle text-danger border border-danger-subtle" style="font-size: 10px;">Bloqueado (RBL)</span>');
-                const spamInfo = (s.spam_count || 0) > 0 
-                    ? `<span class="text-danger fw-bold">${s.spam_count} spams</span>` 
-                    : `<span class="text-success">100% limpo</span>`;
+                        ? '<span class="badge bg-warning-subtle text-warning border border-warning-subtle" style="font-size: 10px;"><i class="bi bi-exclamation-triangle me-1"></i>Suspeito</span>'
+                        : '<span class="badge bg-success-subtle text-success border border-success-subtle" style="font-size: 10px;"><i class="bi bi-shield-check me-1"></i>Confi√°vel (SPF Pass)</span>');
+
+                const cleanCount = s.clean_count !== undefined ? s.clean_count : Math.max(0, (s.count || 0) - (s.spam_count || 0));
+                const cleanPct = (s.count || 0) > 0 ? Math.round((cleanCount / s.count) * 100) : 100;
+                const spamPct = 100 - cleanPct;
 
                 return `
-                    <div class="p-2.5 bg-light rounded-3 border mb-2 d-flex align-items-center justify-content-between">
-                        <div class="min-w-0">
-                            <div class="fw-bold text-dark font-monospace small text-truncate">${s.domain}</div>
-                            <div class="mt-1">${repBadge}</div>
+                    <div class="p-2.5 bg-light rounded-3 border mb-2">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div class="min-w-0">
+                                <div class="fw-bold text-dark font-monospace small text-truncate">${s.domain}</div>
+                                <div class="mt-1">${repBadge}</div>
+                            </div>
+                            <div class="text-end font-monospace ms-2">
+                                <div class="fw-bold text-dark small">${(s.count || 0).toLocaleString('pt-BR')} msgs</div>
+                                <div class="small" style="font-size: 10px;">
+                                    ${(s.spam_count || 0) > 0 ? `<span class="text-danger fw-bold">${s.spam_count} spams</span>` : `<span class="text-success">100% limpo</span>`}
+                                </div>
+                            </div>
                         </div>
-                        <div class="text-end font-monospace ms-2">
-                            <div class="fw-bold text-dark small">${(s.count || 0).toLocaleString('pt-BR')} msgs</div>
-                            <div class="small" style="font-size: 10px;">${spamInfo}</div>
+                        <div class="progress mt-2" style="height: 4px;">
+                            <div class="progress-bar bg-success" role="progressbar" style="width: ${cleanPct}%" title="Limpos: ${cleanPct}%"></div>
+                            <div class="progress-bar bg-danger" role="progressbar" style="width: ${spamPct}%" title="SPAM: ${spamPct}%"></div>
                         </div>
                     </div>
                 `;
@@ -1581,16 +1591,20 @@
 
         if (tbody) {
             tbody.innerHTML = senders.slice(0, 8).map(s => {
-                const repBadge = s.reputation === 'Boa'
-                    ? '<span class="badge bg-success-subtle text-success">Boa</span>'
-                    : (s.reputation === 'Suspeita'
-                        ? '<span class="badge bg-warning-subtle text-warning">Suspeita</span>'
-                        : '<span class="badge bg-danger-subtle text-danger">Cr√≠tica</span>');
+                const isBlocked = s.is_blocked || s.reputation === 'Cr√≠tica' || (s.spam_count && s.spam_count === s.count);
+                const isSuspicious = s.reputation === 'Suspeita' || (s.spam_count > 0 && !isBlocked);
+                
+                const repBadge = isBlocked
+                    ? '<span class="badge bg-danger-subtle text-danger border border-danger-subtle">Bloqueado (SPAM)</span>'
+                    : (isSuspicious
+                        ? '<span class="badge bg-warning-subtle text-warning border border-warning-subtle">Suspeito</span>'
+                        : '<span class="badge bg-success-subtle text-success border border-success-subtle">Confi√°vel</span>');
+
                 return `
                     <tr>
                         <td class="font-monospace fw-semibold text-dark small">${s.domain}</td>
                         <td class="font-monospace text-end small">${(s.count || 0).toLocaleString('pt-BR')}</td>
-                        <td class="font-monospace text-success text-end small">${s.clean_count || s.count}</td>
+                        <td class="font-monospace text-success text-end small">${s.clean_count !== undefined ? s.clean_count : s.count}</td>
                         <td class="font-monospace text-danger text-end small">${s.spam_count || 0}</td>
                         <td class="text-center">${repBadge}</td>
                     </tr>
@@ -3435,16 +3449,26 @@
     function renderCustomSpamRulesTable() {
         const tbody = document.getElementById('custom-rules-table-body');
         if (!tbody) return;
-
         const searchInput = document.getElementById('search-heuristic-rules-input');
         const searchTerm = (searchInput ? searchInput.value : '').toLowerCase().trim();
 
-        // 1. Atualizar badges de contagem
+        // 1. Atualizar contadores e KPIs
         const countAll = currentCustomSpamRules.length;
+        const countPhishing = currentCustomSpamRules.filter(r => (r.category === 'phishing') || (r.name || '').includes('GOLPE') || (r.name || '').includes('PEDAGIO') || (r.name || '').includes('RECLAME') || (r.describe || '').toLowerCase().includes('phishing')).length;
+        const countLinks = currentCustomSpamRules.filter(r => (r.category === 'links') || (r.target === 'URI / Links') || (r.target === 'URI') || (r.name || '').includes('LINK') || (r.name || '').includes('URI')).length;
+        const countObfuscation = currentCustomSpamRules.filter(r => (r.category === 'obfuscation') || (r.name || '').includes('OFUSCADO') || (r.name || '').includes('QUEBRADO') || (r.name || '').includes('CARACTERES')).length;
+
         const bAll = document.getElementById('badge-heuristic-all');
         const bCustomCount = document.getElementById('badge-custom-rules-count');
+        const elKpiPhishing = document.getElementById('kpi-custom-phishing');
+        const elKpiLinks = document.getElementById('kpi-custom-links');
+        const elKpiObfuscation = document.getElementById('kpi-custom-obfuscation');
+
         if (bAll) bAll.textContent = countAll;
         if (bCustomCount) bCustomCount.textContent = countAll;
+        if (elKpiPhishing) elKpiPhishing.textContent = countPhishing;
+        if (elKpiLinks) elKpiLinks.textContent = countLinks;
+        if (elKpiObfuscation) elKpiObfuscation.textContent = countObfuscation;
 
         // 2. Filtrar por categoria
         let filtered = currentCustomSpamRules;
@@ -3453,12 +3477,15 @@
                 const cat = (r.category || '').toLowerCase();
                 const name = (r.name || '').toLowerCase();
                 const desc = (r.describe || '').toLowerCase();
+                const target = (r.target || '').toLowerCase();
                 if (currentHeuristicCategory === 'phishing') {
-                    return cat === 'phishing' || name.includes('PEDAGIO') || name.includes('RECLAME') || desc.includes('phishing') || desc.includes('golpe');
+                    return cat === 'phishing' || name.includes('pedagio') || name.includes('reclame') || name.includes('golpe') || name.includes('pix') || name.includes('fatura') || name.includes('docusign') || desc.includes('phishing') || desc.includes('golpe');
+                } else if (currentHeuristicCategory === 'links') {
+                    return cat === 'links' || target.includes('uri') || name.includes('link') || name.includes('uri') || desc.includes('link') || desc.includes('encurtador');
                 } else if (currentHeuristicCategory === 'obfuscation') {
-                    return cat === 'obfuscation' || name.includes('OFUSCADO') || desc.includes('ofuscado') || desc.includes('charset');
+                    return cat === 'obfuscation' || name.includes('ofuscado') || name.includes('quebrado') || name.includes('caracteres') || desc.includes('ofuscado') || desc.includes('charset') || desc.includes('homografo') || desc.includes('zero-width');
                 } else if (currentHeuristicCategory === 'hijack') {
-                    return cat === 'hijack' || name.includes('REPLYTO') || desc.includes('sequestrado') || desc.includes('reply-to');
+                    return cat === 'hijack' || name.includes('replyto') || desc.includes('sequestrado') || desc.includes('reply-to');
                 }
                 return true;
             });
@@ -3483,23 +3510,24 @@
 
         tbody.innerHTML = filtered.map(r => {
             const scoreVal = parseFloat(r.score || 15.0);
-            const scoreBadgeClass = scoreVal >= 10.0 ? 'bg-danger-subtle text-danger border border-danger-subtle' : scoreVal >= 5.0 ? 'bg-warning-subtle text-warning-emphasis border border-warning-subtle' : 'bg-secondary-subtle text-secondary';
+            const scoreBadgeClass = scoreVal >= 12.0 ? 'bg-danger-subtle text-danger border border-danger-subtle' : scoreVal >= 5.0 ? 'bg-warning-subtle text-warning-emphasis border border-warning-subtle' : 'bg-secondary-subtle text-secondary';
             
             let targetBadge = `<span class="badge bg-light text-dark border font-monospace px-2 py-1">${r.target || 'Subject'}</span>`;
             if (r.target === 'Subject') targetBadge = `<span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace px-2 py-1"><i class="bi bi-chat-left-text me-1"></i> Assunto</span>`;
             else if (r.target === 'Body') targetBadge = `<span class="badge bg-warning-subtle text-dark border border-warning-subtle font-monospace px-2 py-1"><i class="bi bi-file-text me-1"></i> Corpo (Body)</span>`;
             else if (r.target === 'From') targetBadge = `<span class="badge bg-danger-subtle text-danger border border-danger-subtle font-monospace px-2 py-1"><i class="bi bi-person me-1"></i> Remetente</span>`;
             else if (r.target === 'Reply-To') targetBadge = `<span class="badge bg-info-subtle text-info-emphasis border border-info-subtle font-monospace px-2 py-1"><i class="bi bi-reply me-1"></i> Reply-To</span>`;
+            else if (r.target === 'URI / Links' || r.target === 'URI') targetBadge = `<span class="badge bg-info-subtle text-info border border-info-subtle font-monospace px-2 py-1"><i class="bi bi-link-45deg me-1"></i> Link / URI</span>`;
 
             return `
                 <tr>
                     <td>
                         <div class="fw-bold text-dark font-monospace fs-6">${r.name}</div>
-                        <small class="text-muted d-flex align-items-center gap-1"><i class="bi bi-shield-check text-success"></i> Ativa no MariaDB</small>
+                        <small class="text-muted d-flex align-items-center gap-1"><i class="bi bi-shield-check text-success"></i> SpamAssassin local.cf</small>
                     </td>
                     <td>${targetBadge}</td>
                     <td>
-                        <code class="d-inline-block text-break font-monospace p-1 bg-light rounded border small text-dark">${r.pattern}</code>
+                        <code class="d-inline-block text-break font-monospace p-1.5 bg-light rounded border small text-dark">${r.pattern || '-'}</code>
                     </td>
                     <td class="text-center">
                         <span class="badge ${scoreBadgeClass} font-monospace fs-6 px-2.5 py-1">+${scoreVal.toFixed(1)}</span>
@@ -3509,6 +3537,9 @@
                     </td>
                     <td class="text-center">
                         <div class="d-inline-flex align-items-center gap-1">
+                            <button class="btn btn-sm btn-outline-primary p-1 border-0" onclick="openTestCustomRuleDirectly('${r.name}')" title="Testar Regex">
+                                <i class="bi bi-play-circle fs-6"></i>
+                            </button>
                             <button class="btn btn-sm btn-outline-warning text-dark p-1 border-0" onclick="openEditCustomSpamRuleModal('${r.name}')" title="Editar Regra">
                                 <i class="bi bi-pencil-square fs-6"></i>
                             </button>
@@ -3521,58 +3552,7 @@
             `;
         }).join('');
     }
-
-    function setCustomRuleModalMode(mode) {
-        currentModalMode = mode;
-        const btnFriendly = document.getElementById('pills-friendly-tab');
-        const btnRegex = document.getElementById('pills-regex-tab');
-        const secFriendly = document.getElementById('modal-mode-friendly-section');
-        const secRegex = document.getElementById('modal-mode-regex-section');
-
-        if (mode === 'friendly') {
-            btnFriendly.classList.add('active');
-            btnRegex.classList.remove('active');
-            secFriendly.classList.remove('d-none');
-            secRegex.classList.add('d-none');
-            updateGeneratedPattern();
-        } else {
-            btnFriendly.classList.remove('active');
-            btnRegex.classList.add('active');
-            secFriendly.classList.add('d-none');
-            secRegex.classList.remove('d-none');
-        }
-    }
-
-    function updateGeneratedPattern() {
-        if (currentModalMode !== 'friendly') return;
-        const keywordsInput = document.getElementById('custom-rule-friendly-keywords');
-        const patternInput = document.getElementById('custom-rule-pattern');
-        const isObfuscated = document.getElementById('matchObfuscated') && document.getElementById('matchObfuscated').checked;
-
-        const rawWords = (keywordsInput ? keywordsInput.value : '').split(',').map(w => w.trim()).filter(w => w.length > 0);
-        if (rawWords.length === 0) {
-            patternInput.value = '';
-            return;
-        }
-
-        const patterns = rawWords.map(w => {
-            // Substitui caracteres acentuados por . para ignorar varia√ß√µes de charset
-            let clean = w.replace(/[a√°√†√£√¢√§A√Å√Ä√É√Ç√Ñ]/g, '[a√°√†√£√¢√§.]')
-                         .replace(/[e√©√®√™√´E√â√à√ä√ã]/g, '[e√©√®√™√´.]')
-                         .replace(/[i√≠√¨√Æ√ØI√ç√å√é√è]/g, '[i√≠√¨√Æ√Ø.]')
-                         .replace(/[o√≥√≤√µ√¥√∂O√ì√í√ï√î√ñ]/g, '[o√≥√≤√µ√¥√∂.]')
-                         .replace(/[u√∫√π√ª√ºU√ö√ô√õ√ú]/g, '[u√∫√π√ª√º.]')
-                         .replace(/[c√ßC√á]/g, '[c√ß.]');
-            if (isObfuscated) {
-                // Intercala com pontua√ß√£o/espa√ßo opcional
-                clean = clean.split('').join('[\\s._-]?');
-            }
-            return clean;
-        });
-
-        patternInput.value = `/${patterns.join('|')}/i`;
-    }
-
+    
     function openNewCustomSpamRuleModal() {
         document.getElementById('custom-rule-old-name').value = '';
         document.getElementById('custom-rule-name').value = 'LOCAL_REGRA_' + Math.floor(Math.random() * 8999 + 1000);
@@ -3612,7 +3592,135 @@
         }
     }
 
-    async function saveCustomSpamRule(event) {
+    
+    // Presets R√°pidos de Intelig√™ncia AntiSPAM
+    function applySpamHeuristicPreset(presetKey) {
+        const presets = {
+            'pedagio': {
+                name: 'LOCAL_GOLPE_PEDAGIO',
+                target: 'Subject',
+                pattern: '/ped.gios?|vi.ria|rodovi.rio|pend.ncia/i',
+                score: '15.0',
+                describe: 'ZRTI - Phishing de Notificacao de Pedagio / Rodovia'
+            },
+            'remetente_falso': {
+                name: 'LOCAL_GOLPE_REMETENTE',
+                target: 'From',
+                pattern: '/Regulariza..o|Pend.ncias|Cobran.a|ReclameAqui/i',
+                score: '15.0',
+                describe: 'ZRTI - Phishing Remetente Falso Reclame Aqui / Cobranca'
+            },
+            'links_suspeitos': {
+                name: 'LOCAL_LINK_SUSPEITO',
+                target: 'URI',
+                pattern: '/(bit\.ly|tinyurl|is\.gd|cutt\.ly|t\.co|wa\.me|goo\.gl)\/[a-zA-Z0-9]+/i',
+                score: '12.0',
+                describe: 'ZRTI - Link Encurtador ou Redirecionamento Suspeito no Corpo'
+            },
+            'link_ip_direto': {
+                name: 'LOCAL_LINK_IP_DIRETO',
+                target: 'URI',
+                pattern: '/https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/i',
+                score: '14.0',
+                describe: 'ZRTI - Link com Endereco IP Direto no E-mail'
+            },
+            'caracteres_estranhos': {
+                name: 'LOCAL_CARACTERES_ESTRANHOS',
+                target: 'Subject',
+                pattern: '/[\u200B-\u200D\uFEFF]|[\u0400-\u04FF].*[\u0041-\u007A]/',
+                score: '10.0',
+                describe: 'ZRTI - Caracteres estranhos, zero-width ou homografos no assunto'
+            },
+            'assunto_quebrado': {
+                name: 'LOCAL_ASSUNTO_QUEBRADO',
+                target: 'Subject',
+                pattern: '/\?{2,}/',
+                score: '5.0',
+                describe: 'ZRTI - Assunto com erro de codificacao (??)'
+            },
+            'pix_fatura': {
+                name: 'LOCAL_GOLPE_PIX_FATURA',
+                target: 'Subject',
+                pattern: '/comprovante.*pix|fatura.*vencida|boleto.*atualizado|duplicata.*vencendo/i',
+                score: '12.0',
+                describe: 'ZRTI - Phishing de Boleto Falso e Comprovante PIX'
+            },
+            'replyto_sequestrado': {
+                name: 'LOCAL_GOLPE_REPLYTO',
+                target: 'Reply-To',
+                pattern: '/vidracariarubi\.com\.br/i',
+                score: '15.0',
+                describe: 'ZRTI - Bloqueio de Dominio Sequestrado em Reply-To'
+            }
+        };
+
+        const p = presets[presetKey];
+        if (!p) return;
+
+        document.getElementById('custom-rule-old-name').value = '';
+        document.getElementById('custom-rule-name').value = p.name;
+        document.getElementById('custom-rule-name').readOnly = false;
+        document.getElementById('custom-rule-score').value = p.score;
+        document.getElementById('custom-rule-target').value = p.target;
+        document.getElementById('custom-rule-describe').value = p.describe;
+        document.getElementById('custom-rule-pattern').value = p.pattern;
+        document.getElementById('custom-rule-friendly-keywords').value = '';
+        setCustomRuleModalMode('regex');
+
+        const modalEl = document.getElementById('customSpamRuleModal');
+        if (modalEl) {
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            modal.show();
+        }
+    }
+
+    function openTestCustomRuleDirectly(ruleName) {
+        const rule = currentCustomSpamRules.find(r => r.name === ruleName);
+        if (!rule) return;
+        openEditCustomSpamRuleModal(ruleName);
+    }
+
+    function testModalRegex() {
+        const patternVal = (document.getElementById('custom-rule-pattern').value || '').trim();
+        const testInput = (document.getElementById('custom-rule-test-input').value || '').trim();
+        const resultDiv = document.getElementById('custom-rule-test-result');
+        const scoreVal = document.getElementById('custom-rule-score').value || '15.0';
+
+        if (!patternVal) {
+            showAlert('Defina um padr√£o Regex primeiro.', 'warning');
+            return;
+        }
+        if (!testInput) {
+            showAlert('Digite um texto de teste no campo abaixo.', 'warning');
+            return;
+        }
+
+        try {
+            let regex;
+            if (patternVal.startsWith('/')) {
+                const lastSlash = patternVal.lastIndexOf('/');
+                const patternBody = patternVal.slice(1, lastSlash);
+                const flags = patternVal.slice(lastSlash + 1);
+                regex = new RegExp(patternBody, flags);
+            } else {
+                regex = new RegExp(patternVal, 'i');
+            }
+
+            const matched = regex.test(testInput);
+            resultDiv.classList.remove('d-none');
+
+            if (matched) {
+                resultDiv.innerHTML = `<div class="text-danger fw-bold"><i class="bi bi-shield-x me-1"></i> MATCH CONFIRMADO! O padr√£o identificou SPAM no texto. (Impacto: +${scoreVal} pts)</div>`;
+            } else {
+                resultDiv.innerHTML = `<div class="text-success"><i class="bi bi-shield-check me-1"></i> NENHUMA CORRESPOND√äNCIA. O texto passou limpo pelo padr√£o.</div>`;
+            }
+        } catch (e) {
+            resultDiv.classList.remove('d-none');
+            resultDiv.innerHTML = `<div class="text-danger"><i class="bi bi-exclamation-triangle me-1"></i> Erro de Sintaxe no Regex: ${e.message}</div>`;
+        }
+    }
+
+async function saveCustomSpamRule(event) {
         event.preventDefault();
         const oldName = document.getElementById('custom-rule-old-name').value.trim();
         const name = document.getElementById('custom-rule-name').value.trim();
@@ -4330,8 +4438,7 @@
     function renderVisualSpamRulesTable() {
         const tbody = document.getElementById('visual-rules-table-body');
         if (!tbody) return;
-
-        const searchInput = document.getElementById('search-visual-rules-input');
+        const searchInput = document.getElementById('search-visual-rules-input') || document.getElementById('search-visual-rules');
         const searchTerm = (searchInput ? searchInput.value : '').toLowerCase().trim();
 
         // 1. Atualizar KPIs do Topo
@@ -4357,8 +4464,6 @@
         const bBlacklist = document.getElementById('badge-spam-count-blacklist');
         const bSpam = document.getElementById('badge-spam-count-spam');
         const bWhitelist = document.getElementById('badge-spam-count-whitelist');
-        const bDuplicates = document.getElementById('badge-spam-count-duplicates');
-
         if (bAll) bAll.textContent = countAll;
         if (bBlacklist) bBlacklist.textContent = countBlacklist;
         if (bSpam) bSpam.textContent = countSpam;
@@ -4400,7 +4505,6 @@
             else if (currentSpamCategoryFilter === 'duplicates') msg = 'Nenhuma duplicidade ou conflito encontrado! Todas as regras est√£o otimizadas.';
             
             if (searchTerm) msg = `Nenhuma regra encontrada para a busca "${searchTerm}".`;
-
             tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted py-4 small font-monospace">${msg}</td></tr>`;
             return;
         }
@@ -4408,15 +4512,20 @@
         tbody.innerHTML = filtered.map((r, index) => {
             const ruleNum = r.rule_number || r.id || (index + 1);
             let badgeHtml = '';
+            let scoreBadge = '';
             if (r.type === 'blacklist_from') {
-                badgeHtml = `<span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2.5 py-1 font-monospace"><i class="bi bi-shield-x me-1"></i> Bloqueado (+100)</span>`;
+                badgeHtml = `<span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2.5 py-1 font-monospace"><i class="bi bi-shield-x me-1"></i> Bloqueado</span>`;
+                scoreBadge = `<span class="badge bg-danger-subtle text-danger font-monospace px-2 py-1">+100.0</span>`;
             } else if (r.type === 'spam_from') {
-                badgeHtml = `<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-2.5 py-1 font-monospace"><i class="bi bi-exclamation-triangle-fill text-warning me-1"></i> SPAM (+20)</span>`;
+                badgeHtml = `<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-2.5 py-1 font-monospace"><i class="bi bi-exclamation-triangle-fill text-warning me-1"></i> SPAM</span>`;
+                scoreBadge = `<span class="badge bg-warning-subtle text-dark font-monospace px-2 py-1">+20.0</span>`;
             } else {
-                badgeHtml = `<span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1 font-monospace"><i class="bi bi-shield-check me-1"></i> White List (-100)</span>`;
+                badgeHtml = `<span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1 font-monospace"><i class="bi bi-shield-check me-1"></i> White List</span>`;
+                scoreBadge = `<span class="badge bg-success-subtle text-success font-monospace px-2 py-1">-100.0</span>`;
             }
 
-            const targetType = r.target_type || (r.value.includes('@') && !r.value.startsWith('*@') ? 'email' : 'domain');
+            const val = r.value || r.target_value || '';
+            const targetType = r.target_type || (val.includes('@') && !val.startsWith('*@') ? 'email' : 'domain');
             const targetTypeBadge = targetType === 'email' 
                 ? `<span class="badge bg-info-subtle text-info border border-info-subtle small px-1.5 py-0.5 font-monospace" style="font-size: 10px;">E-MAIL</span>`
                 : `<span class="badge bg-secondary-subtle text-secondary border small px-1.5 py-0.5 font-monospace" style="font-size: 10px;">DOM√çNIO</span>`;
@@ -4428,7 +4537,6 @@
                 </div>
             `;
 
-            const reasonText = r.reason || '<span class="text-muted fst-italic">Padr√£o do Sistema</span>';
             const originBadge = r.origin === 'incident' 
                 ? `<span class="badge bg-danger-subtle text-danger font-monospace" style="font-size: 10px;"><i class="bi bi-shield-exclamation me-1"></i>Incidente</span>`
                 : r.origin === 'spam_analysis'
@@ -4436,37 +4544,28 @@
                 : `<span class="badge bg-light text-secondary border font-monospace" style="font-size: 10px;">Manual</span>`;
 
             const interpretationText = r.interpretation || (
-                r.type === 'blacklist_from' ? `Bloqueia e descarta mensagens de <strong>${r.value}</strong>` :
-                r.type === 'whitelist_from' ? `Permite e isenta de SPAM mensagens de <strong>${r.value}</strong>` :
-                `Pontua +20 pontos de SPAM mensagens de <strong>${r.value}</strong>`
+                r.type === 'blacklist_from' ? `Bloqueia e descarta mensagens enviadas por <strong>${val}</strong>` :
+                r.type === 'whitelist_from' ? `Permite e isenta de SPAM mensagens enviadas por <strong>${val}</strong>` :
+                `Pontua +20 pontos de SPAM para mensagens enviadas por <strong>${val}</strong>`
             );
 
             return `
                 <tr class="${!isActive ? 'opacity-50 bg-light' : ''}">
-                    <td class="text-center"><span class="badge bg-light text-dark border font-monospace fw-bold" style="font-size: 11px;">#${ruleNum}</span></td>
-                    <td class="text-center">${toggleSwitch}</td>
+                    <td class="text-center text-muted font-monospace small">#${ruleNum}</td>
                     <td>${badgeHtml}</td>
                     <td>
                         <div class="d-flex align-items-center gap-1.5">
-                            <code class="fw-bold text-dark fs-6">${r.value}</code>
+                            <strong class="font-monospace text-dark fs-6">${val}</strong>
                             ${targetTypeBadge}
                         </div>
                     </td>
+                    <td>${scoreBadge}</td>
                     <td><div class="small text-secondary">${interpretationText}</div></td>
-                    <td>
-                        <div class="small fw-semibold text-dark mb-0.5">${reasonText}</div>
-                        <div>${originBadge}</div>
-                    </td>
-                    <td><span class="font-monospace text-secondary small">${r.raw}</span></td>
+                    <td>${originBadge}</td>
+                    <td class="text-center">${toggleSwitch}</td>
                     <td class="text-center">
                         <div class="d-inline-flex align-items-center gap-1">
-                            <button class="btn btn-xs btn-outline-primary p-1 border-0" onclick="openTestTargetModal('${encodeURIComponent(r.value || '')}', '${r.type}')" title="Testar Impacto com Amostra">
-                                <i class="bi bi-play-circle fs-6"></i>
-                            </button>
-                            <button class="btn btn-xs btn-outline-secondary p-1 border-0" onclick="openEditVisualRuleModal('${encodeURIComponent(r.raw || '')}', '${r.type}', '${encodeURIComponent(r.value || '')}', '${encodeURIComponent(r.reason || '')}', '${r.origin || 'manual'}', ${isActive}, '${encodeURIComponent(r.notes || '')}')" title="Editar Detalhes da Regra">
-                                <i class="bi bi-pencil-square fs-6"></i>
-                            </button>
-                            <button class="btn btn-xs btn-outline-danger p-1 border-0" onclick="deleteVisualSpamRule('${encodeURIComponent(r.raw || '')}')" title="Remover Regra Permanentemente">
+                            <button class="btn btn-sm btn-outline-danger p-1 border-0" onclick="deleteVisualSpamRule('${encodeURIComponent(r.raw || '')}')" title="Excluir Regra">
                                 <i class="bi bi-trash fs-6"></i>
                             </button>
                         </div>
@@ -4475,436 +4574,7 @@
             `;
         }).join('');
     }
-
-    async function loadSpamRules() {
-        loadAntispamPolicyEngineData();
-        // 1. Atualizar Badge de Status do SpamAssassin
-        const badge = document.getElementById('spam-status-badge');
-        if (badge) {
-            try {
-                const statusData = await fetchJson('/api/services/status');
-                if (statusData && statusData.services && statusData.services.spamassassin) {
-                    const sa = statusData.services.spamassassin;
-                    if (sa.active || sa.state === 'active') {
-                        badge.className = 'badge bg-success-subtle text-success border border-success-subtle px-3 py-2 font-monospace';
-                        badge.innerHTML = '<i class="bi bi-circle-fill me-1" style="font-size: 8px;"></i> SpamAssassin: Ativo';
-                    } else {
-                        badge.className = 'badge bg-danger-subtle text-danger border border-danger-subtle px-3 py-2 font-monospace';
-                        badge.innerHTML = '<i class="bi bi-circle-fill me-1" style="font-size: 8px;"></i> SpamAssassin: Parado';
-                    }
-                }
-            } catch (err) {
-                console.warn("N√£o foi poss√≠vel obter o status do SpamAssassin:", err);
-            }
-        }
-
-        // 2. Carregar Regras Heur√≠sticas da Intelig√™ncia AntiSPAM (MariaDB + local.cf)
-        const customTbody = document.getElementById('custom-rules-table-body');
-        try {
-            const customData = await fetchJson('/api/services/spamassassin/custom-rules');
-            if (customData && customData.rules) {
-                currentCustomSpamRules = customData.rules;
-                renderCustomSpamRulesTable();
-            }
-        } catch (e) {
-            console.error("Erro ao carregar regras da Intelig√™ncia AntiSPAM:", e);
-            if (customTbody) {
-                customTbody.innerHTML = `<tr><td colspan="6" class="text-danger text-center font-monospace py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar intelig√™ncia antispam: ${e.message}</td></tr>`;
-            }
-        }
-
-        // 3. Carregar Regras Visuais (Blacklist & Listas de Acesso)
-        const tbody = document.getElementById('visual-rules-table-body');
-        try {
-            const data = await fetchJson('/api/services/spamassassin/visual-rules');
-            if (data.rules) {
-                currentVisualSpamRules = data.rules;
-                renderVisualSpamRulesTable();
-            }
-        } catch (e) {
-            console.error("Erro ao carregar regras visuais:", e);
-            if (tbody) {
-                tbody.innerHTML = `<tr><td colspan="7" class="text-danger text-center font-monospace py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro ao carregar regras visuais: ${e.message}</td></tr>`;
-            }
-        }
-
-        // 4. Executar Auditoria de Duplicidades em Background
-        checkAuditDuplicatesInBackground();
-
-        // 5. Carregar Conte√∫do Raw do local.cf
-        try {
-            const rawData = await fetchJson('/api/services/spamassassin/rules');
-            if (rawData.content !== undefined) {
-                document.getElementById('rules-textarea').value = rawData.content;
-            }
-        } catch (e) {
-            console.error("Erro ao carregar regras raw do SpamAssassin:", e);
-            document.getElementById('rules-textarea').value = `# ERRO AO CARREGAR REGRAS (/etc/spamassassin/local.cf):\n# ${e.message}`;
-        }
-    }
-
-    async function checkAuditDuplicatesInBackground() {
-        try {
-            const data = await fetchJson('/api/services/spamassassin/visual-rules/audit-duplicates');
-            cachedAuditData = data;
-            
-            const badge = document.getElementById('kpi-audit-badge');
-            const desc = document.getElementById('kpi-audit-description');
-            const btnClean = document.getElementById('btn-quick-deduplicate');
-            const bDuplicates = document.getElementById('badge-spam-count-duplicates');
-
-            const totalIssues = (data.duplicates_count || 0) + (data.conflicts_count || 0);
-            if (bDuplicates) bDuplicates.textContent = totalIssues;
-
-            if (totalIssues === 0) {
-                if (badge) {
-                    badge.className = 'badge bg-success-subtle text-success border border-success-subtle';
-                    badge.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> 100% Otimizado';
-                }
-                if (desc) desc.textContent = 'Nenhuma regra duplicada ou em conflito detectada.';
-                if (btnClean) btnClean.style.display = 'none';
-            } else {
-                if (badge) {
-                    badge.className = 'badge bg-warning-subtle text-dark border border-warning-subtle';
-                    badge.innerHTML = `<i class="bi bi-exclamation-triangle-fill text-warning me-1"></i> ${totalIssues} ${totalIssues === 1 ? 'Ajuste Pendente' : 'Ajustes Pendentes'}`;
-                }
-                if (desc) desc.textContent = `${data.duplicates_count || 0} regras duplicadas/equivalentes e ${data.conflicts_count || 0} conflitos.`;
-                if (btnClean) btnClean.style.display = 'inline-block';
-            }
-        } catch (err) {
-            console.warn("Erro ao auditar duplicidades:", err);
-        }
-    }
-
-    async function openAuditDuplicatesModal() {
-        const modalEl = document.getElementById('auditDuplicatesModal');
-        if (!modalEl) return;
-        const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
-        modal.show();
-
-        const summaryText = document.getElementById('audit-modal-summary-text');
-        const dupsList = document.getElementById('audit-duplicates-list');
-        const conflictsList = document.getElementById('audit-conflicts-list');
-
-        if (summaryText) summaryText.textContent = 'Consultando integridade do local.cf...';
-        if (dupsList) dupsList.innerHTML = '<div class="spinner-border spinner-border-sm text-primary"></div> Carregando...';
-        if (conflictsList) conflictsList.innerHTML = '<div class="spinner-border spinner-border-sm text-primary"></div> Carregando...';
-
-        try {
-            const data = await fetchJson('/api/services/spamassassin/visual-rules/audit-duplicates');
-            cachedAuditData = data;
-
-            if (summaryText) {
-                summaryText.innerHTML = `O SpamAssassin possui <strong>${data.total_rules || 0} regras de acesso</strong> ativas. Encontrados: <strong>${data.duplicates_count || 0} equival√™ncias/duplicatas</strong> e <strong>${data.conflicts_count || 0} conflitos</strong>.`;
-            }
-
-            if (dupsList) {
-                if (!data.duplicates || data.duplicates.length === 0) {
-                    dupsList.innerHTML = '<div class="text-success small py-3 text-center"><i class="bi bi-check-circle-fill me-1"></i> Nenhuma regra duplicada ou equivalente encontrada.</div>';
-                } else {
-                    dupsList.innerHTML = data.duplicates.map(g => `
-                        <div class="border-bottom pb-2 mb-2">
-                            <div class="d-flex align-items-center justify-content-between">
-                                <span class="fw-bold font-monospace text-dark small">${g.normalized_target}</span>
-                                <span class="badge bg-secondary-subtle text-secondary small">${g.count} regras</span>
-                            </div>
-                            <div class="small text-muted font-monospace mt-1">${g.rules.join('<br>')}</div>
-                        </div>
-                    `).join('');
-                }
-            }
-
-            if (conflictsList) {
-                if (!data.conflicts || data.conflicts.length === 0) {
-                    conflictsList.innerHTML = '<div class="text-success small py-3 text-center"><i class="bi bi-check-circle-fill me-1"></i> Nenhum conflito entre Blacklist e Whitelist encontrado.</div>';
-                } else {
-                    conflictsList.innerHTML = data.conflicts.map(c => `
-                        <div class="border-bottom pb-2 mb-2">
-                            <div class="fw-bold font-monospace text-danger small">${c.target}</div>
-                            <div class="small text-muted font-monospace mt-1">${c.rules.join('<br>')}</div>
-                        </div>
-                    `).join('');
-                }
-            }
-        } catch (err) {
-            if (summaryText) summaryText.textContent = `Erro ao auditar: ${err.message}`;
-        }
-    }
-
-    async function executeCleanDuplicates() {
-        if (!confirm("Deseja higienizar e consolidar as regras do SpamAssassin? Regras equivalentes (ex: @dominio.com) ser√£o padronizadas no formato universal (*@dominio.com) e duplicatas exatas ser√£o removidas.")) return;
-
-        try {
-            const data = await fetchJson('/api/services/spamassassin/visual-rules/clean-duplicates', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({})
-            });
-
-            showAlert(data.message || "Higieniza√ß√£o conclu√≠da com sucesso!", "success");
-
-            const modalEl = document.getElementById('auditDuplicatesModal');
-            if (modalEl) {
-                const modal = bootstrap.Modal.getInstance(modalEl);
-                if (modal) modal.hide();
-            }
-
-            loadSpamRules();
-        } catch (err) {
-            showAlert(`Erro ao higienizar regras: ${err.message}`, "danger");
-        }
-    }
-
-    function exportVisualRulesTxt() {
-        if (!currentVisualSpamRules || currentVisualSpamRules.length === 0) {
-            showAlert("Nenhuma regra para exportar.", "warning");
-            return;
-        }
-
-        const lines = [
-            "# =====================================================",
-            "# EXPORTA√á√ÉO DE REGRAS DE ACESSO SPAMASSASSIN (LOCAL.CF)",
-            `# Gerado em: ${new Date().toLocaleString('pt-BR')}`,
-            `# Total de Regras: ${currentVisualSpamRules.length}`,
-            "# =====================================================",
-            ""
-        ];
-
-        currentVisualSpamRules.forEach(r => {
-            lines.push(`# Classifica√ß√£o: ${r.action_label || r.type} | Alvo: ${r.value} | Motivo: ${r.reason || 'N/A'}`);
-            lines.push(r.raw || `${r.type} ${r.value}`);
-            lines.push("");
-        });
-
-        const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `spamassassin_visual_rules_${new Date().toISOString().slice(0,10)}.txt`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        showAlert("Lista de regras exportada com sucesso!", "success");
-    }
-
-    function openTestTargetModal(escapedTarget, action) {
-        const target = decodeURIComponent(escapedTarget || '');
-        const modalEl = document.getElementById('testTargetRuleModal');
-        if (!modalEl) return;
-
-        document.getElementById('modal-test-target-val').value = target;
-        document.getElementById('modal-test-action-val').value = action || 'blacklist_from';
-
-        const labelEl = document.getElementById('modal-test-rule-label');
-        const badgeEl = document.getElementById('modal-test-badge-label');
-        const interpEl = document.getElementById('modal-test-interpretation-label');
-        const emailsTextarea = document.getElementById('modal-test-custom-emails');
-
-        if (labelEl) labelEl.textContent = `Regra: ${action} ${target}`;
-        if (badgeEl) {
-            badgeEl.className = `badge ${action === 'blacklist_from' ? 'bg-danger' : action === 'whitelist_from' ? 'bg-success' : 'bg-warning text-dark'}`;
-            badgeEl.textContent = action === 'blacklist_from' ? 'Blacklist' : action === 'whitelist_from' ? 'White List' : 'SPAM';
-        }
-
-        // Sugerir e-mails autom√°ticos baseados no target
-        const domainClean = target.replace(/^\*@/, '').replace(/^@/, '').replace(/^\*/, '');
-        const sampleEmails = [
-            `contato@${domainClean}`,
-            `financeiro@${domainClean}`,
-            `diretoria@${domainClean}`,
-            `usuario.teste@${domainClean}`,
-            `outro.remetente@empresa-legitima.com.br`
-        ];
-
-        if (emailsTextarea) emailsTextarea.value = sampleEmails.join('\n');
-
-        const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
-        modal.show();
-
-        runModalTargetSimulation();
-    }
-
-    async function runModalTargetSimulation() {
-        const target = document.getElementById('modal-test-target-val')?.value || '';
-        const action = document.getElementById('modal-test-action-val')?.value || 'blacklist_from';
-        const rawEmails = document.getElementById('modal-test-custom-emails')?.value || '';
-        const resContainer = document.getElementById('modal-test-results-container');
-
-        const custom_emails = rawEmails.split('\n').map(s => s.trim()).filter(s => s.length > 0);
-
-        if (resContainer) {
-            resContainer.innerHTML = '<div class="text-center p-3"><div class="spinner-border spinner-border-sm text-primary"></div> Simulando...</div>';
-        }
-
-        try {
-            const data = await fetchJson('/api/services/spamassassin/visual-rules/test-target', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action, target, custom_emails })
-            });
-
-            if (resContainer && data.test_cases) {
-                let rows = data.test_cases.map(tc => {
-                    const matchBadge = tc.matched 
-                        ? `<span class="badge bg-danger-subtle text-danger border border-danger-subtle"><i class="bi bi-check-lg me-1"></i> Bloqueado / Afetado</span>` 
-                        : `<span class="badge bg-light text-muted border"><i class="bi bi-dash me-1"></i> N√£o Afetado</span>`;
-                    const resBadge = tc.matched
-                        ? `<span class="badge ${action === 'blacklist_from' ? 'bg-danger text-white' : action === 'whitelist_from' ? 'bg-success text-white' : 'bg-warning text-dark'}">${tc.result}</span>`
-                        : `<span class="badge bg-secondary text-white">${tc.result}</span>`;
-
-                    return `
-                        <tr>
-                            <td><code class="fw-bold text-dark">${tc.email}</code></td>
-                            <td>${matchBadge}</td>
-                            <td>${resBadge}</td>
-                            <td><span class="font-monospace ${tc.score_impact > 0 ? 'text-danger fw-bold' : tc.score_impact < 0 ? 'text-success fw-bold' : 'text-muted'}">${tc.score_impact > 0 ? '+' : ''}${tc.score_impact} pts</span></td>
-                        </tr>
-                    `;
-                }).join('');
-
-                resContainer.innerHTML = `
-                    <div class="table-responsive">
-                        <table class="table table-sm table-bordered align-middle mb-0 font-monospace" style="font-size: 0.85rem;">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>E-mail</th>
-                                    <th>Match na Regra</th>
-                                    <th>Veredito</th>
-                                    <th>Impacto de Score</th>
-                                </tr>
-                            </thead>
-                            <tbody>${rows}</tbody>
-                        </table>
-                    </div>
-                `;
-            }
-        } catch (err) {
-            if (resContainer) {
-                resContainer.innerHTML = `<div class="alert alert-danger small mb-0"><i class="bi bi-exclamation-triangle-fill me-1"></i> Erro: ${err.message}</div>`;
-            }
-        }
-    }
-
-    async function addVisualSpamRule(event) {
-        event.preventDefault();
-        const actionSelect = document.getElementById('visual-rule-action');
-        const valueInput = document.getElementById('visual-rule-value');
-        const reasonInput = document.getElementById('visual-rule-reason');
-        const originSelect = document.getElementById('visual-rule-origin');
-        const activeSwitch = document.getElementById('visual-rule-active');
-        const notesInput = document.getElementById('visual-rule-notes');
-
-        const action = actionSelect.value;
-        const value = valueInput.value.trim();
-        const reason = reasonInput ? reasonInput.value.trim() : '';
-        const origin = originSelect ? originSelect.value : 'manual';
-        const active = activeSwitch ? activeSwitch.checked : true;
-        const notes = notesInput ? notesInput.value.trim() : '';
-
-        if (!value) return;
-
-        try {
-            const data = await fetchJson('/api/services/spamassassin/visual-rules', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action, value, reason, origin, active, notes })
-            });
-
-            showAlert(data.message, 'success');
-            resetVisualRuleForm();
-            loadSpamRules();
-        } catch (e) {
-            showAlert(`Erro ao adicionar regra: ${e.message}`, 'danger');
-        }
-    }
-
-    function openEditVisualRuleModal(escapedRaw, type, escapedValue, escapedReason, origin, active, escapedNotes) {
-        const raw = decodeURIComponent(escapedRaw || '');
-        const val = decodeURIComponent(escapedValue || '');
-        const reason = decodeURIComponent(escapedReason || '');
-        const notes = decodeURIComponent(escapedNotes || '');
-
-        const oldRawInput = document.getElementById('edit-rule-old-raw');
-        const actionSelect = document.getElementById('edit-rule-action');
-        const valueInput = document.getElementById('edit-rule-value');
-        const reasonInput = document.getElementById('edit-rule-reason');
-        const originSelect = document.getElementById('edit-rule-origin');
-        const activeSwitch = document.getElementById('edit-rule-active');
-        const notesInput = document.getElementById('edit-rule-notes');
-
-        if (oldRawInput) oldRawInput.value = raw;
-        if (actionSelect) actionSelect.value = type || 'blacklist_from';
-        if (valueInput) valueInput.value = val;
-        if (reasonInput) reasonInput.value = reason;
-        if (originSelect) originSelect.value = origin || 'manual';
-        if (activeSwitch) activeSwitch.checked = (active !== false);
-        if (notesInput) notesInput.value = notes;
-
-        handleEditTargetChange();
-
-        const modalEl = document.getElementById('editVisualRuleModal');
-        if (modalEl) {
-            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
-            modal.show();
-        }
-    }
-
-    function handleEditTargetChange() {
-        const action = document.getElementById('edit-rule-action')?.value || 'blacklist_from';
-        const val = document.getElementById('edit-rule-value')?.value || '';
-        const sintaxeEl = document.getElementById('edit-rule-diag-sintaxe');
-        const descEl = document.getElementById('edit-rule-diag-desc');
-
-        if (sintaxeEl) sintaxeEl.textContent = `${action} ${val}`;
-        if (descEl) {
-            descEl.textContent = action === 'blacklist_from' ? 'Bloqueia e descarta todas as mensagens correspondentes.' : action === 'whitelist_from' ? 'Isenta de filtros de SPAM e libera o recebimento.' : 'Aplica pontua√ß√£o elevada de SPAM (+20).';
-        }
-    }
-
-    async function saveEditedVisualSpamRule(event) {
-        event.preventDefault();
-        const oldRaw = (document.getElementById('edit-rule-old-raw').value || '').trim();
-        const newAction = document.getElementById('edit-rule-action').value;
-        const newValue = (document.getElementById('edit-rule-value').value || '').trim();
-        const reason = (document.getElementById('edit-rule-reason')?.value || '').trim();
-        const origin = document.getElementById('edit-rule-origin')?.value || 'manual';
-        const active = document.getElementById('edit-rule-active')?.checked ?? true;
-        const notes = (document.getElementById('edit-rule-notes')?.value || '').trim();
-
-        if (!newValue) {
-            showAlert("O endere√ßo ou dom√≠nio alvo n√£o pode ficar vazio.", "warning");
-            return;
-        }
-
-        try {
-            const data = await fetchJson('/api/services/spamassassin/visual-rules/edit', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    old_raw: oldRaw,
-                    new_action: newAction,
-                    new_value: newValue,
-                    reason,
-                    origin,
-                    active,
-                    notes
-                })
-            });
-
-            const modalEl = document.getElementById('editVisualRuleModal');
-            if (modalEl) {
-                const modal = bootstrap.Modal.getInstance(modalEl);
-                if (modal) modal.hide();
-            }
-
-            showAlert(data.message || "Regra da lista atualizada com sucesso!", 'success');
-            loadSpamRules();
-        } catch (e) {
-            showAlert(`Erro ao atualizar regra: ${e.message}`, 'danger');
-        }
-    }
-
+    
     async function deleteVisualSpamRule(escapedRaw) {
         const rawRule = decodeURIComponent(escapedRaw);
         if (!confirm(`Tem certeza que deseja remover a regra "${rawRule}"?`)) return;
@@ -6197,89 +5867,25 @@
     // =========================================================================
     // ANTISPAM: LISTAS DE ACESSO (Blacklist & Whitelist)
     // =========================================================================
-    let currentVisualRulesList = [];
-
     async function loadVisualSpamRulesList() {
         try {
             const res = await fetchJson('/api/services/spamassassin/visual-rules');
             if (res && res.rules) {
-                currentVisualRulesList = Array.isArray(res.rules) ? res.rules : [];
-                renderVisualRulesTableList(currentVisualRulesList);
-
-                const kpiTotal = document.getElementById('kpi-visual-total');
-                const kpiBl = document.getElementById('kpi-visual-blacklist');
-                const kpiWl = document.getElementById('kpi-visual-whitelist');
-
-                const blCount = currentVisualRulesList.filter(r => {
-                    const t = String(r.rule_type || r.type || r.action || r.directive || '').toLowerCase();
-                    return t.startsWith('blacklist') || t.startsWith('spam');
-                }).length;
-
-                const wlCount = currentVisualRulesList.filter(r => {
-                    const t = String(r.rule_type || r.type || r.action || r.directive || '').toLowerCase();
-                    return t.startsWith('whitelist');
-                }).length;
-
-                if (kpiTotal) kpiTotal.textContent = currentVisualRulesList.length;
-                if (kpiBl) kpiBl.textContent = blCount;
-                if (kpiWl) kpiWl.textContent = wlCount;
+                currentVisualSpamRules = Array.isArray(res.rules) ? res.rules : [];
+                currentVisualRulesList = currentVisualSpamRules;
+                renderVisualSpamRulesTable();
             }
         } catch (e) {
             console.error('Erro listas visuais:', e);
         }
     }
 
-    function renderVisualRulesTableList(rules) {
-        const tbody = document.getElementById('visual-rules-table-body');
-        if (!tbody) return;
-        if (!rules || rules.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center py-3 text-muted">Nenhuma regra de acesso cadastrada.</td></tr>';
-            return;
-        }
-        tbody.innerHTML = rules.map(r => {
-            const ruleType = String(r.rule_type || r.type || r.action || r.directive || '').toLowerCase();
-            const isBl = ruleType.startsWith('blacklist') || ruleType.startsWith('spam');
-            const typeBadge = isBl ? '<span class="badge bg-danger"><i class="bi bi-slash-circle me-1"></i> Blacklist</span>' : '<span class="badge bg-success"><i class="bi bi-check-circle me-1"></i> Whitelist</span>';
-            const targetVal = String(r.target_value || r.value || r.normalized_value || r.pattern || '-');
-            const scoreVal = r.score !== undefined ? (Number(r.score) > 0 ? ('+' + r.score) : String(r.score)) : (isBl ? '+100.0' : '-100.0');
-            const scoreBadge = isBl ? `<span class="badge bg-danger-subtle text-danger font-monospace">${scoreVal}</span>` : `<span class="badge bg-success-subtle text-success font-monospace">${scoreVal}</span>`;
-            const isActive = r.active !== false;
-            const originVal = String(r.origin || 'local.cf');
-            const rawParam = encodeURIComponent(r.raw || (r.action && r.value ? `${r.action} ${r.value}` : targetVal));
-            const idParam = r.id || 0;
-
-            return `
-                <tr>
-                    <td>${typeBadge}</td>
-                    <td><strong class="font-monospace text-dark">${escapeHtml(targetVal)}</strong></td>
-                    <td>${scoreBadge}</td>
-                    <td><span class="badge bg-light text-secondary border">${escapeHtml(originVal)}</span></td>
-                    <td><span class="badge ${isActive ? 'bg-success' : 'bg-secondary'}">${isActive ? 'Ativo' : 'Inativo'}</span></td>
-                    <td class="text-center">
-                        <button type="button" class="btn btn-outline-danger btn-xs py-0.5 px-2" title="Excluir regra" onclick="deleteVisualSpamRule('${rawParam}', ${idParam})">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                    </td>
-                </tr>
-            `;
-        }).join('');
-    }
-
-    function filterVisualRulesTable() {
-        const term = (document.getElementById('search-visual-rules')?.value || '').toLowerCase().trim();
-        const filtered = currentVisualRulesList.filter(r => {
-            const targetVal = String(r.target_value || r.value || r.normalized_value || r.pattern || '').toLowerCase();
-            const ruleType = String(r.rule_type || r.type || r.action || r.directive || '').toLowerCase();
-            return targetVal.includes(term) || ruleType.includes(term);
-        });
-        renderVisualRulesTableList(filtered);
-    }
-
     async function addVisualSpamRule(e) {
         if (e) e.preventDefault();
         const type = document.getElementById('visual-rule-type')?.value || 'blacklist_from';
-        const target = (document.getElementById('visual-rule-target')?.value || '').trim();
-        const score = parseFloat(document.getElementById('visual-rule-score')?.value || 10.0);
+        const target = (document.getElementById('visual-rule-value')?.value || document.getElementById('visual-rule-target')?.value || '').trim();
+        const score = parseFloat(document.getElementById('visual-rule-score')?.value || (type.startsWith('whitelist') ? -100.0 : 100.0));
+        const reason = (document.getElementById('visual-rule-reason')?.value || '').trim();
 
         if (!target) {
             showAlert('Por favor, informe o dom√≠nio, e-mail ou IP alvo.', 'warning');
@@ -6290,12 +5896,22 @@
             const res = await fetchJson('/api/services/spamassassin/visual-rules', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: type, rule_type: type, value: target, target_value: target, score: score })
+                body: JSON.stringify({ 
+                    action: type, 
+                    rule_type: type, 
+                    value: target, 
+                    target_value: target, 
+                    score: score,
+                    reason: reason,
+                    origin: 'manual'
+                })
             });
             if (res && res.success) {
                 showAlert(res.message || 'Entrada adicionada √† lista com sucesso!', 'success');
-                const targetInput = document.getElementById('visual-rule-target');
+                const targetInput = document.getElementById('visual-rule-value');
                 if (targetInput) targetInput.value = '';
+                const reasonInput = document.getElementById('visual-rule-reason');
+                if (reasonInput) reasonInput.value = '';
                 loadVisualSpamRulesList();
             } else {
                 showAlert((res && (res.message || res.error)) || 'Erro ao adicionar entrada.', 'danger');
@@ -6317,12 +5933,12 @@
         if (!confirm('Deseja realmente remover a entrada "' + (rawRule || 'selecionada') + '" da lista de acesso?')) return;
 
         try {
-            const res = await fetchJson('/api/services/spamassassin/visual-rules', {
-                method: 'DELETE',
+            const res = await fetchJson('/api/services/spamassassin/visual-rules/delete', {
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ raw: rawRule, id: ruleId })
             });
-            if (res && res.success) {
+            if (res && (res.success || res.message)) {
                 showAlert(res.message || 'Entrada removida com sucesso!', 'info');
                 loadVisualSpamRulesList();
             } else {
@@ -6803,6 +6419,147 @@
     window.toggleSidebar = toggleSidebar;
     window.toggleUserMfa = toggleUserMfa;
     window.toggleVisualRuleActive = toggleVisualRuleActive;
+    function filterCustomSpamRules(category) {
+        if (typeof setHeuristicCategoryFilter === 'function') {
+            setHeuristicCategoryFilter(category);
+        } else {
+            currentHeuristicCategory = category || 'all';
+            ['all', 'phishing', 'links', 'obfuscation', 'hijack'].forEach(c => {
+                const btn = document.getElementById(`btn-custom-filter-${c}`);
+                if (btn) {
+                    if (c === category) {
+                        btn.classList.add('active');
+                    } else {
+                        btn.classList.remove('active');
+                    }
+                }
+            });
+            renderCustomSpamRulesTable();
+        }
+    }
+
+    function filterVisualSpamRules(type) {
+        let cat = type;
+        if (type === 'blacklist') cat = 'blacklist_from';
+        else if (type === 'whitelist') cat = 'whitelist_from';
+        else if (type === 'spam') cat = 'spam_from';
+        else if (type === 'duplicates') cat = 'duplicates';
+        else cat = 'all';
+
+        currentSpamCategoryFilter = cat;
+
+        ['all', 'blacklist', 'whitelist', 'spam', 'duplicates'].forEach(t => {
+            const btn = document.getElementById(`filter-spam-btn-${t}`);
+            if (btn) {
+                if (t === type) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            }
+        });
+
+        renderVisualSpamRulesTable();
+    }
+
+    async function runSpamIntelTest() {
+        const subject = document.getElementById('spam-intel-subject')?.value || '';
+        const body = document.getElementById('spam-intel-body')?.value || '';
+        const headers = document.getElementById('spam-intel-headers')?.value || '';
+        const resContainer = document.getElementById('spam-intel-result');
+        if (!resContainer) return;
+        
+        resContainer.classList.remove('d-none');
+        resContainer.innerHTML = '<div class="alert alert-info py-2 font-monospace small"><i class="bi bi-hourglass-split me-1"></i> Analisando mensagem com motor heur√≠stico...</div>';
+        
+        try {
+            const payload = {
+                raw_eml: `${headers}\nSubject: ${subject}\n\n${body}`,
+                params: {
+                    client_ip: '127.0.0.1',
+                    helo: 'localhost',
+                    sender_from: 'teste@exemplo.com',
+                    envelope_from: 'teste@exemplo.com'
+                }
+            };
+            const res = await fetchJson('/api/antispam/simulate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (res && res.success) {
+                const isSpam = res.classification !== 'CLEAN';
+                const alertClass = isSpam ? 'alert-danger' : 'alert-success';
+                const icon = isSpam ? 'bi-shield-slash' : 'bi-shield-check';
+                resContainer.innerHTML = `
+                    <div class="alert ${alertClass} p-3 mb-0">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <strong class="d-flex align-items-center gap-1.5"><i class="bi ${icon}"></i> Veredito: ${res.classification}</strong>
+                            <span class="badge ${isSpam ? 'bg-danger' : 'bg-success'} font-monospace">Score: ${(res.final_score || 0).toFixed(2)}</span>
+                        </div>
+                        <div class="small">
+                            Regras disparadas: <strong>${(res.triggered_rules || []).length}</strong>. 
+                            ${(res.triggered_rules || []).map(r => `<span class="badge bg-secondary font-monospace me-1">${escapeHtml(r.rule_code || r.name)}</span>`).join('')}
+                        </div>
+                    </div>
+                `;
+            } else {
+                resContainer.innerHTML = `<div class="alert alert-warning py-2 small mb-0"><i class="bi bi-exclamation-triangle me-1"></i> ${res.error || 'N√£o foi poss√≠vel processar o teste.'}</div>`;
+            }
+        } catch (err) {
+            resContainer.innerHTML = `<div class="alert alert-danger py-2 small mb-0"><i class="bi bi-x-circle me-1"></i> Erro: ${err.message}</div>`;
+        }
+    }
+
+    async function testDatabaseConnection() {
+        const DB_USER = document.getElementById('cfg-db-user')?.value || '';
+        const DB_PASS = document.getElementById('cfg-db-pass')?.value || '';
+        const DB_HOST = document.getElementById('cfg-db-host')?.value || '';
+        const DB_NAME = document.getElementById('cfg-db-name')?.value || '';
+        const DB_PORT = document.getElementById('cfg-db-port')?.value || '3306';
+
+        try {
+            showAlert('Testando conex√£o com o banco MariaDB...', 'info');
+            const data = await fetchJson('/api/services/db-test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ DB_USER, DB_PASS, DB_HOST, DB_NAME, DB_PORT })
+            });
+            if (data && data.success) {
+                showSettingsAlert('Conex√£o com MariaDB/MySQL estabelecida com sucesso!', 'success');
+                showAlert('Conex√£o com MariaDB estabelecida!', 'success');
+            } else {
+                const msg = data.error || data.message || 'Falha ao conectar';
+                showSettingsAlert(`Falha na conex√£o: ${msg}`, 'danger');
+                showAlert(`Falha na conex√£o: ${msg}`, 'danger');
+            }
+        } catch (e) {
+            showSettingsAlert(`Erro de conex√£o: ${e.message}`, 'danger');
+            showAlert(`Erro de conex√£o: ${e.message}`, 'danger');
+        }
+    }
+
+    function toggleResetPasswordVisibility() {
+        const input = document.getElementById('reset-admin-password-input');
+        const icon = document.getElementById('toggle-reset-password-icon');
+        if (!input) return;
+        if (input.type === 'password') {
+            input.type = 'text';
+            if (icon) icon.className = 'bi bi-eye-slash';
+        } else {
+            input.type = 'password';
+            if (icon) icon.className = 'bi bi-eye';
+        }
+    }
+
+    const submitMfaSetup = enableMfa;
+
+    window.filterCustomSpamRules = filterCustomSpamRules;
+    window.filterVisualSpamRules = filterVisualSpamRules;
+    window.runSpamIntelTest = runSpamIntelTest;
+    window.testDatabaseConnection = testDatabaseConnection;
+    window.toggleResetPasswordVisibility = toggleResetPasswordVisibility;
+    window.submitMfaSetup = submitMfaSetup;
     window.trackEmail = trackEmail;
     window.triggerMailLogIngestion = triggerMailLogIngestion;
     window.updateGeneratedPattern = updateGeneratedPattern;
@@ -8006,6 +7763,11 @@
                             </button>
                         </li>
                         <li class="nav-item" role="presentation">
+                            <button class="nav-link fw-semibold" id="spam-intel-sub-tab" data-bs-toggle="tab" data-bs-target="#tab-spam-intel-sub" type="button" role="tab" aria-controls="tab-spam-intel-sub" aria-selected="false">
+                                <i class="bi bi-shield-check me-1.5 text-danger"></i> Intelig√™ncia SPAM
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
                             <button class="nav-link fw-semibold" id="dns-sub-tab" data-bs-toggle="tab" data-bs-target="#tab-dns-sub" type="button" role="tab" aria-controls="tab-dns-sub" aria-selected="false">
                                 <i class="bi bi-globe me-1.5 text-info"></i> Auditoria DNS
                             </button>
@@ -8557,6 +8319,79 @@
                                     </table>
                                 </div>
                             </div>
+                        </div> <!-- /tab-auditoria -->
+
+                        <!-- ABA: Intelig√™ncia SPAM no Troubleshooting -->
+                        <div class="tab-pane fade" id="tab-spam-intel-sub" role="tabpanel" aria-labelledby="spam-intel-sub-tab">
+                            <div class="card p-4 shadow-sm border-0 mb-4 bg-gradient" style="background: linear-gradient(135deg, #1e293b, #0f172a); color: white;">
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="p-3 bg-danger bg-opacity-25 rounded-3 text-danger border border-danger border-opacity-25">
+                                            <i class="bi bi-shield-check fs-3"></i>
+                                        </div>
+                                        <div>
+                                            <h4 class="h5 fw-bold mb-1">Intelig√™ncia SPAM & Simulador Heur√≠stico</h4>
+                                            <p class="small text-light text-opacity-75 mb-0">Calibra√ß√£o preditiva, teste em tempo real de express√µes regulares e an√°lise de pontua√ß√£o SpamAssassin.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row g-4">
+                                <div class="col-lg-7">
+                                    <div class="card p-4 shadow-sm border-0 h-100">
+                                        <h6 class="fw-bold text-dark mb-3 d-flex align-items-center gap-2 border-bottom pb-2">
+                                            <i class="bi bi-search text-primary"></i> Testador de Regras e Headers em Tempo Real
+                                        </h6>
+                                        <div class="mb-3">
+                                            <label class="form-label small fw-bold text-secondary">Assunto do E-mail (Subject:)</label>
+                                            <input type="text" id="spam-intel-subject" class="form-control font-monospace" value="Notifica√ß√£o Urgente: Multa de Ped√°gio Rodovi√°rio em Atraso">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label small fw-bold text-secondary">Corpo da Mensagem (Texto Bruto)</label>
+                                            <textarea id="spam-intel-body" rows="4" class="form-control font-monospace">Prezado cliente, consta um d√©bito pendente na rodovia. Clique no link para regularizar via PIX.</textarea>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label small fw-bold text-secondary">Cabe√ßalhos SMTP Adicionais</label>
+                                            <textarea id="spam-intel-headers" rows="3" class="form-control font-monospace">From: cobranca@pedagiorodovias-aviso.com&#10;Authentication-Results: dkim=fail; spf=softfail</textarea>
+                                        </div>
+                                        <button type="button" class="btn btn-danger btn-sm fw-bold px-4" onclick="runSpamIntelTest()">
+                                            <i class="bi bi-lightning-charge-fill me-1"></i> Executar An√°lise Heur√≠stica
+                                        </button>
+                                        <div id="spam-intel-result" class="mt-3 d-none"></div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-5">
+                                    <div class="card p-4 shadow-sm border-0 h-100">
+                                        <h6 class="fw-bold text-dark mb-3 d-flex align-items-center gap-2 border-bottom pb-2">
+                                            <i class="bi bi-shield-lock-fill text-success"></i> Heur√≠sticas ZRTI Ativas
+                                        </h6>
+                                        <div class="vstack gap-3">
+                                            <div class="p-3 bg-light rounded border">
+                                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                                    <strong class="font-monospace text-dark small">LOCAL_GOLPE_PEDAGIO</strong>
+                                                    <span class="badge bg-danger font-monospace">+15.0</span>
+                                                </div>
+                                                <p class="small text-muted mb-0">Bloqueia termos de ped√°gio/concession√°ria fraudulentos no Subject.</p>
+                                            </div>
+                                            <div class="p-3 bg-light rounded border">
+                                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                                    <strong class="font-monospace text-dark small">LOCAL_NOTAFISCAL_PDF_EXE</strong>
+                                                    <span class="badge bg-danger font-monospace">+10.0</span>
+                                                </div>
+                                                <p class="small text-muted mb-0">Anexos maliciosos com extens√£o dupla simulando NF-e.</p>
+                                            </div>
+                                            <div class="p-3 bg-light rounded border">
+                                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                                    <strong class="font-monospace text-dark small">BAYES_AUTO_LEARN</strong>
+                                                    <span class="badge bg-success font-monospace">ATIVO</span>
+                                                </div>
+                                                <p class="small text-muted mb-0">Aprendizado probabil√≠stico cont√≠nuo via base corporativa.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -8733,6 +8568,12 @@
                             </button>
                         </li>
                         <li class="nav-item" role="presentation">
+                            <button class="nav-link fw-bold small text-muted d-flex align-items-center gap-2" id="spam-intelligence-tab" data-bs-toggle="tab" data-bs-target="#spam-tab-intelligence" type="button" role="tab">
+                                <i class="bi bi-magic text-warning"></i> Intelig√™ncia SPAM (Regras Heur√≠sticas & Regex)
+                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle rounded-pill font-monospace" id="badge-heuristic-all">10</span>
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
                             <button class="nav-link fw-bold small text-muted d-flex align-items-center gap-2" id="spam-lists-tab" data-bs-toggle="tab" data-bs-target="#spam-tab-lists" type="button" role="tab">
                                 <i class="bi bi-list-check text-success"></i> Listas de Acesso (Blacklist / Whitelist)
                             </button>
@@ -8826,11 +8667,6 @@
                                     <li class="nav-item" role="presentation">
                                         <button class="nav-link btn-sm fw-bold rounded-3" id="pill-imp-tab" data-bs-toggle="pill" data-bs-target="#calib-pill-imp" type="button" role="tab">
                                             <i class="bi bi-person-x me-1"></i> 3. Anti-Impersonation & Marcas Protegidas
-                                        </button>
-                                    </li>
-                                    <li class="nav-item" role="presentation">
-                                        <button class="nav-link btn-sm fw-bold rounded-3" id="pill-heur-tab" data-bs-toggle="pill" data-bs-target="#calib-pill-heur" type="button" role="tab">
-                                            <i class="bi bi-braces me-1"></i> 4. Regras Heur√≠sticas Locais
                                         </button>
                                     </li>
                                 </ul>
@@ -8929,33 +8765,6 @@
                                             </table>
                                         </div>
                                     </div>
-
-                                    <!-- 4. Regras Heur√≠sticas Locais -->
-                                    <div class="tab-pane fade" id="calib-pill-heur" role="tabpanel">
-                                        <div class="d-flex align-items-center justify-content-between mb-3">
-                                            <p class="text-muted small mb-0">Regras locais armazenadas em banco de dados MariaDB com express√µes regulares personalizadas.</p>
-                                            <button type="button" class="btn btn-outline-primary btn-sm fw-bold" onclick="openNewCustomSpamRuleModal()">
-                                                <i class="bi bi-plus-lg me-1"></i> Nova Regra Heur√≠stica
-                                            </button>
-                                        </div>
-                                        <div class="table-responsive">
-                                            <table class="table table-custom align-middle mb-0" style="font-size: 0.88rem;">
-                                                <thead class="table-light">
-                                                    <tr>
-                                                        <th>Regra / Nome</th>
-                                                        <th>Cabe√ßalho Alvo</th>
-                                                        <th>Express√£o Regular (Regex)</th>
-                                                        <th>Score</th>
-                                                        <th>Status</th>
-                                                        <th class="text-center" style="width: 100px;">A√ß√µes</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody id="custom-rules-table-body">
-                                                    <tr><td colspan="6" class="text-center py-3 text-muted">Nenhuma regra heur√≠stica local cadastrada.</td></tr>
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -8963,7 +8772,212 @@
                         <!-- ============================================================== -->
                         <!-- TAB 2: LISTAS DE ACESSO (Blacklist & Whitelist)                -->
                         <!-- ============================================================== -->
-                        <div class="tab-pane fade" id="spam-tab-lists" role="tabpanel">
+                                                <!-- ============================================================== -->
+                        <!-- TAB 2: INTELIG√äNCIA SPAM (Regras Heur√≠sticas & Regex Avan√ßadas)   -->
+                        <!-- ============================================================== -->
+                        <div class="tab-pane fade" id="spam-tab-intelligence" role="tabpanel">
+                            <!-- KPI Summary Cards -->
+                            <div class="row g-3 mb-4">
+                                <div class="col-md-3">
+                                    <div class="card p-3 shadow-sm border-0 bg-light h-100">
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <div>
+                                                <span class="text-muted small fw-semibold">Regras Inteligentes</span>
+                                                <h3 class="fw-bold text-dark mb-0 fs-3" id="badge-custom-rules-count">10</h3>
+                                            </div>
+                                            <div class="p-3 bg-warning-subtle text-warning rounded-3">
+                                                <i class="bi bi-magic fs-4"></i>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card p-3 shadow-sm border-0 bg-light h-100">
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <div>
+                                                <span class="text-muted small fw-semibold">Phishing & Golpes</span>
+                                                <h3 class="fw-bold text-danger mb-0 fs-3" id="kpi-custom-phishing">5</h3>
+                                            </div>
+                                            <div class="p-3 bg-danger-subtle text-danger rounded-3">
+                                                <i class="bi bi-shield-slash fs-4"></i>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card p-3 shadow-sm border-0 bg-light h-100">
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <div>
+                                                <span class="text-muted small fw-semibold">Links & URIs no E-mail</span>
+                                                <h3 class="fw-bold text-info mb-0 fs-3" id="kpi-custom-links">2</h3>
+                                            </div>
+                                            <div class="p-3 bg-info-subtle text-info rounded-3">
+                                                <i class="bi bi-link-45deg fs-4"></i>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card p-3 shadow-sm border-0 bg-light h-100">
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <div>
+                                                <span class="text-muted small fw-semibold">Ofusca√ß√£o & Caracteres</span>
+                                                <h3 class="fw-bold text-warning mb-0 fs-3" id="kpi-custom-obfuscation">3</h3>
+                                            </div>
+                                            <div class="p-3 bg-warning-subtle text-dark rounded-3">
+                                                <i class="bi bi-fonts fs-4"></i>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Presets R√°pidos de Intelig√™ncia AntiSPAM (1-Clique) -->
+                            <div class="card p-4 shadow-sm border-0 mb-4 bg-light">
+                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+                                    <div>
+                                        <h6 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
+                                            <i class="bi bi-lightning-charge-fill text-warning"></i> Presets R√°pidos de Intelig√™ncia AntiSPAM ZRTI
+                                        </h6>
+                                        <p class="text-muted small mb-0">Modelos prontos de Regex para intercepta√ß√£o de phishing moderno, links encurtados, IP direto e caracteres estranhos.</p>
+                                    </div>
+                                    <button type="button" class="btn btn-primary btn-sm px-3 shadow-sm" onclick="openNewCustomSpamRuleModal()">
+                                        <i class="bi bi-plus-circle-fill me-1"></i> Nova Regra Inteligente (Regex)
+                                    </button>
+                                </div>
+                                <div class="row g-2">
+                                    <div class="col-md-3 col-sm-6">
+                                        <button type="button" class="btn btn-white w-100 text-start border shadow-sm p-2.5 h-100 hover-shadow transition" onclick="applySpamHeuristicPreset('pedagio')">
+                                            <div class="d-flex align-items-center gap-2 mb-1">
+                                                <span class="badge bg-danger-subtle text-danger"><i class="bi bi-shield-x"></i> Phishing</span>
+                                                <span class="badge bg-danger text-white font-monospace ms-auto">+15.0</span>
+                                            </div>
+                                            <strong class="d-block text-dark small">Golpe Ped√°gio / Rodovia</strong>
+                                            <span class="text-muted font-monospace" style="font-size: 11px;">/ped.gios?|vi.ria|rodovi.rio/i</span>
+                                        </button>
+                                    </div>
+                                    <div class="col-md-3 col-sm-6">
+                                        <button type="button" class="btn btn-white w-100 text-start border shadow-sm p-2.5 h-100 hover-shadow transition" onclick="applySpamHeuristicPreset('remetente_falso')">
+                                            <div class="d-flex align-items-center gap-2 mb-1">
+                                                <span class="badge bg-danger-subtle text-danger"><i class="bi bi-person-x"></i> Phishing</span>
+                                                <span class="badge bg-danger text-white font-monospace ms-auto">+15.0</span>
+                                            </div>
+                                            <strong class="d-block text-dark small">Remetente Falso / Cobran√ßa</strong>
+                                            <span class="text-muted font-monospace" style="font-size: 11px;">/Regulariza..o|Cobran.a|ReclameAqui/i</span>
+                                        </button>
+                                    </div>
+                                    <div class="col-md-3 col-sm-6">
+                                        <button type="button" class="btn btn-white w-100 text-start border shadow-sm p-2.5 h-100 hover-shadow transition" onclick="applySpamHeuristicPreset('links_suspeitos')">
+                                            <div class="d-flex align-items-center gap-2 mb-1">
+                                                <span class="badge bg-info-subtle text-info"><i class="bi bi-link"></i> Link no E-mail</span>
+                                                <span class="badge bg-danger text-white font-monospace ms-auto">+12.0</span>
+                                            </div>
+                                            <strong class="d-block text-dark small">Links Encurtados / Suspeitos</strong>
+                                            <span class="text-muted font-monospace" style="font-size: 11px;">uri: bit.ly|tinyurl|is.gd|cutt.ly</span>
+                                        </button>
+                                    </div>
+                                    <div class="col-md-3 col-sm-6">
+                                        <button type="button" class="btn btn-white w-100 text-start border shadow-sm p-2.5 h-100 hover-shadow transition" onclick="applySpamHeuristicPreset('link_ip_direto')">
+                                            <div class="d-flex align-items-center gap-2 mb-1">
+                                                <span class="badge bg-info-subtle text-info"><i class="bi bi-hdd-network"></i> Link IP Direto</span>
+                                                <span class="badge bg-danger text-white font-monospace ms-auto">+14.0</span>
+                                            </div>
+                                            <strong class="d-block text-dark small">Link com IP Direto no E-mail</strong>
+                                            <span class="text-muted font-monospace" style="font-size: 11px;">uri: https?://185.x.x.x</span>
+                                        </button>
+                                    </div>
+                                    <div class="col-md-3 col-sm-6">
+                                        <button type="button" class="btn btn-white w-100 text-start border shadow-sm p-2.5 h-100 hover-shadow transition" onclick="applySpamHeuristicPreset('caracteres_estranhos')">
+                                            <div class="d-flex align-items-center gap-2 mb-1">
+                                                <span class="badge bg-warning-subtle text-dark"><i class="bi bi-fonts"></i> Ofusca√ß√£o</span>
+                                                <span class="badge bg-warning text-dark font-monospace ms-auto">+10.0</span>
+                                            </div>
+                                            <strong class="d-block text-dark small">Caracteres Estranhos & Charset</strong>
+                                            <span class="text-muted font-monospace" style="font-size: 11px;">Zero-Width / Hom√≥grafos / Cir√≠lico</span>
+                                        </button>
+                                    </div>
+                                    <div class="col-md-3 col-sm-6">
+                                        <button type="button" class="btn btn-white w-100 text-start border shadow-sm p-2.5 h-100 hover-shadow transition" onclick="applySpamHeuristicPreset('assunto_quebrado')">
+                                            <div class="d-flex align-items-center gap-2 mb-1">
+                                                <span class="badge bg-warning-subtle text-dark"><i class="bi bi-question-diamond"></i> Charset</span>
+                                                <span class="badge bg-warning text-dark font-monospace ms-auto">+5.0</span>
+                                            </div>
+                                            <strong class="d-block text-dark small">Assunto Quebrado (??)</strong>
+                                            <span class="text-muted font-monospace" style="font-size: 11px;">/\?{2,}/</span>
+                                        </button>
+                                    </div>
+                                    <div class="col-md-3 col-sm-6">
+                                        <button type="button" class="btn btn-white w-100 text-start border shadow-sm p-2.5 h-100 hover-shadow transition" onclick="applySpamHeuristicPreset('pix_fatura')">
+                                            <div class="d-flex align-items-center gap-2 mb-1">
+                                                <span class="badge bg-danger-subtle text-danger"><i class="bi bi-receipt"></i> Golpe PIX</span>
+                                                <span class="badge bg-danger text-white font-monospace ms-auto">+12.0</span>
+                                            </div>
+                                            <strong class="d-block text-dark small">Falso PIX / Boleto / Fatura</strong>
+                                            <span class="text-muted font-monospace" style="font-size: 11px;">/comprovante.*pix|fatura.*vencida/i</span>
+                                        </button>
+                                    </div>
+                                    <div class="col-md-3 col-sm-6">
+                                        <button type="button" class="btn btn-white w-100 text-start border shadow-sm p-2.5 h-100 hover-shadow transition" onclick="applySpamHeuristicPreset('replyto_sequestrado')">
+                                            <div class="d-flex align-items-center gap-2 mb-1">
+                                                <span class="badge bg-danger-subtle text-danger"><i class="bi bi-reply"></i> Reply-To</span>
+                                                <span class="badge bg-danger text-white font-monospace ms-auto">+15.0</span>
+                                            </div>
+                                            <strong class="d-block text-dark small">Reply-To Dom√≠nio Sequestrado</strong>
+                                            <span class="text-muted font-monospace" style="font-size: 11px;">Reply-To =~ /dominio_alheio/i</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Filtros e Tabela de Regras Heur√≠sticas -->
+                            <div class="card p-4 shadow-sm border-0 mb-4">
+                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3 pb-3 border-bottom">
+                                    <div class="d-flex flex-wrap align-items-center gap-2">
+                                        <button class="btn btn-sm btn-outline-secondary active" id="btn-custom-filter-all" onclick="filterCustomSpamRules('all')">
+                                            Todas as Regras
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger" id="btn-custom-filter-phishing" onclick="filterCustomSpamRules('phishing')">
+                                            <i class="bi bi-shield-slash me-1"></i> Phishing & Golpes
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-info" id="btn-custom-filter-links" onclick="filterCustomSpamRules('links')">
+                                            <i class="bi bi-link-45deg me-1"></i> Links no E-mail
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-warning" id="btn-custom-filter-obfuscation" onclick="filterCustomSpamRules('obfuscation')">
+                                            <i class="bi bi-fonts me-1"></i> Ofusca√ß√£o & Caracteres
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary" id="btn-custom-filter-hijack" onclick="filterCustomSpamRules('hijack')">
+                                            <i class="bi bi-reply me-1"></i> Reply-To Sequestrado
+                                        </button>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="input-group input-group-sm" style="max-width: 280px;">
+                                            <span class="input-group-text bg-light border-end-0"><i class="bi bi-search text-muted"></i></span>
+                                            <input type="text" class="form-control border-start-0" id="search-heuristic-rules-input" placeholder="Buscar regra, regex, alvo..." onkeyup="renderCustomSpamRulesTable()">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="table-responsive">
+                                    <table class="table table-hover align-middle mb-0">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th style="width: 220px;">Identificador da Regra</th>
+                                                <th style="width: 140px;">Campo Analisado</th>
+                                                <th>Padr√£o Regex / Express√£o Regular</th>
+                                                <th class="text-center" style="width: 110px;">Score</th>
+                                                <th>Descri√ß√£o & Diagn√≥stico</th>
+                                                <th class="text-center" style="width: 110px;">A√ß√µes</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="custom-rules-table-body">
+                                            <tr><td colspan="6" class="text-center py-4 text-muted font-monospace small">Carregando regras da Intelig√™ncia SPAM...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+<div class="tab-pane fade" id="spam-tab-lists" role="tabpanel">
                             <!-- KPI Cards for Visual Rules -->
                             <div class="row g-3 mb-4">
                                 <div class="col-md-4">
@@ -8998,101 +9012,1122 @@
                                             <select class="form-select form-select-sm" id="visual-rule-type" onchange="handleTargetInputChange()">
                                                 <option value="blacklist_from">üö´ Blacklist de Remetente (De:)</option>
                                                 <option value="blacklist_to">üö´ Blacklist de Destinat√°rio (Para:)</option>
-                                                <option value="blacklist_ip">üö´ Blacklist de IP de Envio</option>
-                                                <option value="whitelist_from">‚úÖ Whitelist de Remetente Confi√°vel</option>
+                                                <option value="spam_from">‚ö†Ô∏è Spam Score Alto (De:)</option>
+                                                <option value="whitelist_from">‚úÖ Whitelist de Remetente (De:)</option>
+                                                <option value="whitelist_to">‚úÖ Whitelist de Destinat√°rio (Para:)</option>
+                                                <option value="whitelist_auth">üõ°Ô∏è Whitelist de Usu√°rio Autenticado</option>
                                             </select>
                                         </div>
-                                        <div class="col-md-5">
-                                            <label class="form-label small fw-semibold text-dark">Dom√≠nio, E-mail ou Endere√ßo IP</label>
-                                            <input type="text" class="form-control form-control-sm font-monospace" id="visual-rule-target" placeholder="ex: spammer.com, *@phishing.net, 192.168.1.100" required>
+                                        <div class="col-md-4">
+                                            <label class="form-label small fw-semibold text-dark">Alvo (E-mail, Dom√≠nio, IP ou Wildcard)</label>
+                                            <input type="text" class="form-control form-control-sm font-monospace" id="visual-rule-value" placeholder="ex: spammer@dominio.com ou *@badmail.com" required oninput="handleTargetInputChange()">
+                                            <input type="hidden" id="visual-rule-target">
+                                            <div id="target-domain-suggestions" class="small text-muted mt-1"></div>
                                         </div>
                                         <div class="col-md-2">
-                                            <label class="form-label small fw-semibold text-dark">Impacto de Score</label>
-                                            <input type="number" step="0.5" class="form-control form-control-sm font-monospace" id="visual-rule-score" value="10.0">
+                                            <label class="form-label small fw-semibold text-dark">Impacto (Score)</label>
+                                            <input type="number" step="0.5" class="form-control form-control-sm font-monospace" id="visual-rule-score" value="100.0" required>
+                                            <input type="hidden" id="visual-rule-action" value="REJECT">
                                         </div>
-                                        <div class="col-md-2 d-flex align-items-end">
-                                            <button type="submit" class="btn btn-primary btn-sm fw-bold w-100">
-                                                <i class="bi bi-plus-lg me-1"></i> Adicionar
+                                        <div class="col-md-3">
+                                            <label class="form-label small fw-semibold text-dark">Motivo / Justificativa</label>
+                                            <input type="text" class="form-control form-control-sm" id="visual-rule-reason" placeholder="ex: Phishing banc√°rio recorrente">
+                                            <input type="hidden" id="visual-rule-notes">
+                                        </div>
+                                    </div>
+                                    <div class="d-flex align-items-center justify-content-between mt-3 pt-2 border-top">
+                                        <div id="target-live-diagnosis-card" class="small text-muted d-none"></div>
+                                        <div class="ms-auto d-flex gap-2">
+                                            <button type="reset" class="btn btn-sm btn-outline-secondary px-3">Limpar</button>
+                                            <button type="submit" class="btn btn-sm btn-primary px-4 fw-semibold">
+                                                <i class="bi bi-plus-circle-fill me-1"></i> Salvar Entrada na Lista
                                             </button>
                                         </div>
                                     </div>
                                 </form>
                             </div>
 
-                            <!-- Tabela de Regras Visuais de Acesso -->
-                            <div class="card p-4 shadow-sm border-0">
-                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
-                                    <h6 class="fw-bold text-dark mb-0">Entradas Configuradas no Sistema</h6>
-                                    <div class="d-flex gap-2">
-                                        <input type="text" class="form-control form-control-sm" id="search-visual-rules" placeholder="Filtrar por alvo/dom√≠nio..." onkeyup="filterVisualRulesTable()">
-                                        <button class="btn btn-outline-secondary btn-sm" onclick="exportVisualRulesTxt()">
-                                            <i class="bi bi-download me-1"></i> Exportar
+                            <!-- Filtros e Tabela de Listas Visuais (Blacklist / Whitelist) -->
+                            <div class="card p-4 shadow-sm border-0 mb-4">
+                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3 pb-3 border-bottom">
+                                    <div class="d-flex flex-wrap align-items-center gap-2">
+                                        <button class="btn btn-sm btn-outline-secondary active" id="filter-spam-btn-all" onclick="filterVisualSpamRules('all')">
+                                            Todas <span class="badge bg-secondary ms-1" id="badge-spam-count-all">0</span>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger" id="filter-spam-btn-blacklist" onclick="filterVisualSpamRules('blacklist')">
+                                            <i class="bi bi-slash-circle me-1"></i> Blacklist <span class="badge bg-danger ms-1" id="badge-spam-count-blacklist">0</span>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-success" id="filter-spam-btn-whitelist" onclick="filterVisualSpamRules('whitelist')">
+                                            <i class="bi bi-check-circle me-1"></i> Whitelist <span class="badge bg-success ms-1" id="badge-spam-count-whitelist">0</span>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-warning" id="filter-spam-btn-spam" onclick="filterVisualSpamRules('spam')">
+                                            <i class="bi bi-exclamation-triangle me-1"></i> Score Alto <span class="badge bg-warning text-dark ms-1" id="badge-spam-count-spam">0</span>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-info" id="filter-spam-btn-duplicates" onclick="filterVisualSpamRules('duplicates')">
+                                            <i class="bi bi-copy me-1"></i> Duplicadas / Conflitos
+                                        </button>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="input-group input-group-sm" style="max-width: 280px;">
+                                            <span class="input-group-text bg-light border-end-0"><i class="bi bi-search text-muted"></i></span>
+                                            <input type="text" class="form-control border-start-0" id="search-visual-rules-input" placeholder="Filtrar por endere√ßo, dom√≠nio..." onkeyup="renderVisualSpamRulesTable()">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="table-responsive">
+                                    <table class="table table-hover align-middle mb-0">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th style="width: 50px;" class="text-center">#</th>
+                                                <th style="width: 150px;">Tipo de Acesso</th>
+                                                <th>Alvo (Dom√≠nio / E-mail / Wildcard)</th>
+                                                <th style="width: 120px;">Score</th>
+                                                <th>Interpreta√ß√£o & Diagn√≥stico</th>
+                                                <th style="width: 110px;">Origem</th>
+                                                <th style="width: 90px;" class="text-center">Status</th>
+                                                <th style="width: 90px;" class="text-center">A√ß√µes</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="visual-rules-table-body">
+                                            <tr><td colspan="8" class="text-center py-4 text-muted font-monospace small">Carregando regras da lista de acesso...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ============================================================== -->
+                        <!-- TAB 4: SIMULADOR & AUDITORIA FORENSE                          -->
+                        <!-- ============================================================== -->
+                        <div class="tab-pane fade" id="spam-tab-forensic-sim" role="tabpanel">
+                            <div class="card p-4 shadow-sm border-0 mb-4">
+                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3 pb-3 border-bottom">
+                                    <div>
+                                        <h6 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
+                                            <i class="bi bi-shield-check text-danger"></i> Simulador de Ingest√£o MTA & Auditoria Forense em Tempo Real
+                                        </h6>
+                                        <p class="text-muted small mb-0">Submeta par√¢metros de conex√£o ou cabe√ßalhos brutos para auditar regras disparadas, autentica√ß√µes e score final.</p>
+                                    </div>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <span class="small text-muted align-self-center me-1">Cen√°rios de Teste:</span>
+                                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="loadAuditScenario('phishing_bank')">
+                                            <i class="bi bi-bank me-1"></i> Phishing Banc√°rio
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-warning text-dark" onclick="loadAuditScenario('ceo_fraud')">
+                                            <i class="bi bi-person-exclamation me-1"></i> Fraude do CEO
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="loadAuditScenario('no_rdns')">
+                                            <i class="bi bi-globe me-1"></i> Sem rDNS
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-success" onclick="loadAuditScenario('legit_corp')">
+                                            <i class="bi bi-check-all me-1"></i> Leg√≠timo
                                         </button>
                                     </div>
                                 </div>
-                                <div class="table-responsive">
-                                    <table class="table table-hover align-middle mb-0" style="font-size: 0.88rem;">
-                                        <thead class="table-light">
-                                            <tr>
-                                                <th>Tipo de Acesso</th>
-                                                <th>Alvo (Dom√≠nio / E-mail / IP)</th>
-                                                <th>Score Aplicado</th>
-                                                <th>Origem</th>
-                                                <th>StatxúÏ}[s€HñÊ˚¸älVDôû1tÛ•kd[[E€ÏïD)ªwüI E¢"Q∏PR?LÏƒ∆ƒ<Ó√ÓætLD∑ª:f6Í©g"6ÊUˇ§ˇ¿ŒOÿsN&@ÄHÄIæ∏´m^¿D"Û‰πüÔD¡ãÌpxW¨‚ü·êôÇóµP\ÖÜ)‹P¯5Ñ◊éxYª¥≠p∏œvwvº´ÁµÉ∆Õün˛M,q+¯Ö_˛8æ‡VÖÑ}i]3€zY€Aƒ√è!Ô;¬¿ÔjÁ”}ZÃîN‡q˜eÌY-gôòwm<fÙ¡(
-ÖU;hrﬂÓZí9vÚÄYÇqSÅ‹⁄⁄ÇÁ≤*/Nø‹‡b|‡≈øÿ∂ÏÒ¸À\¢ø.˛˛Ü¡^ÆÙá∆ú˚„¯ÁçCˆxüı⁄'oèGù.˚ñ5ﬁµœ;›vÉΩÍt[ßΩ´7•H«∂8lä`7øumS>§Aﬁ`ì ÎóêÔ@eÇ]pK‘àåÅÍFHæ∆ÖÙÖÿ¶ÿ£Û%ûJ¯/w5=¬∑·J÷ÇıπÉ‰x.ÇP¿J¿G7}[sÁ9=Wì˚Ûå',¬Ç^¡àı•o	ﬂÿa£æÒ§ƒAKgé∏b¯óqÈsèq«∏ÜäQü≤£ ¥/ÆS¬[74˙"º¬eÓ¡ÒÉõ>f˛•Á—óa(G%¸ãÖ!sıi<ÒãK∏ëc©”oqˇNdóÈÁ…y
-úÌ^U6d«∑Î€¨o¡–éeòCa~Pwˆ|{ƒ}`o/∂Ì÷≥Gë€‚„Ià,;îæÕŸ+"!”Ä˝nÒ
-h¯¥¬y6I\ë#Ó8∏<; ApVÇç`B| ± 
-<aß|ƒl◊¥-\¨Ä…àÒêˇ	b†ﬁ–Ü'w¿éGÃº˘Ëòëg˘äáøéÎßÂ°=Ü‡ráªÙ≈»ÌôıG…Ïë∞lò∞Wñõñ¶:i?D6ÏJ∂õ”©™Ô≤¶=\xæíaR£∫∆¿óë«íWp÷b@Ô+”ã~á¬e·µøVoj©[—Md:¿,Äö›,Px F6RyçI◊ƒgyYs$∑h„≠?à∑Á}üª<\ë∆·‰CÜ2Á˛@6Rè0v5ëü≈‘p»]ì8XbVèæ°Öª‰>N<≈JØ°)‰˚üG÷ ÎÁ	?êÆq5≥n=O úúåf´s_-¿◊a±ÆÀ/ñ+ﬂ˚ñ¨ºTCÀ2\&π˜d°^qg»qï∫båã…Í˛—iÔ·ΩY∞»DÖ≤¸r9b`áÔMÈ{+ØIû=Ég)´eå∏Ì∞c1∏˘9¥Gõ:è%Ú"’4πôv€ı¢êıÑ#Lñ¨~∆}>°oõl∞.ød≠ì„r<ÕΩ}y…Z9©†â$JñtåëU˙ßÙsá˜AœãµÈèıâíæ)bô∞ß⁄A˚àû•.ÒÈä+ó/∂È«no”B*∆‘2SA’$KøA’Ò^#ÈJ–wM≠˙&ØÌ’Pñõb≥˛Àö∏SÙªß[{{;[ª;ª[OklÃùÓò˝t˝Ú˝.ˆÊMÎ∏√∂YÎ¸s$‡«>hv˜bcÜ¬ë9[ÉL`Tπ»Ä]{À‰r4∂dìäæˇ<∂´	ó‹¸	Dádéƒ˛V#¿úÛŸ+_éﬁã}ªq7fˆ-É»]äèõÉ[≤’˜ì]ÀˇˆÛÿ≥ñ;RˆP“áëÔg<ﬁãùzbE[÷óëkäÔyrÛÿºc/ÿÚ£dœ
-ææ1õ/À8
-¶~kt—y¨wˆ™:5§KdÓ®?JΩ^H ÅwQUUì^hÉ©I‡¨—Î’oVoDË ≥_Ró≠4vØÛÍ¸U£}•_±˙ﬂ¡rÆgtô©u÷ÅûTŒÆ|9^€cúvN[µ¸ó(@h˚TDp@óˇ≈∂öÒÁ¡ı8˙œÌìª:÷ª¨jê‹π¯ºª˘*«ö'óB€ÓX›cª)}‡⁄ﬁ⁄nó¶”û±Fÿ.Ïèœø“©¶”ìF∑ygÑ:‚æπFfF˛pm<.óTﬂŸ“Ÿ(ı^∫`H~•NhÑÚ@∞û«Gpn9›’4L7ıUÑVx/k`ÚÆA›∏‡\ro›Vt%ßL√Ñ…XHc0C÷m¸ù0LôS;„ø™wà¥∏S›9√ì·I••H>{•◊§À/ó–Pìa(ˆ£#RÃu‹@qLéÖ·»Kch[ñp´P‡poˆ&CZı¯⁄v0oΩPUYíˆAŒ‹$˛\:˜aa‘{èyWq(w} „ùÂóÃz4-r£°0åèô˙]˛·À⁄7ÒWK?=”î˚Ú¬vÑ!∏˚ÉÅsF/Êûö}‚á÷NÕNÑè,òd)Àæ	r›ví±◊≥”ÁvL°Â=≈4«Íﬁ‚Ì·^Ö´ë<ë@rVtv≥„ãÿÏ÷xNnÕ
-g%3©YJ√$ØcNƒ=Ñ	Úf8á˘˘¸“#CkóezdÃÌÆ0Ö=÷>C[\9πb√zÀ!€⁄⁄˙+ÙÒÏS@J≤v»o˛ïãø…¡_Å-6Ñe¥MéÏÀËä r¬`üÅ¡˜ÚÈ	ÜC
-åüßjûMµxv∫9ØÄéôOá˘ÖkïÂ¿e¬':R≥&d`Oàï•Ç'~‰‚	˜≈Ic,bßÄJΩJd&*Ápx2€7ùŸÄfÎJòlv^»^Òõr·˙Úú§|˛OÈ
-ó9<º˘≥oÀd˛ı÷ï›CàqÔÊœ0Z›ãv…|ìÈs¨éíQ&5f˙.kICyr_“Pv6úÜí£òWar'/ÂòG%bL˚[v"FH#`mÍ\éMe£`Ó^QBJÌ‡ñ3‰#Xö•…-ÆíIòe√O}|
-Äß≤Ádî‡}6c≤d(îGXk†<nDfî^˙1jnqöG`<S⁄1√ÉÇú£´4«jüwX∑›kbÄ™}r÷Íˆ:ßçÛvÁtkQ…thª3
-¢&¸!Ö≠Ì1m2ŸdãSﬁh¿ªı\ß~Ó•uÌâ5°Õãt‚ÓÚjÿÏ˘PÊk⁄r%[∂¢éA˜>Y¿∞Ú44ÿ'eñÇ}Z;¯∞IwvÄ<πK˝Ü.˝<6ˆ¥ÕÜ5Ç]m√òÉpÕıÓ.1ò˚k„`ãw˜∂v>◊=V´aQ?´rfØµ÷êΩjç†7c∆_S√+€!û ïæB∏¿Y !<˘zÿKˇôÿõ¯Ö}:öR[h£7≥πì›4ìõ¢ï[;ò“Óv[+&à°zkë“–Ω˘àQù@©¥°2„’™.ßOÏ≠®OTQ‰≥î∏7Câk†√¥ö©Mä-£ÔHÛCRZDå ∞#ˆŸŒ÷/ü˙bÙxF‹ÀkêπwŒ£NÕˆ
-x©ƒ*‰éí™3∏5∆ÛŸm∑ä/ﬂ—~´ Û◊/˝gÆµwµ„*R˚uÀKˇY√ñcÓ<;;ÔﬁŸÆ{!<u„mØuzﬁ˙∫ÌÂÓ∞˙∂øj‚∆ﬂŸ¶_òX!Çg˝¯M„ÎÆóª√Íªﬁ©Ú#R˚ÔlÛÌë¢¶uﬁjû7é:wø˚ïé<ˇ8”ÆjãcÖJH∆˝[2˘a¯lÆ˚moMÒÇôj!é≥ÁXXì»}–Ã”±zWïv≈Ó¯±u∞.üU≥≈J êè')ÍW…(£gFbjº!ÊzËŸñÂm#ÁùüÔæSÁß<ëBBˆ	à,t∞D∞}8Òùà†˝öl◊“òˆC$X«îæ/"∂ÕN$9œo˛Ÿƒ˙}ÃøPwëÀ„^L=¬=B∆¡Ïò˝œ!_¿
-XS˜|R|œ∆πœŒD∞ƒ3ﬁ‡∆$˛™ 7÷Å∂Ò§⁄Ü
-ú`<	0^Ë»3 S` ˆo`Åã®:Ò{á¬Q2'N!€:ÍHN®ìT8Ï|5p·Eàg§™OjÆ≤,?º%QC˜ èTbzÖ!Æ‡´©!j∫6;Æ!è!jÒ‚UeıÙí"‹ ÒˇârI]ÂÑ]9)·1®RÖÄ.T±h§·ÄÜπ√Öá2B†xÁ√Á@¯7BBgû/CAOüX|D¢»YI–dƒ˚‹æíÃvÅ«∏ü†0∏ÿ/èé0/{BÌdñ=p7#†Ù	L©¢ùñJ—
-"æƒ|◊8'Åü©–}(@çÂÊDÁI%˛¸Ñÿá®ﬂb&Wıtö‰49¬õ°Œ˘Iœ·6∞e∞SGrtÛ≥kÀÌˆs9|ÆÁUÅ-m§–|∆`·ö¢∆=µöÀ Xk\XuŒ='
-“Î⁄D˝0ÙaaïÇßNêëô≈Ü÷∂ö!∞¬%˜wÈ…>k‘kºkúﬁ¸#Z¨à;[Ê≈√˘À)‡.˘¸≤*‹R…¨µ;»LªEÄ§˘‚Œj'yÛÔ†¿#∫¸”Å_Änø-BMı◊Ÿ&€19ïó™4áED-ÀVÚ›≤}∞´q\œ≥¿§{acÍÆæ˛„b<3ù≥°ŸmØ¨U±›©Y{@ƒv√.™Ú+Ûi2+ﬂQ˘øœzp+~%X˝^‹9æJú <-Ïíï	¯X¨gep§4w∆∞1Ωﬂ{!EóU»∏W*≠Ú“)+Qˇ6N∫ﬂ˝Æ¿/¢˝äeÛ·ÀIœ
-_…€i1Ro¡∫¡ 7ı®ÍÛ0]™®x%OfÃ°-éV‚µ <?Œ}éy;	”˙∑Èç9l¶ÇLY.œπ‹=I^Uîè¿∑û¶≠’¡‰ 	‘gá◊∆ÓŒîr)f l+–.ú&û‹µ¶ÚBbR6|™0g$-	Ÿ=§†}P¢©B¯Hy≥ ÷-≠@î¬5m¡dÄòõ? ñíJò1„˚£Ur'ûÊöÏÑ˚6?:dÓDø0•%∂Ñ;~±M/qÊÅ«∂%˝rxu}õ.…MüNÍ≈2…z43éôäTÙÆ¨§ƒÀEëâÖ >≤\b5÷Ñ” b(…sòÿgJlq`F<=}Q]å·»-cIz26wÑ¶M¯ÀWö1ËÎä@á“ûï=”Eïºπ5ºq›€ "§¡…·©æ€ku´!˚§'NEΩFe$«41¶ÜPÂåâ˚N3gz£	t6µ_Ÿ≈ó*2µ ≥Y ™7º@óQÄ™e™Ú2ewc,¥„xJ@G¿|Q“?Ω¡Jµ[°µûpá<Khà)⁄qΩ^*CÔÁ%‹9Ci¯·î‡zø'z{øª˜¯K#∑72±äÁ,Kro:ΩÛOô‰“ÿûõepCB~Õ!ª›Ω_nÌl~√óEpßrÑZü¬≈àuP¢π”∆IÎS¶9KkY&8óèƒ≤ıK#∂3Èáúù\˜~8ﬁémí®ùÓ'ÕﬁD8>¢lñ‘<Xæ%HÌÒ„ùgõ•¥óî∂;»®a ¥Q>—∏°Ïâ˙`÷ìÄüb‰y`lOE∂µ°ú∏* ÿ9SªN7M£\∆SÜæÌ~@ºú_¢¥√°F7π'a¸kﬂ|xf–Î—ú¯|åë7va∂©¬»ÛÕxwb∆≥c€çÆ∂¬.3NÈ5î™¡X∂îÛ"q¿o'uãΩV˘–ôÌ⁄‰tP„ﬁ¸âÆSCﬂAZhJ rÒ¬â-îe…í∏Í⁄°=!º,Z¯åo†¨w{ö:πºab˝“2ÓÆ0Ugøƒ~îF±»,árwîÙÍ+Ùè*G1ÔÅ/Èy◊≥@˚ õ$àTø¶^ËŸFÓ<◊µùˇ]\4œˆˆ3^‰?bÌ¸ÈÕœt‘1îéÏQeı≤ÕÕüx°ü97JT_) ˙Ÿª™„Tã¥Äy:ï∞¥ú´:›)Ê˛˚´èÌëÕ}1M^ﬂ≤ÈÍU¯æÖÆÀµz≠c2óQÂêÊ%IL]Óuö*õPåmL»‰˜G0’Ó˚Õ`ô~ﬂπàßÇ¨í.Ê%jå.Ÿ;âwÔª÷¥ïÒ\'§ò©Gü∫r∆õkoëWˆgWv/Yù=ùıXTç∑⁄@wˇ‰Â¥*®Y¬>(ì›A»)Ë{`ûdÌ‡?~˜ª?∞S‡ÍXÆ]Ue6Cù∫¿¯e˙»u<3˙3n˘‘Ùa•‰≈¢Ïˆ›]Jﬂ¡⁄2¶,
-uÑÒ∏¸+<ºäbé`í.-gp´ád≥TîbÚy¸~›T4õæó–”GÕ<As¶Æ[rÑµÀ8€S©˚7ˇ‚ö66KX=ìª.Üe=¯*B÷-#m0†ı–;9?cX€·ﬂ|ƒR˛/á≤ˆûﬁe˝ûµ„ÓmÏLÜﬁ€z‘ı∑∑H]*[◊V1Ïê_qVo∏c€Ÿnå¯ÿR´:jPd[ÄÙ9ëXúU=HΩ⁄Î“∑P˙»êj˚_ˇ
-d®®9¨Aπõ†ÆÉóÍˆ®ÎVN˜-Ï˚Q‹/6-“kÙé”,…nè»™hmiWZ⁄õâ∂ﬂ„R–ÑΩds<dôåüÂ<e3»:)ê‡Ö+ﬂêÃT-1b?E‹°BWÜYs&òò;`rxÑ¶˘]Y6&ä  ab_ËÑUÂb#Éc!¶–óÓ‡ ◊⁄Äc¢æeûÛœË¨}jPå∂ã÷√tN¸dÀ6Ú$öÃwû›^Æ˙(æ€bo{oo˛æ€ÓÙ(=œıP6+/
-"Í—π¶¨ºœ›K1«ˆ—_-È•ÑÙRÆÏ{Ó§x-ÇP⁄8Õˇ	∏©%5Ó&2Í(È*’Oú’ïg]%.P¶L†=Ï1¶° Î…´£ﬂ#>.z…á¿Z∞ÙZ%‡ÒÙ¸cÆSßßbÁ>˛V’ô,}Ï∆MHp∆ç˚8◊±ÂexX((Tp"-Óîrl¥S≈b£GÔ©ÀÑ<¯"o©¬û^‘7–WœÍáRÜXÏ‰±S>6Œy?ò"JBß.3¯?Vπ©òß‡@©≤™í[∞_éùòÿO<ÄÁã@È7≤LßÉ©ù«—‘«"ŸÚ0ô ãÍI'g “|‰Üÿe†?€å ˚a‹á@˝ÖF¸ÎÈ¶…j-Õâ¬XòÂ©™¨-9˜I‚∑x§◊Wp)Aﬂ·ú≠ç1G Ô-Ú´%7Zº´9ΩuèÂ
-a≤EM‹SÚD$eﬂ~|+[ˇb;rJj˝∏àZ≠ô‚%M˝ÈÇâo{{h†^∑ªœöù”ÛFèµHrUãœÙ1îö{§)%{ñ+ï¯%˜£ñ1(X¶3¢AµúdE/¸ê˚™Zı0
-Lû’.VÄï|\A	]ÅÚÇ6Œ†4` Ù8©<ñŒâ	*7[:ª&ìCSÈûtﬂÈ„|‹ñ‘d3-óîüΩ£Ê`(z'—†sSy¶rwà
-}iƒv$¿?àÎ»ÉﬂŸòòqé¯]y‘›È¡#ˆ@ΩM(˙¢Q©˘Ì qÒ(îïÚ∏HNÕËÌµÉsrjÖØ^∞ØÈw%Ωƒ~&…
-3E%3ë∂Mﬁ˝n≤˜®¯SÊ¶ÿ:>ëWøˆπ9@=U˘÷4” ËK&0:òT~©2∫R≈£∏$í“A˚hyò§xñ·L¯‘≈
-‰‡√Âá¡›WÕóë®RM9¨P±÷Ù-iœd√Ô3äR>Ø\GÈY.éRJ¡FH%l]NπYËL˝˚îT‚íÚjÊﬁ>kº% ãvÉµ@—˛«õˇ›¬˛õ¯);Ô6⁄«’:Â†IÃÿÀiõ´¯KÁ∂≠Áa√à¥Ö©Ü +ìcGù˚∂3‰ŸˆC@·Ω<WØEQ®)ºô∏‡l¯SjIqHô–∏∞—√£¢Cp>È&⁄∫Ö
-aÂ®§Ù=ëÿ{L¢–n¿≠MË
-tiæèÆrÊiu[öÓ^>Ì¥∆o		î\ãäù‘ñ≤Ùƒà·√g)Ù´≈W˙œWão∆‚S^∞™∂ûõP¨´–‰£Dxƒ⁄gÀôÅ©€£®ﬁ"G˙“Ï?ÕÆ≥ˆ_j9>Ûouﬁı%[}hÏløë˛
-πI<@ÉI¨b-˝Q≤Æ Yπ
-jo√A/÷Èˇ(¬Ã∑hæ¿2ûˆŸ
-Ê$afÉ.µÕŒ¯5Í˜Ÿ ÃÂï∑oˇÑÜ?MkpâØ+§¶L]˙bLx-ÃıWÒØÆ˚´;È5éY˝µîáZH≈≠†•ØlÕ4waÃ:eLé.8Ö±k»Ïl8"W/k®È™;Nˇ°ÄÅöX˙ç&Äå“3˚C37f3{ùn>ü≥Xìˆ¥Í –Nt.ïI1≠A˝‰h±†ç∏ÈñÏÈ@hRú‰O˜ﬁ"◊N^_ÿEırh4§;ú[v0≤ìi„mÛÃÄô]:◊Û[1,D >≤và<s6Ãõ?[ˆ@∆¿Ω
-DIUL2zúñG[ì0%‚◊…7˘¿ø˘	VHåÒé!$•óx—“*ysíDdÅRH∂!ıêHíã›È<ºçtÉãÿ‘◊ïÄ\èÖpDeP‹»ÄRdrø(dYXÖ>ªÆ:Dîøû0	dÚºs~∂?∑‡º@≥ácèz!Ç0*˘≈ÿôL«4´üÆ“ˆ·ÃJ◊…a…w≤DD·iÍôÛåY7?(q |òÓ“´ ¬ùceW*0ûÃ/jﬂ°?56‚Wép·Âk·B.˙hÜc\HY¿' T˝N˚\äôZìª&h~±è£‹3	Y)«épQåü\ptÍ4–{Â+]Çó¶ﬁÊâ–f∑’8oÅ>á»√Æs˙´Œ°™ã§ßI…`M`v’ÖË}ó&ÑØÏΩˇÁƒÓ4·°ç‘–¡2Ê("‰Hã–∆ D’_[ô˜PúÊ-]˙¡ﬁnmÚ»? æaÁ9x2π™úm
-v$¡é= Zÿ’∆«"hà`¬T8ü°¬f8yJ≤¬‘s¸8À»Ù•”lŒ‚+)¿™<Áâ^›xÆüıÖÙ(YzÃù~™lÈ⁄ˆû ÍPYÂM˙ÌDl0Òb[˝®Ù®Ía–K˝ﬁÜbz·Ók”Kù[˚Z∆ƒTû{›__7é.{kï/€ÁÊoŸ€báÙRáP=‹^9:F◊≥∫û¡“∑W^O˘ûÉRÜ ◊µÉ«[¨˙`êÍô%÷„∑¨~¿Ô0`?¡Ç;¬â%"X^¢Øçÿc`ßcYFt—#∆Qy?fÎj?áÜàréãeÙ‹•I;÷À‘	,F3™æ¢ØBG"!Î∞ƒÖÌ⁄»•‡Õê¿
-+rÑf&πHpÌö&Dˇ@ë√6SGaw3±çŸ.Jÿù˙˚kıø+gƒ«ì”àπ˝xïAüM}ñÙŸ*ÉZ¿EÆQ„U.ªõﬂlgogáﬁ[e`Õßô⁄EaË˝¡ì0a÷ºﬂ*‰$Í€bü…¶èA˙â|Ï+∏à¸Á0ëPÔ<À`æ!”l[XÕ]?nv	‘1¢p!@§˘9¡tO÷Àî#•¸b1JÃV∞Ó{S+Á]áCÈ>fHã€	¿Îv`˙∂˙ﬂ-Ôz>‡{iSuÆD`K%∏¯R)ªk$v]ı3üLõ‰:spó3éÄT ºE~\BW°5iâÓVÔxTY8'¢Ñ∞)
-áµ`CXTèÔ`*¶∂Xë$||F17®5èÒÃ9ÁÍFò"Ë,˝ÜäãfzL”±“t&gÙ•QæWÏx+Q€Ï”Sç)´“I”‘Cµ”1“©Í©è‡ì©©Ûãm∞{∑˚∞ﬂ~≥ªÛ¸6ΩKÅà‚mÇ√Ô9kI·9∑∂∂Ë¬Jˆ@5#˛ÇèsÅ!‰DÅ∆x¡É≈]“'èûì˜”ﬁ–9ß!ÖM'„9#,›G˙XbÜÖJë)`81"zS=·£µäBF˝ÊoÆ‚Ø„ >&\9‹≥ê˜ÛãcÁÛ˛Emÿ)îNƒŸ∞{® v-∑Tèè…/Û+ŸGÖ≤»Z∆÷XõáÈ®s“hüVÚ,Iˇ|zæ•ÜekÏ™∏{g˚ò7ı…8Å÷°?e¯MÃﬁ„Y∆äµ‰®¢ãBƒïc‡2ò˙'∑Ä)mıs7µÄ«¨}é2 •y\Ü®∂ØlÎ)`™»…ÀÃπµhJDæ˘x‹åΩvdü£+Ëp>rpf9‹h‘«¯Xº ?E0‰‹âçÂùΩ'yö‡˝%∑,@“‚Çp>õ)¶ãR£È€)∂~Q–8n7zKÑsê'˙Â≥ÜC„GbÅ†X>íØ17'∞∆±ûŒ‡,,EO≥ê™As<8X]π)¢"i¯lra!VÃciõ›Êüèå«©|Ò¯ô&]“OõF–Ù±H¨´›d'∂ÔK÷X⁄à¨T$BåÊe≠IóÆúíP∞'e |f™≥Á±ÿ©’ßÅ˙ë”O≠~å&6QÍ
-‚!*C0F0ñrÛ€[ÔO≤i'i˛™î˜ﬂ¯°ΩÇ©íRÒ%í⁄ÿ‘EJÃÍÀ±Pb7™iÉïóÄ÷∏§#`a_AaäXònhr˚j˛}5∫«<HK°ﬁï»K£ÈÉ”ø:ıV‡	gàÅ¨XÆEæÃ¬0?Û{ûÀ§\ZwjÊ”…≤ﬂ/"-VXàDÙﬂÀ:QçIËd~yãÒ˜4ø–[∑~Ê€Æi{ ﬂ∂±≠≤™A!3¯“˙˝€˚iŒ3 •Mîkç∞ê*vƒÍd°5{Ü*ò¿L£Z$a@&0éÖ≠“ÀtPxÅ≤«—ÿVECafîær%ˇ˛ƒM3õÕ”õI”è•È«C‰≤Ä£SΩ…˜ceb2ïªû… º∞Ø‚[Ò£L4ïΩDSQ⁄Kæ`ºÁnñX§I‚$MÁÍ—ƒ‰czπ›}gêi¡NZ¯å˙î≥çk”œA;?>Ï¸óJ™9vêËÀ´OœYCy;M‘&Ë¿†1:÷l¯Kı’Ë,ë¶ˆT/ï+®öVsS¸(π¸4R–⁄¯=p’êÀj≈E®ÓÆ˙ï$ÄR€Ûª|xÍòX˛°≥ÕG™q‡ºøk‘Ú'òD%á”óÎo¢>O)‡·π~'-@&é'‚…Îêj›VØuû5Ï˚˘ÎN˜®§t£Ùú3M›üÉ”â#%OwväŒ?‘qù„˝H˘û∫:¡Àg∫lV÷ŒNßıõ≤Y-Ii	òËD0™Ï[ò†XÄ£5±.¶¬ÙÈy-Æ¿Xvôf≥XäRVrày•,ñÇ=àõÎ†Œ∫XB”m 0jBå‘ˆégÏ‰‘æX ;|¬§$ÿÁÃúîXùpıÅpÖ?·Ë]Lh≈,tq~„‘ÒÅm¶¢◊]íÍ8øí~(Ê§ŸÃÉú(iùót≤+C	±/PâÊ;:‚≤û+x0ÌáS`ìQßÂR^çí #”†ù…∂*Ëœn,ﬂŸÅ›∑ï∑T\ßÖ´Z5∫aõàz:ıa©]Ω◊_+¯)BXƒﬂ¬‰9˘¬A…1,w∏Äw¶é¬§„ë(_∏∞0›g*Ûµ◊{”x∫ªóJ}’ü∞∫ÓhƒÙ‰ôÅ¡D¢$ûÍ9¸jX£Ÿ˝ØgÁ`n§ﬁUÍP¢˛eıCG^^ÿ¡pÈ4˙∂§áÆ°é†Œë2ì}∆Tg¡∏FÀÅ7”C#≈„hÖ%ìäÚ?|u◊ïªılùπéªÎ£õVK{Í≈3”ê3£kn“CW=t^4ø˜ﬁπ$R÷ùtÌ†∫©/ŸCó†yXzyñQ√a∆‹≤*:Èñ9ºO~:X
-	÷'a∞Ÿì>ﬂ¸Ï"á/e¢¿⁄d(´≠Maso1µ6èÿÖd∞‘í}é~°y,{b’ÂzâíxJ*,≤NæztR1Gu“
-„‚´K"I.Ï„ë”jA1y˚ì'-]n«˚RÅ°„Òfÿ”	näÍ‘‹)OG(-íã'$d§PÔ·6fn2ÜtIãEeÈ¶⁄b‘ÅVmw>ùûZ9ãô~µ4⁄‡lRÇ"∆åj^&AÅ¶QTÛí⁄åf°ﬁ±déw)OÄø◊"¢î≈^Riz'6D$™c ¬‘ÈÆI∫{ÿh~:§b(à¿•&Sú¢DŒ)S<x∫E÷ƒ•·±≤ ÕHÎz˝	"±d•kŒÿH⁄µ	Ú]Ω·	Ã∞;v˘|%≠ÜØ`≠+¯=º-[Z;◊ VW‹O:W.∆:Â[å${∆LP.Må÷üïÉâ∫:7Ã∫23¥>˘™2G¸À˚CÓÆ»‡ÛÅí…ﬁS⁄!d5Ñii?˝ù”Àl•“
-.“'F@eÏ⁄˘V]~wnµŸ€+E∑r&‹‹xHÈÃ∂¥H+ÿáBk3œ^F**m˜ë©∑œé;Ø{ÿ"´◊9n5é:=v‘aÌ”f˚®u
-f·"S–÷}∫"eù9Œ*…IñÄ ®ê"0){÷yÒH
-⁄¥J?åXc‰?ƒ“bOŸt¯_S¡’ §c[‰ª≥EÕyS¯—jæ∞Üm)ÖpÇtÌ‡õù"F∏äÈ íWqFÈ≠&<é˜|Å]ªêC°/!-πfeÈÛœnUhèÿR#êé∆<¡TÚº
-2ëœ‹¸Çò«Ì•¸P¶ÙÆ€©ìûWYóz}â˝ç”åNz∂§™ƒÀËcœSèÔÛK5Œ ÑÍ	„VˆAR¶ar¿&˝”G¸
-N>^∂œûÏÏxWœôÉ9Á»K„zü û≥Tìıù≠Ôˆ|1zŒàRqs“	∂>F¡ﬁqˇaü—?ÏÁs\∏fMa´•ù£¨T-¢ØÑ9,°’ãZ¿ú¥œ€Ø±ŒÔ∞£v∑uﬁ`ΩN£[Z≤úÿ°=¿úä;Œ@[E®∏Éive±ívô”»ÜÄ’)lx™qºZI—H[¿%ãOµ¯ÑπxnÏ∂Àq§…IKæƒ¨fSó“ 	$BPráé¸)6ñø•6f9x⁄¯ô÷PR‘>√L N˚^U˛`–¶PîÅı¥]º-ÇÒ∂œÈRF¬∏	π…]ïŒì‘Ô®äT≈Eh[gÜ-/`çêJã˚m(Ã6wˇŒmO∆ùtı1Z∞e)áY≤OÿFV∫Ó„j>≥)·aß2X˛„wø˝?BS˝DÍ]Ò#ﬁc;Æíb›àöıUL=Q∞ì˘ÌÔˇﬂˇ˝òøÅÜ b{gçVÔ¡◊ç ÄG≥›%Ô@ºD5ˇÀ?˝˚u¸ñºÆ∏ñ>Î
- ™å=ÉõüA=Z‰ú[àpπË£{"ß◊UÚ•n®ETöËsSF⁄Y°¨QÁ˙S“∏a
-Â)#â÷®it[Ø€ΩÛ.6≠nl≥”®'ç”∑%¢ö±¬q*?ee#ìª∫Ym„G˘há&∏—jõ„¬^?fíÿ¬¸X´Ó®u∏ÚÓ4µÍèÁÀ±mi ÿ§?œÒïò£«àÖ©etå|Ë8ÇB§8$}
-±Iå{Ûòºxƒ˙±‹q´{·	¿<≥/íN†)PTö∫Jó¡xº›uO∫™N∂8›ÑÓÀÎ¥‰™!E–Ó“2ˆL(åà⁄A¸™≤ònçXCoZ7vÚiÂïx∞dÌ ~UyàÆ§‘c$/+“∏ŸÍ¨~ºÏw™0∑±⁄¸´≤Q˝Ü±à*≠m†DŒu9Â∏÷c$øıÅ¯ΩiúæéÛ£*ñ–)»kÚÛœ+§˚¶rÀ’‚æ™ÿ˛1)lA„jn`‰~¶JÕÓÙ⁄S¶Ë”ëƒπSÖm-“Ê*&¯Áé¬»ì^ÙK¬sß.Na¬]%§†ÔQA≈›º*;ö¿›¶≠≈ıp_”5“Q˜º≥ÚâE€ß7g„ÈUj+Ôúh6ö≥ëÀiøÊl‹ÔúçÚÂP+fohsr\n=w„Uß€lQ–^Î¸ÌY‹
-¥”˜—-á-Wh⁄¬ˆ•NW]‹fa
-Î$Èo¬—[æÙToD€ú|Ãõ¢æ[0åƒ-µ’~1‹òï !fCsK¬=ƒ4∂m9«SZ3ˆ‘‘áõæ`üK®ÃKµ≠à˜ô@l$ŒÃI	)µ|¨Ç˘)Æ‡ÌH’·áæ˚ÊàÈ:ƒgäÓPäÕµ„ibÛW˜ÊOúµÆÏÅM~∞ÙL¬£J„	&nJﬂ#Ä±"„*˜¥J˘àç•yÛ/≈X∞âŸ™a*e+ÔΩjl√æ=d˙öåAWzTR¢3'M¢0óD%°‰6~˝°{_zø*ñÉM{WÍ˛™∞˚œπÏîÓF=a±∆>Óf¨[ì√tÅè±≤W`hÈ˝õ4ñ]`\ïÏ.õ4Z`}—ÃJ<$U~8.#[ï˛VíÃ¥uÈıù√4Îñ4#¨æ›à∞Â|yx›∂ÍfV‡¡√-Ú >|d)/»Î‘nôòeÒ_<xƒË,”üœIß dR≠Ç 1˚9y2î;ˇeÌGÏçä¯˜«“∂Í;0´7«´X?–ŒçÁ∞;a‰ªåÑˇÛ«Æ‹Å†_ï8§ÊeAgÀ4Fô	ºf˛	°9,§yjºTC‡X.&Lgq‡âΩÄŸi∫üÃL^\-˝€rÍiJxìrUÒiF@p‹
-3´/ç›ù≈∞∫~n⁄æ9´∞w`}&XÀ•Ä§[X©÷™Xcœ™Á9+ª@c?:Ì±£÷y£}\º¿rÉ#"xuóqíD}«æ„≤Zqﬁü´Ê¬UÙÂî3 ”ºò·∏ŒPPNáß%n…ΩÛ-óuOq‘Bªb9üúU¨ØUïÒ‘665ëïö§≤≥’:Ñ¸›Dàìx}°ís«¿∑@Eu¶3vüR∆.F‘∑œq≤_ÿ#,Fu¸yÂ»Ò=mµµæƒ]Íá˛Æ›√§JÊÍæ=nï‰Z¬≤√wv Í'Ê|ß—99¬Í_Á˛Êø^W∆M%n∏.œÇRv3ﬁÑ,∫duﬂBäØ∆≥rLµpmÀ1VO∏¶Ì¡OèxË2IuÇπJ‚’"å…c¨ıNUHcj$¢€aµôTu"*áˆ‚e3∆¥nÜèùéÒõå:∫<>º∞‘Íb∫#Æp’†_ÅKEÌEA‹é&G≥™¿öàe#w™)ı„yÛÙOtGﬁßã<˝K4*•¶â◊ß2|∂u±¢N7M•ÕL÷HŸ7I3…ÎñD”û4ÆÜ,áv˝úÚ¨UÃw! Mm:Oóõ0ïı˝Öèú ïßß©~Ω|e;fÁÍ¡Rtó:IÀç«ˇßÄSﬂß~ùítâ	‹Fë<}=Kùø‹u&–Sè&≠ú0≠N£bjIBÕ˜Ω∞tH,( πœTµ¡…¨üÅáÂCftÀ|ãxrﬁàJJ©{ôÛñ1~[W˚ÏØøG	Î±>∑0äü™I¿µoüeNÍqyK‘EÑ∂0ˆ∂AÜ;/(H?Yé§;æ=ÿIÖ5UÀ´ïX≠Ñ—Ï2¨∂:«T9†µÂ⁄ƒîbè<9˛“l,N˜∆Zùïô¨∆{ˆÊ:∞É⁄AúI£Ø¬x·‰`ﬂmJú:QØ‡›q⁄ëeú1ãi AärﬁÙ€!wÄ¢ºK;4áÿ∑}0u2í‚q3c≈ÖUä˘—G}yïDË”Ï’è1ÚCºzÊ—ú%”AË¸ú„>aﬁÛÊ°©©`∫√“e:ÂVy„Lr•<óBí:ë‹⁄fø¢ämÏ*AYÂù/x0≠_ÙÇœërIqÎõ`L+FG0o‡sdﬁ–ÜtÊÔ·™N
-;0}øç÷ßÀÉ5¨*¶ΩÀ.ÍπG-dΩNì}≥ª˜∑Ö¿
-Ûñéú∂6∏7∞A$2#–(î]Ç^ê¬œ>v
-5àKƒúK‰ßrùX™é^•„‰ÜR|9«W0Sø;Ωÿ4G` !øµÉ¨qzX™Öt	ë36ˆmÆhZÁìÆò~\æGûŸ∏¥ˇ9µge?.ï?_öFªèIP∏⁄t'‹]êGÇ~fb:’e>DÙZ£T>∑‚	∑û•koè⁄Áùnª¡ZÏ®’;z{v‹n∆(-,Ï6z¨ﬁ>=áW|ÉΩôŸqßŸ8ﬁjæZú(≈#XÍ£HeMà9–7iGgﬁè6·Èºrn””9çôìÎÛ¨Z|”gOßÜı(⁄ñ*˛Œ$Íûé%Â4◊i‡}@'O'äΩÅèP;Ç}ÀﬁÄ$\˚7ì\#“aVè]°Îm¯º\duﬂh•:»Çå∞lhE~W¡ú˝-Ç◊… À?ÀJNïK&Ù—ˆ”—Í‹8eZ·¿n/lf†|Í¡ƒ©æ¥W◊09;Ü⁄€ ·¥Të'»'ﬂlf€âÛa:ˆÑÚ∑∂äÅL≠î\Õ_‘ê4#√OËj"5ﬂsáÅÓê ¸Tô.öx≈Ñ}ÃıÕƒ†CÓiiò0∏:	•zs.qOÎΩjñ%®5´
-ôTÕ◊T—†1|V|X&ák>2à=ïyzÌGıU¡KÏ-∞÷Oòté“'eƒÙF¬jœ90√g%§∂+ŒïRö
-§ÔÂ„I-zˆXVgqB™¡`§#Àx1R≥œiôúi:πs˘ÜZ©Ì˛ESº∑XúyúSÀàôòeö¡}¡íP ìOîMz63¸©q]ıÿ”¶‰b˝∑å+ dÕ ¡[M—vVØ}Úˆ∏—eÌ”_µÎÍº{Û˜ØZØÈuÀ¿ˆ£¨ˆ÷ª,
-‹iá6Nõù≈∆ΩÔŸ£»—ΩıZZ3øX´ôuõ÷UûÀ]X[2MO∏÷tœå,˚T#˚`R˝(˚È‹ø˘x!T*ØjΩ9+–øäì¬KG^	ΩÑ(πz=%H∏}K¢£(âÌõˇk
-w»∞Ä6›|òÜB ¿N@(Z€!Ö≠Dn_∏˜àÔ˘~F˙◊qá87È∑}r›˚·€À°H¢àP“»C€ÑcÔ∏"î⁄≤sIeyÆ¢≤1&«‘¨®ñÙÂïRXåFçºt3)ìŸÓl¶Ë”‚◊€nôGæπ°ñ©äÁ>n^¶"πPÖä°æ0ìV·èü÷∞˛ıeM•ªø¨=›Y‡≤ˇˆô]∂ÿ%çÑÊém"ﬁz'
-Ô…ñî¶´˜doÁ≥‹ï'~ï∂'3lÃv’yX÷<7À-ÌB,∆;ÚljCˆ>áQL’îôùÒ∏¶∂Ê	06∂Õø“û]∏ÕÍ”¨&ßfjèv◊±GªÛ÷[ë4—†Ë¿ºª˘ŸèÇ…ëaı&ÿ çwwœÕ∆6L,ŸòYnVm_æÛpM8_±¿õù≈ì˘~Z]7h˚¬}~qÅh”é⁄¥rÆ.*›¿4˝»“ú'Úfä∆–ÙU≠ÿ!,YG(´sàbmfÙ$\˘-ò«ç◊ß7ˇ≥wﬁnv0(IF2ö“I{é£FÔÕaß—=*g9Ò`HA-äZï≥ù≥ø˘ÙÀ1ÓSê≤pÅ+ZfLßg"´0ûúN\9WV÷å}‘ñD2ø(ì:Â>Ö]üdÉT	+NZRÂær{ãíMíÎbvÍv&ò@0EKA#‘b(^∞3bn67F7πg*≠\U.«îûM& Ç&Pı¶˚Ñ4é&,p∞†S	›ØZﬁÈFó,ÅRâ◊Æ˙äÕ¬¬Ê-õW‘êÌ…⁄a[†Ï„Ok·n~Î ¸˙]≠õ+.◊≤n+`}¨∑KP©XWëK#¿uSmHëcÇzG°√(™ôd∫‘ëb£ñ@b/ÃÇU,
-dïÎLT ªáz7f—)µ–ë‹ JTÅ%`µ0æ“M§ÆKL⁄O≠Õ—9-_◊π/åÌ)âî‡€´‡K{ttTtıÇÈ¿ﬁ\ÀsN@è—O3i#± ≤¥ÎIj~¨o#'QÈb¯-¡-»ÙúŒÌeÕ-ÌjÕÔ›n”	°âú ÀJTòqÓ˙§õdL0√mümèπø˚∂çä›*‹‘Y&6\ÈW≈¶´Ùâ±ôˇ¸¿?¬#≠™‚*¸	ˇ∫“"ƒçÓ“è~éÌœ|FÉ¡1ƒXÎ˝pº˙!ºGÊ¸=âÚn£.çÔá·ƒ¯ˇ  ˇˇ jhÔ
+
+                                <form id="form-forensic-audit" onsubmit="event.preventDefault(); runComprehensiveForensicAudit();">
+                                    <div class="row g-3">
+                                        <div class="col-md-3">
+                                            <label class="form-label small fw-semibold text-dark">IP do Cliente MTA (Conex√£o)</label>
+                                            <input type="text" class="form-control form-control-sm font-monospace" id="forensic-ip" placeholder="185.220.101.5" value="185.220.101.5">
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label small fw-semibold text-dark">HELO / EHLO Declarado</label>
+                                            <input type="text" class="form-control form-control-sm font-monospace" id="forensic-helo" placeholder="mail.itau-validacao.com" value="mail.itau-validacao.com">
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label small fw-semibold text-dark">Cabe√ßalho De: (From)</label>
+                                            <input type="text" class="form-control form-control-sm font-monospace" id="forensic-from" placeholder="Banco Ita√∫ <seguranca@itau.com.br>" value="Banco Ita√∫ <seguranca@itau.com.br>">
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label small fw-semibold text-dark">Envelope-From (Return-Path)</label>
+                                            <input type="text" class="form-control form-control-sm font-monospace" id="forensic-envelope-from" placeholder="bounce@attacker-vps.ru" value="bounce@attacker-vps.ru">
+                                        </div>
+
+                                        <div class="col-md-3">
+                                            <label class="form-label small fw-semibold text-dark">Resultado SPF</label>
+                                            <select class="form-select form-select-sm" id="forensic-spf">
+                                                <option value="NONE">NONE (Sem registro)</option>
+                                                <option value="PASS">PASS (Autorizado)</option>
+                                                <option value="FAIL" selected>FAIL (Rejei√ß√£o Estrita)</option>
+                                                <option value="SOFTFAIL">SOFTFAIL (~all)</option>
+                                                <option value="NEUTRAL">NEUTRAL (?all)</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label small fw-semibold text-dark">Resultado DKIM</label>
+                                            <select class="form-select form-select-sm" id="forensic-dkim">
+                                                <option value="NONE">NONE (Sem assinatura)</option>
+                                                <option value="PASS">PASS (Assinatura V√°lida)</option>
+                                                <option value="FAIL" selected>FAIL (Assinatura Corrompida)</option>
+                                                <option value="INVALID">INVALID</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label small fw-semibold text-dark">Resultado DMARC</label>
+                                            <select class="form-select form-select-sm" id="forensic-dmarc">
+                                                <option value="NONE">NONE (Sem pol√≠tica)</option>
+                                                <option value="PASS">PASS (Alinhado)</option>
+                                                <option value="FAIL" selected>FAIL (Desalinhado / Rejei√ß√£o)</option>
+                                                <option value="QUARANTINE">QUARANTINE (Quarentena)</option>
+                                                <option value="REJECT">REJECT (Rejei√ß√£o)</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label small fw-semibold text-dark">Score Base SpamAssassin</label>
+                                            <input type="number" step="0.1" class="form-control form-control-sm font-monospace" id="forensic-sa-score" value="2.5">
+                                        </div>
+
+                                        <div class="col-12">
+                                            <label class="form-label small fw-semibold text-dark">Cabe√ßalhos ou Mensagem EML Bruta (Opcional)</label>
+                                            <textarea class="form-control form-control-sm font-monospace" id="forensic-raw-eml" rows="3" placeholder="Cole aqui os cabe√ßalhos completos de um e-mail para auditoria profunda..."></textarea>
+                                        </div>
+                                    </div>
+
+                                    <div class="d-flex align-items-center justify-content-between mt-3 pt-3 border-top">
+                                        <button type="reset" class="btn btn-sm btn-outline-secondary px-3">Limpar Campos</button>
+                                        <button type="button" class="btn btn-sm btn-danger px-4 fw-semibold" onclick="runComprehensiveForensicAudit()">
+                                            <i class="bi bi-play-circle-fill me-1"></i> Executar Auditoria Forense & An√°lise de Risco
+                                        </button>
+                                    </div>
+                                </form>
+
+                                <!-- Painel de Resultados Forenses -->
+                                <div id="forensic-results-panel" class="mt-4 pt-4 border-top d-none">
+                                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4 p-3 bg-light rounded-3 border">
+                                        <div class="d-flex align-items-center gap-3">
+                                            <span class="small text-muted fw-semibold">Veredito Forense:</span>
+                                            <div id="forensic-verdict-badge"></div>
+                                        </div>
+                                        <div class="d-flex flex-wrap align-items-center gap-3 small">
+                                            <span>SPF: <span id="res-badge-spf">-</span></span>
+                                            <span class="text-muted">|</span>
+                                            <span>DKIM: <span id="res-badge-dkim">-</span></span>
+                                            <span class="text-muted">|</span>
+                                            <span>DMARC: <span id="res-badge-dmarc">-</span></span>
+                                            <span class="text-muted">|</span>
+                                            <span>rDNS/PTR: <span id="res-badge-ptr">-</span></span>
+                                            <span class="text-muted">|</span>
+                                            <span>FCrDNS: <span id="res-badge-fcrdns">-</span></span>
+                                            <span class="text-muted">|</span>
+                                            <span>Identidade: <span id="res-badge-imp">-</span></span>
+                                        </div>
+                                    </div>
+
+                                    <div class="row g-3 mb-4">
+                                        <div class="col-md-3">
+                                            <div class="card p-3 shadow-sm border-0 bg-light text-center h-100">
+                                                <span class="text-muted small fw-semibold">Score Base SpamAssassin</span>
+                                                <h3 class="fw-bold text-dark font-monospace mb-0 mt-1" id="res-score-sa">+0.000</h3>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="card p-3 shadow-sm border-0 bg-light text-center h-100">
+                                                <span class="text-muted small fw-semibold">Score Intelig√™ncia / Heur√≠stica</span>
+                                                <h3 class="fw-bold text-warning-emphasis font-monospace mb-0 mt-1" id="res-score-intel">+0.000</h3>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="card p-3 shadow-sm border-0 bg-danger-subtle border-danger-subtle text-center h-100">
+                                                <span class="text-danger small fw-semibold">Score Final Ponderado</span>
+                                                <h3 class="fw-bold text-danger font-monospace mb-0 mt-1" id="res-score-final">+0.000</h3>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="card p-3 shadow-sm border-0 bg-light text-center h-100">
+                                                <span class="text-muted small fw-semibold">Classifica√ß√£o de Risco</span>
+                                                <h4 class="fw-bold text-dark font-monospace mb-0 mt-1 fs-5" id="res-classification">-</h4>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <h6 class="fw-bold text-dark mb-3 d-flex align-items-center gap-2">
+                                        <i class="bi bi-journal-text text-primary"></i> Mem√≥ria de C√°lculo & Regras Disparadas
+                                    </h6>
+                                    <div class="table-responsive mb-4">
+                                        <table class="table table-hover align-middle mb-0">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th>Regra / C√≥digo</th>
+                                                    <th>Evid√™ncia / Crit√©rio Avaliado</th>
+                                                    <th class="text-center" style="width: 140px;">Score Aplicado</th>
+                                                    <th class="text-center" style="width: 120px;">A√ß√£o Imediata</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="forensic-rules-tbody">
+                                                <tr><td colspan="4" class="text-center py-3 text-muted">Aguardando execu√ß√£o da simula√ß√£o.</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 p-3 bg-light rounded-3 border">
+                                        <span class="text-muted small fw-semibold">A√ß√µes R√°pidas de Mitiga√ß√£o P√≥s-Incidente:</span>
+                                        <div class="d-flex gap-2">
+                                            <button type="button" class="btn btn-outline-danger btn-sm fw-semibold" onclick="quickBlockFromAudit()">
+                                                <i class="bi bi-slash-circle me-1"></i> Bloquear na Blacklist
+                                            </button>
+                                            <button type="button" class="btn btn-outline-warning btn-sm fw-semibold text-dark" onclick="quickAddImpersonationFromAudit()">
+                                                <i class="bi bi-shield-lock me-1"></i> Proteger Marca (Anti-Impersonation)
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ============================================================== -->
+                        <!-- TAB 5: EDITOR AVAN√áADO (local.cf)                             -->
+                        <!-- ============================================================== -->
+                        <div class="tab-pane fade" id="spam-tab-raw" role="tabpanel">
+                            <div class="card p-4 shadow-sm border-0 mb-4">
+                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3 pb-3 border-bottom">
+                                    <div>
+                                        <h6 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
+                                            <i class="bi bi-code-slash text-secondary"></i> Editor de Configura√ß√£o Bruta (local.cf)
+                                            <span class="badge bg-secondary-subtle text-secondary border font-monospace">/etc/spamassassin/local.cf</span>
+                                        </h6>
+                                        <p class="text-muted small mb-0">Parametriza√ß√£o avan√ßada e direta das diretivas do SpamAssassin daemon.</p>
+                                    </div>
+                                    <div class="d-flex gap-2">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="loadSpamRules()">
+                                            <i class="bi bi-arrow-clockwise me-1"></i> Recarregar
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-info" onclick="lintRules()">
+                                            <i class="bi bi-check2-circle me-1"></i> Validar Sintaxe (lint)
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-primary fw-semibold" onclick="saveRules()">
+                                            <i class="bi bi-floppy-fill me-1"></i> Salvar local.cf
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <textarea class="form-control font-monospace text-dark bg-light border p-3" id="rules-textarea" rows="20" spellcheck="false" style="font-size: 0.88rem; line-height: 1.5; tab-size: 4;" placeholder="# Carregando diretivas de /etc/spamassassin/local.cf..."></textarea>
+                                </div>
+
+                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 p-3 bg-light rounded-3 border">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <i class="bi bi-info-circle text-primary"></i>
+                                        <span class="small text-muted">Dica: Utilize <code>required_score</code>, <code>report_safe</code>, <code>score NOME_REGRA valor</code>, <code>blacklist_from</code> e <code>whitelist_from</code>.</span>
+                                    </div>
+                                    <div class="d-flex gap-2">
+                                        <button type="button" class="btn btn-xs btn-outline-secondary" onclick="document.getElementById('rules-textarea').value += '\nscore SPF_FAIL 4.0\n';">
+                                            + Snippet SPF_FAIL
+                                        </button>
+                                        <button type="button" class="btn btn-xs btn-outline-secondary" onclick="document.getElementById('rules-textarea').value += '\nscore DMARC_FAIL_REJECT 6.0\n';">
+                                            + Snippet DMARC_FAIL
+                                        </button>
+                                        <button type="button" class="btn btn-xs btn-outline-secondary" onclick="document.getElementById('rules-textarea').value += '\nblacklist_from *@dominio-spam.com\n';">
+                                            + Snippet Blacklist
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div> <!-- /spamTabContent -->
+                </div> <!-- /tab-spam -->
+
+                <!-- 6. ABA: CONFIGURA√á√ïES DO SISTEMA (SETTINGS) -->
+                <div class="tab-section d-none" id="tab-settings">
+                    <div class="d-flex align-items-center justify-content-between mb-4">
+                        <div>
+                            <h4 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
+                                <i class="bi bi-gear-fill text-secondary"></i> Configura√ß√µes do Sistema & Banco de Dados
+                            </h4>
+                            <p class="text-muted small mb-0">Par√¢metros de conex√£o MariaDB/MySQL, sincroniza√ß√£o Vmail e vari√°veis de ambiente MTA.</p>
+                        </div>
+                    </div>
+
+                    <div id="settings-alert-container"></div>
+
+                    <div class="row g-4">
+                        <div class="col-lg-7">
+                            <div class="card p-4 shadow-sm border-0 h-100">
+                                <h6 class="fw-bold text-dark mb-3 d-flex align-items-center gap-2 border-bottom pb-2">
+                                    <i class="bi bi-database-fill-lock text-primary"></i> Credenciais de Conex√£o MariaDB / Postfixadmin
+                                </h6>
+                                <form id="form-db-settings" onsubmit="saveDatabaseSettings(event)">
+                                    <div class="row g-3 mb-3">
+                                        <div class="col-md-8">
+                                            <label class="form-label small fw-semibold text-dark">Host / Endere√ßo do Servidor SQL</label>
+                                            <input type="text" class="form-control font-monospace" id="cfg-db-host" placeholder="127.0.0.1" required>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label small fw-semibold text-dark">Porta SQL</label>
+                                            <input type="text" class="form-control font-monospace" id="cfg-db-port" placeholder="3306" required>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-semibold text-dark">Nome do Banco de Dados (Database)</label>
+                                        <input type="text" class="form-control font-monospace" id="cfg-db-name" placeholder="vmail" required>
+                                    </div>
+                                    <div class="row g-3 mb-4">
+                                        <div class="col-md-6">
+                                            <label class="form-label small fw-semibold text-dark">Usu√°rio do Banco (DB_USER)</label>
+                                            <input type="text" class="form-control font-monospace" id="cfg-db-user" placeholder="vmail" required>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label small fw-semibold text-dark">Senha do Banco (DB_PASS)</label>
+                                            <input type="password" class="form-control font-monospace" id="cfg-db-pass" placeholder="‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢" required>
+                                        </div>
+                                    </div>
+                                    <div class="d-flex align-items-center justify-content-between pt-3 border-top">
+                                        <button type="button" class="btn btn-sm btn-outline-info" onclick="testDatabaseConnection()">
+                                            <i class="bi bi-arrow-repeat me-1"></i> Testar Conex√£o SQL
+                                        </button>
+                                        <button type="submit" class="btn btn-sm btn-primary px-4 fw-semibold">
+                                            <i class="bi bi-check2-circle me-1"></i> Salvar Par√¢metros do Banco
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+
+                        <div class="col-lg-5">
+                            <div class="card p-4 shadow-sm border-0 h-100">
+                                <h6 class="fw-bold text-dark mb-3 d-flex align-items-center gap-2 border-bottom pb-2">
+                                    <i class="bi bi-sliders text-success"></i> Par√¢metros Globais do MailAdmin
+                                </h6>
+                                <div class="vstack gap-3 text-sm">
+                                    <div class="p-3 bg-light rounded border">
+                                        <span class="text-muted small fw-semibold d-block">Modo de Opera√ß√£o</span>
+                                        <strong class="text-dark font-monospace">Produ√ß√£o (Live MTA Engine)</strong>
+                                        <p class="small text-muted mb-0 mt-1">Conectado diretamente aos daemons Postfix, Dovecot e SpamAssassin.</p>
+                                    </div>
+                                    <div class="p-3 bg-light rounded border">
+                                        <span class="text-muted small fw-semibold d-block">Log Stream</span>
+                                        <strong class="text-dark font-monospace">/var/log/mail.log</strong>
+                                        <p class="small text-muted mb-0 mt-1">Ingest√£o cont√≠nua com parser de alta performance e regex categorizada.</p>
+                                    </div>
+                                    <div class="p-3 bg-light rounded border">
+                                        <span class="text-muted small fw-semibold d-block">Seguran√ßa & Criptografia</span>
+                                        <strong class="text-success font-monospace"><i class="bi bi-shield-check me-1"></i> Argon2id / SHA512-CRYPT</strong>
+                                        <p class="small text-muted mb-0 mt-1">Hashing de senhas compat√≠vel com Dovecot e PostfixAdmin.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 7. ABA: USU√ÅRIOS & ADMINISTRADORES (USUARIOS) -->
+                <div class="tab-section d-none" id="tab-usuarios">
+                    <div class="d-flex align-items-center justify-content-between mb-4">
+                        <div>
+                            <h4 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
+                                <i class="bi bi-people-fill text-primary"></i> Usu√°rios, Administradores & RBAC
+                            </h4>
+                            <p class="text-muted small mb-0">Gest√£o de acessos com controle granular de permiss√µes (RBAC) e autentica√ß√£o em dois fatores (MFA).</p>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-primary px-3 fw-semibold" onclick="showCreateAdminModal()">
+                            <i class="bi bi-person-plus-fill me-1"></i> Novo Administrador
+                        </button>
+                    </div>
+
+                    <div class="card p-4 shadow-sm border-0 mb-4">
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <h6 class="fw-bold text-dark mb-0">
+                                Administradores do Painel (<span id="admins-count">0</span>)
+                            </h6>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 70px;">ID</th>
+                                        <th>Usu√°rio</th>
+                                        <th style="width: 140px;">Perfil (Role)</th>
+                                        <th style="width: 150px;">MFA (2FA)</th>
+                                        <th style="width: 150px;">A√ß√µes MFA</th>
+                                        <th class="text-center" style="width: 120px;">A√ß√µes</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="admins-table-body">
+                                    <tr><td colspan="6" class="text-center py-3 text-muted">Carregando usu√°rios...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="card p-4 shadow-sm border-0">
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <h6 class="fw-bold text-dark mb-0">
+                                Usu√°rios Vmail Sincronizados (<span id="vmail-users-count">0</span>)
+                            </h6>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 70px;">ID</th>
+                                        <th>E-mail Principal</th>
+                                        <th>Dom√≠nio</th>
+                                        <th>Quota Usada</th>
+                                        <th class="text-center" style="width: 100px;">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="vmail-users-table-body">
+                                    <tr><td colspan="5" class="text-center py-3 text-muted">Sincronizado automaticamente com a base de Mailboxes.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+            </div> <!-- /container-fluid -->
+        </main> <!-- /main-content -->
+    </div> <!-- /spa-wrapper -->
+</div> <!-- /app-container -->
+
+<!-- ========================================================================= -->
+<!-- MODAIS DO SISTEMA                                                         -->
+<!-- ========================================================================= -->
+
+<!-- 1. Modal: Criar Novo Dom√≠nio -->
+<div class="modal fade" id="createDomainModal" tabindex="-1" aria-labelledby="createDomainModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light border-bottom">
+                <h5 class="modal-title fw-bold text-dark fs-6" id="createDomainModalLabel">
+                    <i class="bi bi-globe me-1 text-primary"></i> Adicionar Novo Dom√≠nio
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <form onsubmit="event.preventDefault(); submitCreateDomain();">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Nome do Dom√≠nio</label>
+                        <input type="text" class="form-control font-monospace" id="dom-name-input" placeholder="exemplo.com.br" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Descri√ß√£o / Empresa</label>
+                        <input type="text" class="form-control" id="dom-desc-input" placeholder="ex: Matriz S√£o Paulo">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Quota M√°xima por Caixa (MB)</label>
+                        <input type="number" class="form-control font-monospace" id="dom-quota-input" value="10240">
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-sm btn-primary px-4">
+                        <i class="bi bi-plus-circle me-1"></i> Criar Dom√≠nio
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 2. Modal: Criar Alias de Dom√≠nio -->
+<div class="modal fade" id="createDomainAliasModal" tabindex="-1" aria-labelledby="createDomainAliasModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light border-bottom">
+                <h5 class="modal-title fw-bold text-dark fs-6" id="createDomainAliasModalLabel">
+                    <i class="bi bi-diagram-2 me-1 text-info"></i> Adicionar Alias de Dom√≠nio
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <form onsubmit="event.preventDefault(); submitCreateDomainAlias();">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Dom√≠nio Espelho (Alias)</label>
+                        <input type="text" class="form-control font-monospace" id="dom-alias-alias-input" placeholder="alias-empresa.com.br" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Dom√≠nio Principal (Destino Real)</label>
+                        <input type="text" class="form-control font-monospace" id="dom-alias-target-input" placeholder="empresa.com.br" required>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-sm btn-primary px-4">
+                        <i class="bi bi-link-45deg me-1"></i> Vincular Alias de Dom√≠nio
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 3. Modal: Criar Nova Mailbox -->
+<div class="modal fade" id="createMailboxModal" tabindex="-1" aria-labelledby="createMailboxModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light border-bottom">
+                <h5 class="modal-title fw-bold text-dark fs-6" id="createMailboxModalLabel">
+                    <i class="bi bi-envelope-plus me-1 text-primary"></i> Criar Nova Caixa Postal (Mailbox)
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <form onsubmit="event.preventDefault(); submitCreateMailbox();">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Endere√ßo de E-mail Completo</label>
+                        <input type="email" class="form-control font-monospace" id="mb-user-input" placeholder="usuario@dominio.com.br" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Nome do Titular</label>
+                        <input type="text" class="form-control" id="mb-name-input" placeholder="ex: Jo√£o da Silva">
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-7">
+                            <label class="form-label small fw-semibold text-dark">Senha de Acesso</label>
+                            <input type="password" class="form-control font-monospace" id="mb-pass-input" placeholder="‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢" required>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label small fw-semibold text-dark">Quota (MB)</label>
+                            <input type="number" class="form-control font-monospace" id="mb-quota-input" value="5120" required>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-sm btn-primary px-4">
+                        <i class="bi bi-person-check-fill me-1"></i> Criar Caixa Postal
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 4. Modal: Criar Alias de E-mail -->
+<div class="modal fade" id="createAliasModal" tabindex="-1" aria-labelledby="createAliasModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light border-bottom">
+                <h5 class="modal-title fw-bold text-dark fs-6" id="createAliasModalLabel">
+                    <i class="bi bi-signpost-split me-1 text-primary"></i> Criar Novo Alias / Redirecionamento
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <form onsubmit="event.preventDefault(); submitCreateAlias();">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Endere√ßo do Alias (Origem)</label>
+                        <input type="email" class="form-control font-monospace" id="al-addr-input" placeholder="contato@dominio.com.br" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Destinat√°rios Reais (Goto - separados por v√≠rgula)</label>
+                        <textarea class="form-control font-monospace" id="al-goto-input" rows="3" placeholder="joao@dominio.com.br, maria@dominio.com.br" required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-sm btn-primary px-4">
+                        <i class="bi bi-save me-1"></i> Salvar Alias
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 5. Modal: Redefinir Senha de Caixa Postal -->
+<div class="modal fade" id="resetPasswordModal" tabindex="-1" aria-labelledby="resetPasswordModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light border-bottom">
+                <h5 class="modal-title fw-bold text-dark fs-6" id="resetPasswordModalLabel">
+                    <i class="bi bi-key-fill me-1 text-warning"></i> Redefinir Senha da Caixa Postal
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <form onsubmit="event.preventDefault(); submitResetPassword();">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Caixa de E-mail</label>
+                        <input type="text" class="form-control font-monospace bg-light" id="reset-mb-email-input" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Nova Senha</label>
+                        <div class="input-group">
+                            <input type="password" class="form-control font-monospace" id="reset-mb-pass-input" placeholder="Nova senha segura" required>
+                            <button class="btn btn-outline-secondary" type="button" onclick="toggleResetPasswordVisibility()">
+                                <i class="bi bi-eye" id="reset-pass-toggle-icon"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Esquema de Criptografia Dovecot</label>
+                        <select class="form-select font-monospace text-sm" id="reset-mb-scheme-select">
+                            <option value="BLF-CRYPT" selected>BLF-CRYPT (Blowfish / Padr√£o PostfixAdmin)</option>
+                            <option value="ARGON2ID">ARGON2ID (Alta Seguran√ßa)</option>
+                            <option value="SHA512-CRYPT">SHA512-CRYPT (Linux Standard)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-sm btn-warning px-4 fw-semibold text-dark">
+                        <i class="bi bi-check2-circle me-1"></i> Atualizar Senha
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 6. Modal: Criar Administrador RBAC -->
+<div class="modal fade" id="createAdminModal" tabindex="-1" aria-labelledby="createAdminModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light border-bottom">
+                <h5 class="modal-title fw-bold text-dark fs-6" id="createAdminModalLabel">
+                    <i class="bi bi-person-plus-fill me-1 text-primary"></i> Cadastrar Novo Administrador / Operador
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <form onsubmit="submitCreateAdmin(event)">
+                <div class="modal-body p-4">
+                    <div id="create-admin-alert"></div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Nome de Usu√°rio</label>
+                        <input type="text" class="form-control font-monospace" id="create-admin-username" placeholder="nome.sobrenome" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Perfil de Acesso (RBAC)</label>
+                        <select class="form-select" id="create-admin-role">
+                            <option value="admin" selected>Administrador Total (SuperAdmin / Leitura & Escrita)</option>
+                            <option value="user">Operador / Visualizador (Read-Only / Auditoria)</option>
+                        </select>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold text-dark">Senha</label>
+                            <input type="password" class="form-control font-monospace" id="create-admin-password" placeholder="‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold text-dark">Confirmar Senha</label>
+                            <input type="password" class="form-control font-monospace" id="create-admin-password-confirm" placeholder="‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢" required>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-sm btn-primary px-4 fw-semibold">
+                        <i class="bi bi-check-circle me-1"></i> Criar Usu√°rio
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 7. Modal: Alterar Senha de Administrador -->
+<div class="modal fade" id="changeAdminPasswordModal" tabindex="-1" aria-labelledby="changeAdminPasswordModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light border-bottom">
+                <h5 class="modal-title fw-bold text-dark fs-6" id="changeAdminPasswordModalLabel">
+                    <i class="bi bi-shield-lock me-1 text-primary"></i> Alterar Senha de Administrador
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <form onsubmit="submitChangeAdminPassword(event)">
+                <input type="hidden" id="change-admin-id">
+                <div class="modal-body p-4">
+                    <div id="change-admin-password-alert"></div>
+                    <p class="small text-muted mb-3">Alterando credenciais para o usu√°rio <strong id="change-admin-username-display" class="text-dark font-monospace"></strong></p>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Nova Senha</label>
+                        <input type="password" class="form-control font-monospace" id="change-admin-password" placeholder="‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Confirmar Nova Senha</label>
+                        <input type="password" class="form-control font-monospace" id="change-admin-password-confirm" placeholder="‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢‚Ä¢" required>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-sm btn-primary px-4 fw-semibold">
+                        <i class="bi bi-check2-circle me-1"></i> Salvar Nova Senha
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 8. Modal: Configura√ß√£o MFA 2FA -->
+<div class="modal fade" id="mfaModal" tabindex="-1" aria-labelledby="mfaModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light border-bottom">
+                <h5 class="modal-title fw-bold text-dark fs-6" id="mfaModalLabel">
+                    <i class="bi bi-shield-check me-1 text-success"></i> Configura√ß√£o de Autentica√ß√£o em 2 Fatores (MFA)
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body p-4 text-center">
+                <div id="qr-code-wrapper" class="mb-3 d-flex justify-content-center"></div>
+                <p class="small text-muted mb-2">Escaneie o QR Code acima usando seu aplicativo autenticador (Google Authenticator, Authy ou 1Password).</p>
+                <div class="p-2 bg-light rounded border mb-3">
+                    <small class="text-muted d-block">Chave Secreta Manual:</small>
+                    <strong class="font-monospace text-dark small" id="mfa-secret-key"></strong>
+                </div>
+                <div class="mb-3 text-start">
+                    <label class="form-label small fw-semibold text-dark">C√≥digo de 6 d√≠gitos gerado:</label>
+                    <input type="text" class="form-control font-monospace text-center fs-5" id="mfa-token-input" placeholder="000 000" maxlength="6">
+                </div>
+            </div>
+            <div class="modal-footer bg-light border-top">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                <button type="button" class="btn btn-sm btn-success px-4" onclick="submitMfaSetup()">
+                    <i class="bi bi-check-lg me-1"></i> Validar e Ativar 2FA
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 9. Modal: MFA For√ßado no Login -->
+<div class="modal fade" id="forcedMfaModal" data-bs-backdrop="static" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title fw-bold fs-6">
+                    <i class="bi bi-shield-exclamation me-1"></i> Configura√ß√£o Obrigat√≥ria de 2FA
+                </h5>
+            </div>
+            <div class="modal-body p-4 text-center">
+                <div id="forced-mfa-alert"></div>
+                <div id="forced-qr-wrapper" class="mb-3 d-flex justify-content-center"></div>
+                <input type="hidden" id="forced-mfa-secret">
+                <div class="mb-3 text-start">
+                    <label class="form-label small fw-semibold text-dark">Digite o c√≥digo de 6 d√≠gitos gerado no App:</label>
+                    <input type="text" class="form-control font-monospace text-center fs-5" id="forced-mfa-token" placeholder="000000" maxlength="6">
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" id="forced-mfa-submit-btn" class="btn btn-danger w-100 fw-semibold" onclick="submitForcedMfa()">
+                    Confirmar e Concluir Login
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 10. Modal: Criar / Editar Regra Inteligente AntiSPAM (Regex & Heur√≠stica) -->
+<div class="modal fade" id="customSpamRuleModal" tabindex="-1" aria-labelledby="customSpamRuleModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light p-3 border-bottom">
+                <h5 class="modal-title fw-bold text-dark fs-6" id="customSpamRuleModalLabel">
+                    <i class="bi bi-magic me-1 text-primary"></i> <span id="custom-rule-modal-title">Adicionar Regra Heur√≠stica Personalizada (SpamAssassin)</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <form id="form-custom-spam-rule" onsubmit="saveCustomSpamRule(event)">
+                <input type="hidden" id="custom-rule-old-name" value="">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-dark mb-1">Express√£o Regular (Pattern Regex do SpamAssassin)</label>
+                        <input type="text" class="form-control font-monospace" id="custom-rule-pattern" placeholder="/ped.gios?|vi.ria|rodovi.rio/i" required>
+                        <small class="text-muted" style="font-size: 11px;">Sintaxe padr√£o Perl Compatible Regular Expressions (PCRE), ex: <code>/termo1|termo2/i</code></small>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">Campo / Alvo Analisado</label>
+                            <select class="form-select" id="custom-rule-target">
+                                <option value="Subject">Assunto (Subject)</option>
+                                <option value="From">Remetente (From)</option>
+                                <option value="Reply-To">Endere√ßo de Resposta (Reply-To)</option>
+                                <option value="To">Destinat√°rio (To)</option>
+                                <option value="Body">Corpo do E-mail (Body)</option>
+                                <option value="URI">Links e URLs no E-mail (URI / Links)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">Impacto de Pontua√ß√£o (Score)</label>
+                            <div class="input-group">
+                                <input type="number" step="0.5" class="form-control font-monospace" id="custom-rule-score" value="15.0" required>
+                                <span class="input-group-text bg-light text-muted small">pontos</span>
+                            </div>
+                            <div class="d-flex gap-1 mt-1">
+                                <button type="button" class="badge bg-danger-subtle text-danger border border-danger-subtle cursor-pointer" onclick="document.getElementById('custom-rule-score').value='15.0'">+15.0 (Bloqueio Total)</button>
+                                <button type="button" class="badge bg-warning-subtle text-dark border border-warning-subtle cursor-pointer" onclick="document.getElementById('custom-rule-score').value='10.0'">+10.0 (Suspeito)</button>
+                                <button type="button" class="badge bg-secondary-subtle text-secondary border cursor-pointer" onclick="document.getElementById('custom-rule-score').value='5.0'">+5.0 (Alerta)</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">Nome / C√≥digo da Regra (Identificador √önico)</label>
+                            <input type="text" class="form-control font-monospace" id="custom-rule-name" placeholder="LOCAL_GOLPE_PEDAGIO" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-dark mb-1">Descri√ß√£o Explicativa da Regra</label>
+                            <input type="text" class="form-control" id="custom-rule-describe" placeholder="ZRTI - Bloqueio de golpe de falso ped√°gio" required>
+                            <input type="hidden" id="custom-rule-friendly-keywords">
+                        </div>
+                    </div>
+                    <!-- Testador Interativo de Regex Inline -->
+                    <div class="p-3 bg-light rounded border">
+                        <label class="form-label small fw-bold text-dark mb-1 d-flex align-items-center gap-1">
+                            <i class="bi bi-play-circle-fill text-primary"></i> Testador R√°pido de Regex em Tempo Real
+                        </label>
+                        <div class="input-group input-group-sm mb-2">
+                            <input type="text" class="form-control" id="custom-rule-test-input" placeholder="Digite uma frase ou cabe√ßalho para testar contra o padr√£o acima...">
+                            <button type="button" class="btn btn-outline-primary" onclick="testModalRegex()">
+                                <i class="bi bi-play-fill me-1"></i> Testar Regex Agora
+                            </button>
+                        </div>
+                        <div id="custom-rule-test-result" class="small text-muted font-monospace p-2 rounded bg-white border d-none"></div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light p-3">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary btn-sm px-4">
+                        <i class="bi bi-check-circle me-1"></i> Salvar Regra Inteligente
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 11. Modal: Criar / Editar Cron Job -->
+<div class="modal fade" id="createCronModal" tabindex="-1" aria-labelledby="createCronModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light border-bottom">
+                <h5 class="modal-title fw-bold text-dark fs-6" id="createCronModalLabel">
+                    <i class="bi bi-calendar-check me-1 text-primary"></i> <span id="cron-modal-title">Nova Automa√ß√£o Agendada (Crontab Visual)</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <form onsubmit="saveCronJob(event)">
+                <input type="hidden" id="cron-job-id" value="">
+                <div class="modal-body p-4">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold text-dark">Identifica√ß√£o da Tarefa</label>
+                            <input type="text" class="form-control" id="cron-name-input" placeholder="ex: Expurgar Quarentena Amavis Antiga" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold text-dark">Predefini√ß√£o de Hor√°rio</label>
+                            <select class="form-select font-monospace" id="cron-preset-select" onchange="applyCronPreset(this.value)">
+                                <option value="">Customizado...</option>
+                                <option value="0 * * * *">A cada 1 hora (0 * * * *)</option>
+                                <option value="0 0 * * *">Diariamente √† meia-noite (0 0 * * *)</option>
+                                <option value="0 3 * * 0">Semanalmente aos domingos 03:00 (0 3 * * 0)</option>
+                                <option value="*/15 * * * *">A cada 15 minutos (*/15 * * * *)</option>
+                            </select>
+                            <input type="hidden" id="cron-schedule-preset">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Express√£o Crontab (5 campos cron)</label>
+                        <input type="text" class="form-control font-monospace" id="cron-expression-input" placeholder="0 2 * * *" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Comando Shell a Executar</label>
+                        <input type="text" class="form-control font-monospace" id="cron-command-input" placeholder="/usr/local/bin/clean_quarantine.sh" required>
+                        <input type="hidden" id="cron-script-filename-input">
+                        <input type="hidden" id="cron-script-content-input">
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-sm btn-primary px-4">
+                        <i class="bi bi-save me-1"></i> Salvar Agendamento
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 12. Modal: Detalhes DNS -->
+<div class="modal fade" id="dnsDetailsModal" tabindex="-1" aria-labelledby="dnsDetailsModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light border-bottom">
+                <h5 class="modal-title fw-bold text-dark fs-6" id="dnsDetailsModalTitle">
+                    <i class="bi bi-globe me-1 text-primary"></i> Diagn√≥stico Avan√ßado DNS & DKIM
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body p-4 font-monospace small" id="dnsDetailsModalContent">
+                Carregando registros DNS...
+            </div>
+            <div class="modal-footer bg-light border-top">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Fechar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Container Global para Toasts e Alertas Din√¢micos -->
+<div id="global-toast-container" class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1100;"></div>
+
+
+<!-- ========================================================================= -->
+<!-- MODAIS E COMPONENTES AUXILIARES                                           -->
+<!-- ========================================================================= -->
+
+<!-- Modal: Simular Tr√°fego de E-mail para Dashboard -->
+<div class="modal fade" id="modalSimulateMail" tabindex="-1" aria-labelledby="modalSimulateMailLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light border-bottom">
+                <h5 class="modal-title fw-bold text-dark fs-6" id="modalSimulateMailLabel">
+                    <i class="bi bi-send-plus-fill me-1 text-primary"></i> Injetar Simula√ß√£o de Tr√°fego MTA
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <form onsubmit="event.preventDefault(); executeSimulateMailTraffic();">
+                <div class="modal-body p-4">
+                    <div class="row g-3 mb-3">
+                        <div class="col-6">
+                            <label class="form-label small fw-semibold text-dark">E-mails Enviados</label>
+                            <input type="number" class="form-control font-monospace" id="sim-input-sent" value="15" min="0">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-semibold text-dark">E-mails Recebidos</label>
+                            <input type="number" class="form-control font-monospace" id="sim-input-rec" value="45" min="0">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label small fw-semibold text-dark">Bounces (Devolu√ß√µes)</label>
+                            <input type="number" class="form-control font-monospace" id="sim-input-bounce" value="2" min="0">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label small fw-semibold text-dark">Spam Bloqueados</label>
+                            <input type="number" class="form-control font-monospace" id="sim-input-spam" value="8" min="0">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label small fw-semibold text-dark">V√≠rus / Amea√ßas</label>
+                            <input type="number" class="form-control font-monospace" id="sim-input-virus" value="0" min="0">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Assunto de Teste</label>
+                        <input type="text" class="form-control font-monospace" id="sim-subject" value="Relat√≥rio Mensal de Opera√ß√µes ZRTI">
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-6">
+                            <label class="form-label small fw-semibold text-dark">Remetente (From)</label>
+                            <input type="text" class="form-control font-monospace" id="sim-from" value="sistema@zrti.com.br">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-semibold text-dark">Reply-To</label>
+                            <input type="text" class="form-control font-monospace" id="sim-replyto" value="suporte@zrti.com.br">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Corpo da Mensagem (Opcional)</label>
+                        <textarea class="form-control font-monospace" id="sim-body" rows="2">Prezado administrador, este √© um teste de telemetria.</textarea>
+                    </div>
+                    <div id="sim-result-container" class="small text-muted d-none"></div>
+                </div>
+                <div class="modal-footer bg-light border-top">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" id="btn-submit-simulate-traffic" class="btn btn-sm btn-primary px-4">
+                        <i class="bi bi-play-fill me-1"></i> Executar e Gravar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Diagn√≥stico de Auditoria do Dashboard -->
+<div class="modal fade" id="modalDashboardAudit" tabindex="-1" aria-labelledby="modalDashboardAuditLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light border-bottom">
+                <h5 class="modal-title fw-bold text-dark fs-6" id="modalDashboardAuditLabel">
+                    <i class="bi bi-clipboard-data-fill me-1 text-primary"></i> Diagn√≥stico de Auditoria & Telemetria do MTA
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <div class="p-3 bg-light rounded border">
+                            <span class="text-muted small d-block">Total de Registros no Per√≠odo</span>
+                            <h4 class="fw-bold text-dark mb-0 font-monospace" id="diag-total-records">0</h4>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="p-3 bg-light rounded border">
+                            <span class="text-muted small d-block">Primeiro Registro</span>
+                            <span class="fw-semibold text-dark small font-monospace" id="diag-oldest-rec">-</span>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="p-3 bg-light rounded border">
+                            <span class="text-muted small d-block">√öltimo Registro</span>
+                            <span class="fw-semibold text-dark small font-monospace" id="diag-newest-rec">-</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-3 bg-light rounded border mb-3">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <strong class="text-dark small">Tipo de Alvo:</strong>
+                        <span id="diag-target-type-badge" class="badge bg-secondary font-monospace">-</span>
+                    </div>
+                    <div class="small text-muted mb-1">Regra Normalizada: <code id="diag-normalized-rule-text" class="text-dark">-</code></div>
+                    <div class="small text-muted" id="diag-interpretation-text">-</div>
+                    <div id="diag-conflict-badge-container" class="mt-2"></div>
+                    <div id="diag-warning-container" class="mt-2"></div>
+                </div>
+                <div class="table-responsive" style="max-height: 240px; overflow-y: auto;">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Data/Hora</th>
+                                <th>A√ß√£o</th>
+                                <th>Usu√°rio</th>
+                                <th>Detalhes</th>
+                            </tr>
+                        </thead>
+                        <tbody id="diag-audit-logs-list" class="font-monospace small">
+                            <tr><td colspan="4" class="text-center text-muted">Carregando logs de diagn√≥stico...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer bg-light border-top">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Fechar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Hidden / Aliased Utility Elements for 100% ID Compatibility -->
+<div class="d-none" aria-hidden="true">
+    <form id="add-visual-rule-form"></form>
+    <input type="text" id="search-visual-rules">
+    <input type="text" id="test-email-status-input">
+    <div id="simulation-impact-result"></div>
+    <div id="quick-check-result-container"></div>
+    <input type="date" id="log-date-input">
+    <select id="audit-action-filter"></select>
+    <select id="audit-user-filter"></select>
+    <button id="filter-heuristic-btn-all" onclick="filterCustomSpamRules('all')"></button>
+    <button id="filter-heuristic-btn-phishing" onclick="filterCustomSpamRules('phishing')"></button>
+    <button id="filter-heuristic-btn-obfuscation" onclick="filterCustomSpamRules('obfuscation')"></button>
+    <button id="filter-heuristic-btn-hijack" onclick="filterCustomSpamRules('hijack')"></button>
+    <span id="kpi-visual-active-ratio"></span>
+    <span id="kpi-visual-spam"></span>
+    <table>
+        <tbody id="mail-spam-rules-tbody"></tbody>
+        <tbody id="mail-top-senders-tbody"></tbody>
+        <tbody id="mail-top-rcpt-tbody"></tbody>
+    </table>
+    <div id="inline-test-result-container"></div>
+    <input id="inline-test-subject" value="">
+    <input id="inline-test-from" value="">
+    <input id="inline-test-replyto" value="">
+    <textarea id="inline-test-body"></textarea>
+    <button id="btn-run-inline-test"></button>
+</div>
+
+</body>
+</html>

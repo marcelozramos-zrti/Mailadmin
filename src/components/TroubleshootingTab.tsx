@@ -26,6 +26,8 @@ interface TroubleshootingTabProps {
 }
 
 export function TroubleshootingTab({ onShowAlert }: TroubleshootingTabProps) {
+  const [activeTroubleshootTab, setActiveTroubleshootTab] = useState<'dns' | 'spam_intel' | 'tracking' | 'queue'>('dns');
+
   // Tracking
   const [trackQuery, setTrackQuery] = useState('');
   const [trackingEvents, setTrackingEvents] = useState<{ raw: string; type: string }[]>([]);
@@ -44,6 +46,13 @@ export function TroubleshootingTab({ onShowAlert }: TroubleshootingTabProps) {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [showServerConfig, setShowServerConfig] = useState(false);
   const [activeRemediationTab, setActiveRemediationTab] = useState<'all' | 'dkim' | 'spf' | 'dmarc' | 'mx'>('all');
+
+  // SPAM Intelligence & Testador
+  const [testHeaderSubject, setTestHeaderSubject] = useState('Notificação Urgente: Multa de Pedágio Rodoviário em Atraso');
+  const [testBody, setTestBody] = useState('Prezado cliente, consta um débito pendente na rodovia. Clique no link para regularizar via PIX.');
+  const [testHeaders, setTestHeaders] = useState('From: cobranca@pedagiorodovias-aviso.com\nX-Spam-Score: 6.8\nAuthentication-Results: dkim=fail; spf=softfail');
+  const [testScoreResult, setTestScoreResult] = useState<{ score: number; triggeredRules: string[]; verdict: 'SPAM' | 'CLEAN' } | null>(null);
+  const [testingSpam, setTestingSpam] = useState(false);
 
   const fetchQueue = async () => {
     setQueueLoading(true);
@@ -166,11 +175,246 @@ export function TroubleshootingTab({ onShowAlert }: TroubleshootingTabProps) {
     onShowAlert('Registro copiado para a área de transferência!', 'success');
   };
 
+  const handleTestSpam = () => {
+    setTestingSpam(true);
+    let totalScore = 0;
+    const triggered: string[] = [];
+
+    const fullText = `${testHeaderSubject} ${testBody} ${testHeaders}`.toLowerCase();
+
+    if (/ped.gios?|vi.ria|rodovi.rio|pend.ncia|multa/i.test(fullText)) {
+      totalScore += 6.5;
+      triggered.push('LOCAL_GOLPE_PEDAGIO (+6.5) - Assunto/Corpo com termos de cobrança/pedágio');
+    }
+    if (/pix|regulariz|chave|qr\s?code|pagamento\s?imediato/i.test(fullText)) {
+      totalScore += 3.5;
+      triggered.push('LOCAL_PHISHING_PIX (+3.5) - Chamada de urgência financeira via PIX');
+    }
+    if (/dkim=fail|spf=softfail|spf=fail/i.test(testHeaders)) {
+      totalScore += 4.0;
+      triggered.push('AUTH_FAILURE_COMBO (+4.0) - Falha de alinhamento SPF/DKIM no cabeçalho');
+    }
+    if (/urgent|aviso\s?importante|sua\s?conta|bloqueio/i.test(fullText)) {
+      totalScore += 2.0;
+      triggered.push('URGENCY_SCARE (+2.0) - Gatilho psicológico de urgência');
+    }
+
+    setTimeout(() => {
+      setTestScoreResult({
+        score: Number(totalScore.toFixed(1)),
+        triggeredRules: triggered,
+        verdict: totalScore >= 5.0 ? 'SPAM' : 'CLEAN'
+      });
+      setTestingSpam(false);
+    }, 300);
+  };
+
   return (
     <div className="space-y-6">
-      
-      {/* SEÇÃO PRINCIPAL: AUDITORIA DNS & AUTENTICAÇÃO COM GUIA DE RESOLUÇÃO */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+
+      {/* Sub-Navigation Pills */}
+      <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          onClick={() => setActiveTroubleshootTab('dns')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+            activeTroubleshootTab === 'dns'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4" />
+          <span>Diagnóstico DNS & Autenticação</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTroubleshootTab('spam_intel')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+            activeTroubleshootTab === 'spam_intel'
+              ? 'bg-rose-600 text-white shadow-sm'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-amber-300" />
+          <span>Inteligência SPAM</span>
+          <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+            activeTroubleshootTab === 'spam_intel' ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-700'
+          }`}>
+            Heurística & Testes
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTroubleshootTab('tracking')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+            activeTroubleshootTab === 'tracking'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Search className="w-4 h-4" />
+          <span>Rastreamento de Mensagens</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTroubleshootTab('queue')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+            activeTroubleshootTab === 'queue'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <ListOrdered className="w-4 h-4" />
+          <span>Fila Postfix (mailq)</span>
+        </button>
+      </div>
+
+      {/* ABA INTELIGÊNCIA SPAM */}
+      {activeTroubleshootTab === 'spam_intel' && (
+        <div className="space-y-6">
+          <div className="bg-gradient-to-r from-slate-900 via-rose-950 to-slate-900 rounded-2xl p-6 text-white shadow-md border border-rose-900/40">
+            <div className="flex items-center gap-2.5 mb-2">
+              <div className="p-2 bg-rose-600/30 rounded-xl text-rose-400 border border-rose-500/30">
+                <Sparkles className="w-6 h-6" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold tracking-tight">Inteligência SPAM & Simulador Heurístico</h2>
+                <p className="text-xs text-rose-200">
+                  Calibração preditiva, teste em tempo real de expressões regulares e análise de pontuação SpamAssassin.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Simulador / Testador */}
+            <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-3">
+                <Search className="w-4 h-4 text-blue-600" />
+                <span>Simulador de Análise de Mensagem em Tempo Real</span>
+              </h3>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Assunto do E-mail (Subject:)</label>
+                <input
+                  type="text"
+                  value={testHeaderSubject}
+                  onChange={(e) => setTestHeaderSubject(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:bg-white focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Corpo da Mensagem (Texto Bruto)</label>
+                <textarea
+                  rows={4}
+                  value={testBody}
+                  onChange={(e) => setTestBody(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:bg-white focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Cabeçalhos SMTP Adicionais</label>
+                <textarea
+                  rows={3}
+                  value={testHeaders}
+                  onChange={(e) => setTestHeaders(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:bg-white focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleTestSpam}
+                  disabled={testingSpam}
+                  className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-rose-500/20 flex items-center gap-2"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>{testingSpam ? 'Calculando Score...' : 'Executar Análise de Score'}</span>
+                </button>
+              </div>
+
+              {testScoreResult && (
+                <div className={`p-4 rounded-xl border mt-4 ${
+                  testScoreResult.verdict === 'SPAM' 
+                    ? 'bg-rose-50 border-rose-200 text-rose-900' 
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-bold text-sm">
+                      Veredito: {testScoreResult.verdict === 'SPAM' ? '🚨 REJEIÇÃO SPAM' : '✅ MENSAGEM LIMPA'}
+                    </span>
+                    <span className="font-mono text-sm font-black px-2.5 py-0.5 rounded-full bg-white border border-current">
+                      Score: {testScoreResult.score.toFixed(1)} / 5.0
+                    </span>
+                  </div>
+                  <div className="text-xs space-y-1">
+                    <span className="font-bold block">Regras Acionadas:</span>
+                    {testScoreResult.triggeredRules.length === 0 ? (
+                      <span className="italic text-slate-500">Nenhuma regra heurística agressiva identificada.</span>
+                    ) : (
+                      testScoreResult.triggeredRules.map((r, i) => (
+                        <div key={i} className="font-mono text-[11px] bg-white/70 p-1.5 rounded border border-rose-200">
+                          {r}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Catálogo de Regras Heurísticas Ativas */}
+            <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-3">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <span>Heurísticas ZRTI em Produção</span>
+              </h3>
+
+              <div className="space-y-3">
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <div className="flex items-center justify-between">
+                    <strong className="text-xs font-mono text-slate-900">LOCAL_GOLPE_PEDAGIO</strong>
+                    <span className="px-2 py-0.5 bg-rose-100 text-rose-800 text-[10px] font-bold rounded font-mono">+15.0</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 mt-1">
+                    Bloqueio de termos de pedágio e rodovias sem acentos no Assunto.
+                  </p>
+                </div>
+
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <div className="flex items-center justify-between">
+                    <strong className="text-xs font-mono text-slate-900">LOCAL_NOTAFISCAL_PDF_EXE</strong>
+                    <span className="px-2 py-0.5 bg-rose-100 text-rose-800 text-[10px] font-bold rounded font-mono">+10.0</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 mt-1">
+                    Anexos com dupla extensão (.pdf.exe, .xml.zip) simulando notas fiscais.
+                  </p>
+                </div>
+
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <div className="flex items-center justify-between">
+                    <strong className="text-xs font-mono text-slate-900">BAYES_AUTO_LEARN</strong>
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded font-mono">ATIVO</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 mt-1">
+                    Motor Naive Bayes treinado com base de spam e ham corporativo.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ABA DIAGNÓSTICO DNS */}
+      {(activeTroubleshootTab === 'dns' || !activeTroubleshootTab) && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4 mb-6">
           <div>
             <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
@@ -623,121 +867,131 @@ export function TroubleshootingTab({ onShowAlert }: TroubleshootingTabProps) {
           </div>
         )}
       </div>
+      )}
 
       {/* SEÇÃO 2: RASTREAMENTO DE JORNADA DE E-MAIL & FILA POSTFIX */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Rastreamento de Jornada de E-mail */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col justify-between">
-          <div>
-            <h3 className="font-semibold text-slate-800 flex items-center gap-2 mb-1">
-              <Search className="w-5 h-5 text-blue-600" /> Rastrear Jornada do E-mail
-            </h3>
-            <p className="text-xs text-slate-500 mb-4">
-              Busca registros em <code>/var/log/mail.log</code> para verificar entregas, bloqueios Amavis e Queue-IDs
-            </p>
+      {(activeTroubleshootTab === 'dns' || activeTroubleshootTab === 'tracking' || activeTroubleshootTab === 'queue') && (
+        <div className={`grid grid-cols-1 ${activeTroubleshootTab === 'dns' ? 'lg:grid-cols-2' : 'grid-cols-1'} gap-6`}>
+          
+          {/* Rastreamento de Jornada de E-mail */}
+          {(activeTroubleshootTab === 'dns' || activeTroubleshootTab === 'tracking') && (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col justify-between">
+              <div>
+                <h3 className="font-semibold text-slate-800 flex items-center gap-2 mb-1">
+                  <Search className="w-5 h-5 text-blue-600" /> Rastrear Jornada do E-mail (Logs Postfix & Amavis)
+                </h3>
+                <p className="text-xs text-slate-500 mb-4">
+                  Busca registros em <code>/var/log/mail.log</code> para verificar entregas, bloqueios Amavis e Queue-IDs
+                </p>
 
-            <form onSubmit={handleTrack} className="flex gap-2 mb-4">
-              <input
-                type="text"
-                placeholder="Insira e-mail do remetente ou destino..."
-                value={trackQuery}
-                onChange={(e) => setTrackQuery(e.target.value)}
-                className="flex-1 px-3.5 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <button
-                type="submit"
-                disabled={trackingLoading}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5"
-              >
-                {trackingLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} Rastrear
-              </button>
-            </form>
-          </div>
+                <form onSubmit={handleTrack} className="flex gap-2 mb-4">
+                  <input
+                    type="text"
+                    placeholder="Insira e-mail do remetente ou destino (ex: usuario@zrti.com.br)..."
+                    value={trackQuery}
+                    onChange={(e) => setTrackQuery(e.target.value)}
+                    className="flex-1 px-3.5 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={trackingLoading}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5"
+                  >
+                    {trackingLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} Rastrear
+                  </button>
+                </form>
+              </div>
 
-          <div className="bg-slate-900 text-slate-200 rounded-lg p-4 font-mono text-xs max-h-60 overflow-y-auto space-y-1.5 border border-slate-800">
-            {trackingEvents.length === 0 ? (
-              <span className="text-slate-500 italic">Insira um e-mail para visualizar o histórico de conexão SMTP e filtros...</span>
-            ) : (
-              trackingEvents.map((ev, idx) => (
-                <div key={idx} className="leading-relaxed border-b border-slate-800/50 pb-1">
-                  <span className="text-sky-400 font-semibold me-2">[{ev.type}]</span>
-                  <span className="text-slate-300">{ev.raw}</span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Fila Postfix */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
-            <div>
-              <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-                <ListOrdered className="w-5 h-5 text-amber-600" /> Fila Postfix (postqueue -p)
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Mensagens atualmente retidas na fila de transmissão
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={handleFlushQueue}
-                className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1"
-              >
-                <Send className="w-3 h-3" /> Forçar Envio
-              </button>
-              <button
-                onClick={fetchQueue}
-                disabled={queueLoading}
-                className="p-1.5 border border-slate-300 hover:bg-slate-50 text-slate-600 rounded-lg transition-colors"
-              >
-                <RefreshCw className={`w-4 h-4 ${queueLoading ? 'animate-spin' : ''}`} />
-              </button>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto max-h-60 overflow-y-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 text-[11px] font-semibold uppercase tracking-wider border-b border-slate-200">
-                  <th className="px-3 py-2">Queue ID</th>
-                  <th className="px-3 py-2">Remetente</th>
-                  <th className="px-3 py-2">Destinatário</th>
-                  <th className="px-3 py-2 text-right">Ação</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-xs font-mono">
-                {queue.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="px-4 py-6 text-center text-emerald-600 font-sans text-xs">
-                      <CheckCircle2 className="w-4 h-4 inline me-1" /> Fila limpa! Nenhuma mensagem retida.
-                    </td>
-                  </tr>
+              <div className="bg-slate-900 text-slate-200 rounded-lg p-4 font-mono text-xs max-h-60 overflow-y-auto space-y-1.5 border border-slate-800">
+                {trackingEvents.length === 0 ? (
+                  <span className="text-slate-500 italic">Insira um e-mail para visualizar o histórico de conexão SMTP e filtros...</span>
                 ) : (
-                  queue.map((q) => (
-                    <tr key={q.queue_id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="px-3 py-2 font-bold text-slate-800">{q.queue_id}</td>
-                      <td className="px-3 py-2 text-slate-700 truncate max-w-[120px]">{q.sender}</td>
-                      <td className="px-3 py-2 text-slate-600 truncate max-w-[120px]">{q.recipients.join(', ')}</td>
-                      <td className="px-3 py-2 text-right">
-                        <button
-                          onClick={() => handleDeleteQueueItem(q.queue_id)}
-                          className="p-1 text-slate-400 hover:text-rose-600 rounded"
-                          title="Deletar com postsuper -d"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
-                    </tr>
+                  trackingEvents.map((ev, idx) => (
+                    <div key={idx} className="leading-relaxed border-b border-slate-800/50 pb-1">
+                      <span className="text-sky-400 font-semibold me-2">[{ev.type}]</span>
+                      <span className="text-slate-300">{ev.raw}</span>
+                    </div>
                   ))
                 )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+              </div>
+            </div>
+          )}
 
-      </div>
+          {/* Fila Postfix */}
+          {(activeTroubleshootTab === 'dns' || activeTroubleshootTab === 'queue') && (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col justify-between">
+              <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+                <div>
+                  <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+                    <ListOrdered className="w-5 h-5 text-amber-600" /> Fila Postfix (postqueue -p)
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Mensagens atualmente retidas na fila de transmissão
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleFlushQueue}
+                    className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1"
+                  >
+                    <Send className="w-3 h-3" /> Forçar Envio
+                  </button>
+                  <button
+                    type="button"
+                    onClick={fetchQueue}
+                    disabled={queueLoading}
+                    className="p-1.5 border border-slate-300 hover:bg-slate-50 text-slate-600 rounded-lg transition-colors"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${queueLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto max-h-60 overflow-y-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 text-[11px] font-semibold uppercase tracking-wider border-b border-slate-200">
+                      <th className="px-3 py-2">Queue ID</th>
+                      <th className="px-3 py-2">Remetente</th>
+                      <th className="px-3 py-2">Destinatário</th>
+                      <th className="px-3 py-2 text-right">Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs font-mono">
+                    {queue.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-6 text-center text-emerald-600 font-sans text-xs">
+                          <CheckCircle2 className="w-4 h-4 inline me-1" /> Fila limpa! Nenhuma mensagem retida.
+                        </td>
+                      </tr>
+                    ) : (
+                      queue.map((q) => (
+                        <tr key={q.queue_id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="px-3 py-2 font-bold text-slate-800">{q.queue_id}</td>
+                          <td className="px-3 py-2 text-slate-700 truncate max-w-[120px]">{q.sender}</td>
+                          <td className="px-3 py-2 text-slate-600 truncate max-w-[120px]">{q.recipients.join(', ')}</td>
+                          <td className="px-3 py-2 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteQueueItem(q.queue_id)}
+                              className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                              title="Deletar com postsuper -d"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+        </div>
+      )}
 
     </div>
   );

@@ -871,7 +871,7 @@ def parse_custom_spam_rules_py(cf_content):
         if not clean or clean.startswith('# ==') or clean.startswith('# --'):
             continue
 
-        header_match = re.match(r'^header\s+([A-Za-z0-9_]+)\s+([A-Za-z0-9_\-]+)\s*=~\s*(.+)$', clean, re.IGNORECASE)
+        header_match = re.match(r'^header\s+([A-Za-z0-9_]+)\s+([A-Za-z0-9_\-]+)\s*(?:=~)?\s*(.+)$', clean, re.IGNORECASE)
         if header_match:
             name, target, raw_pattern = header_match.group(1), header_match.group(2), header_match.group(3).strip()
             if name not in rules_map:
@@ -881,7 +881,17 @@ def parse_custom_spam_rules_py(cf_content):
                 rules_map[name]['pattern'] = raw_pattern
             continue
 
-        body_match = re.match(r'^body\s+([A-Za-z0-9_]+)\s*=~\s*(.+)$', clean, re.IGNORECASE)
+        uri_match = re.match(r'^uri\s+([A-Za-z0-9_]+)\s*(?:=~)?\s*(.+)$', clean, re.IGNORECASE)
+        if uri_match:
+            name, raw_pattern = uri_match.group(1), uri_match.group(2).strip()
+            if name not in rules_map:
+                rules_map[name] = {'id': name, 'name': name, 'target': 'URI / Links', 'pattern': raw_pattern, 'score': 12.0, 'describe': '', 'enabled': True}
+            else:
+                rules_map[name]['target'] = 'URI / Links'
+                rules_map[name]['pattern'] = raw_pattern
+            continue
+
+        body_match = re.match(r'^(?:body|rawbody)\s+([A-Za-z0-9_]+)\s*(?:=~)?\s*(.+)$', clean, re.IGNORECASE)
         if body_match:
             name, raw_pattern = body_match.group(1), body_match.group(2).strip()
             if name not in rules_map:
@@ -903,8 +913,7 @@ def parse_custom_spam_rules_py(cf_content):
 
         desc_match = re.match(r'^describe\s+([A-Za-z0-9_]+)\s+(.+)$', clean, re.IGNORECASE)
         if desc_match:
-            name = desc_match.group(1)
-            desc_val = desc_match.group(2).strip()
+            name, desc_val = desc_match.group(1), desc_match.group(2).strip()
             if name in rules_map:
                 rules_map[name]['describe'] = desc_val
             continue
@@ -913,10 +922,13 @@ def parse_custom_spam_rules_py(cf_content):
     for r in rules_map.values():
         name_lower = r['name'].lower()
         desc_lower = (r['describe'] or '').lower()
+        target_lower = (r.get('target') or '').lower()
         category = 'custom'
-        if 'golpe' in name_lower or 'phish' in name_lower or 'golpe' in desc_lower or 'phishing' in desc_lower:
+        if 'link' in name_lower or 'uri' in name_lower or 'uri' in target_lower or 'link' in desc_lower or 'encurtador' in desc_lower:
+            category = 'links'
+        elif 'golpe' in name_lower or 'pedagio' in name_lower or 'reclame' in name_lower or 'pix' in name_lower or 'fatura' in name_lower or 'docusign' in name_lower or 'phishing' in desc_lower or 'golpe' in desc_lower or 'boleto' in desc_lower:
             category = 'phishing'
-        elif 'quebrado' in name_lower or 'ofuscado' in name_lower or 'ofusca' in desc_lower or 'encoding' in desc_lower:
+        elif 'quebrado' in name_lower or 'ofuscado' in name_lower or 'caracteres' in name_lower or 'ofuscado' in desc_lower or 'charset' in desc_lower or 'homografo' in desc_lower or 'zero-width' in desc_lower:
             category = 'obfuscation'
         elif 'replyto' in name_lower or 'sequestrado' in desc_lower or 'reply-to' in desc_lower:
             category = 'hijack'

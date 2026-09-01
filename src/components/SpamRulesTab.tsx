@@ -116,6 +116,36 @@ const PRESET_HEURISTIC_RULES: Array<{
     describe: 'ZRTI - Phishing de Assinatura DocuSign Falsa',
     category: 'phishing',
     description: 'Bloqueia falsas notificações de assinatura eletrônica de documentos urgentes.'
+  },
+  {
+    title: 'Links Suspeitos & Encurtadores no Corpo',
+    name: 'LOCAL_LINK_SUSPEITO',
+    target: 'URI',
+    pattern: '/(bit\\.ly|tinyurl|is\\.gd|cutt\\.ly|t\\.co|wa\\.me|goo\\.gl)\\/[a-zA-Z0-9]+/i',
+    score: 12.0,
+    describe: 'ZRTI - Link Encurtador ou Redirecionamento Suspeito no Corpo',
+    category: 'custom',
+    description: 'Identifica links encurtados ou redirecionadores frequentemente usados para ocultar URLs maliciosas.'
+  },
+  {
+    title: 'Link com IP Direto no E-mail (Sem Domínio DNS)',
+    name: 'LOCAL_LINK_IP_DIRETO',
+    target: 'URI',
+    pattern: '/https?:\\/\\/\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}/i',
+    score: 14.0,
+    describe: 'ZRTI - Link com Endereco IP Direto no E-mail',
+    category: 'custom',
+    description: 'Bloqueia e pontua fortemente e-mails contendo hiperlinks que apontam diretamente para IPs em vez de nomes de domínio.'
+  },
+  {
+    title: 'Caracteres Estranhos, Zero-Width & Homógrafos',
+    name: 'LOCAL_CARACTERES_ESTRANHOS',
+    target: 'Subject',
+    pattern: '/[\\u200B-\\u200D\\uFEFF]|[\\u0400-\\u04FF].*[\\u0041-\\u007A]/',
+    score: 10.0,
+    describe: 'ZRTI - Caracteres estranhos, zero-width ou homografos no assunto',
+    category: 'obfuscation',
+    description: 'Detecta caracteres invisíveis (zero-width), espaços especiais e mistura de alfabetos cirílico e latino para burlar filtros.'
   }
 ];
 

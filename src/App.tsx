@@ -8,12 +8,14 @@ import { SpamRulesTab } from './components/SpamRulesTab';
 import { ServersTab } from './components/ServersTab';
 import { LogAuditTab } from './components/LogAuditTab';
 import { PythonExportTab } from './components/PythonExportTab';
+import { SettingsTab } from './components/SettingsTab';
+import { UsersTab } from './components/UsersTab';
 import { MfaModal } from './components/MfaModal';
 import { ServicesMap, LayoutPosition } from './types';
 import { CheckCircle, AlertTriangle, X } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export' | 'settings' | 'usuarios'>('dashboard');
   const [services, setServices] = useState<ServicesMap>({});
   const [loadingStatus, setLoadingStatus] = useState<boolean>(true);
   const [isMfaOpen, setIsMfaOpen] = useState<boolean>(false);
@@ -175,6 +177,10 @@ export default function App() {
           {activeTab === 'logs' && <LogAuditTab />}
 
           {activeTab === 'export' && <PythonExportTab />}
+
+          {activeTab === 'settings' && <SettingsTab onShowAlert={showAlert} />}
+
+          {activeTab === 'usuarios' && <UsersTab onShowAlert={showAlert} />}
         </main>
 
         {/* MFA Setup Modal */}

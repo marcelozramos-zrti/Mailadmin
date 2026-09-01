@@ -1,10 +1,10 @@
 import React from 'react';
 import { ServicesMap, LayoutPosition } from '../types';
-import { Server, Mail, Wrench, Shield, Terminal, Download, ShieldCheck, LayoutGrid, PanelLeft } from 'lucide-react';
+import { Server, Mail, Wrench, Shield, Terminal, Download, ShieldCheck, LayoutGrid, PanelLeft, Settings, Users } from 'lucide-react';
 
 interface NavbarProps {
-  activeTab: 'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export';
-  setActiveTab: (tab: 'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export') => void;
+  activeTab: 'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export' | 'settings' | 'usuarios';
+  setActiveTab: (tab: 'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export' | 'settings' | 'usuarios') => void;
   services: ServicesMap;
   onOpenMfa: () => void;
   layoutPosition: LayoutPosition;
@@ -150,6 +150,30 @@ export function Navbar({
               >
                 <Terminal className="w-4 h-4" />
                 Logs
+              </button>
+
+              <button
+                onClick={() => setActiveTab('settings')}
+                className={`px-3.5 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 ${
+                  activeTab === 'settings'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <Settings className="w-4 h-4" />
+                Configurações
+              </button>
+
+              <button
+                onClick={() => setActiveTab('usuarios')}
+                className={`px-3.5 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 ${
+                  activeTab === 'usuarios'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                Usuários
               </button>
 
               <button

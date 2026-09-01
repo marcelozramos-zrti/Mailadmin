@@ -7,7 +7,7 @@ import csv
 import re
 import json
 
-from models import db, MailLogHistory, SystemAuditLog
+from models import db, MailLogHistory, SystemAuditLog, Domain, Mailbox
 from blueprints.audit_helper import log_audit_action
 from logger_setup import logger
 
@@ -28,6 +28,80 @@ def extract_client_domain(client_ip):
         return 'desconhecido'
     return client_ip
 
+def classify_mail_record(rec, local_domains=None):
+    """
+    Classifica de forma estrita e precisa cada linha de log de e-mail do Postfix/Amavis/ClamAV/Dovecot:
+    - 'received': Mensagem inbound recebida e entregue em caixa postal local (LMTP/Dovecot/saved_to_mailbox)
+    - 'sent': Mensagem outbound enviada via Postfix SMTP para relay/servidor externo
+    - 'spam': Mensagem bloqueada por regras SpamAssassin/Amavis
+    - 'virus': Mensagem infectada bloqueada por ClamAV
+    - 'bounced': Mensagem rejeitada, devolvida ou erro de destinatário (550/554/NOQUEUE)
+    - 'ignore': Ruído de syslog (connect, disconnect, daemon stats, avisos sem transação)
+    """
+    st = (rec.status or '').lower().strip()
+    msg_txt = (rec.message or '').lower()
+    sender = (rec.sender or '').lower().strip()
+    rcpt = (rec.recipient or '').lower().strip()
+    
+    # 1. Vírus / Malware
+    if 'virus' in st or 'infected' in msg_txt or 'clamav' in msg_txt or 'blocked infected' in msg_txt:
+        return 'virus'
+        
+    # 2. SPAM Bloqueado
+    if 'spam' in st or 'blocked spam' in msg_txt or 'bayes_99' in msg_txt:
+        return 'spam'
+    if 'hits=' in msg_txt and ('blocked' in st or 'spam' in st or 'tag' in st):
+        return 'spam'
+        
+    # 3. Bounces / Rejeições / Erros de Entrega
+    if 'bounced' in st or 'rejected' in st or 'reject:' in msg_txt or 'status=bounced' in msg_txt or '554 5.' in msg_txt or '550 5.' in msg_txt or 'user unknown' in msg_txt or 'access denied' in msg_txt:
+        return 'bounced'
+        
+    # 4. Entrega Local (Inbound Recebido via Dovecot/LMTP/virtual/saved_to_mailbox)
+    is_lmtp_delivery = (
+        'lmtp' in msg_txt or 
+        'saved_to_mailbox' in msg_txt or 
+        'postfix/virtual' in msg_txt or 
+        'relay=127.0.0.1' in msg_txt or 
+        'dovecot' in msg_txt or 
+        '250 2.0.0 ok saved' in msg_txt or
+        st == 'received'
+    )
+    if is_lmtp_delivery:
+        return 'received'
+        
+    # 5. Envio Externo (Outbound Enviado via postfix/smtp para MX remoto)
+    is_smtp_outbound = (
+        'postfix/smtp[' in msg_txt or 
+        'relay=mail.' in msg_txt or 
+        'relay=mx.' in msg_txt or 
+        'queued mail for delivery' in msg_txt
+    )
+    if is_smtp_outbound:
+        return 'sent'
+        
+    # Se o status é explicitamente 'Sent' ou 'status=sent'
+    if st == 'sent' or 'status=sent' in msg_txt or '250 2.0.0 ok' in msg_txt:
+        # Se o destinatário pertence aos domínios locais conhecidos, é entrega local (Recebido)
+        r_dom = get_sender_domain(rcpt)
+        if local_domains and r_dom in local_domains:
+            return 'received'
+        if any(d in r_dom for d in ['zrti.com.br', 'empresa.com.br', 'zrti.tech', 'emporiomisticosaboaria.com.br', 'brsaolxmail.zrti.com.br']):
+            return 'received'
+        return 'sent'
+
+    if st == 'received':
+        return 'received'
+
+    # Se for apenas conexão, desconexão ou linha sem remetente e destinatário, é ruído
+    if (not sender or sender == '-') and (not rcpt or rcpt == '-'):
+        return 'ignore'
+
+    if rcpt and rcpt != 'desconhecido':
+        return 'received'
+
+    return 'ignore'
+
 @dashboard_bp.route('/mail-stats', methods=['GET'])
 def get_mail_stats():
     """
@@ -40,7 +114,17 @@ def get_mail_stats():
         now = datetime.datetime.now()
         today = now.date()
 
-        # 1. Obter total de registros na tabela para auditoria e diagnóstico
+        # 1. Obter domínios virtuais cadastrados no MariaDB vmail
+        local_domains = {'zrti.com.br', 'empresa.com.br', 'zrti.tech', 'emporiomisticosaboaria.com.br'}
+        try:
+            v_domains = Domain.query.all()
+            for vd in v_domains:
+                if vd.domain:
+                    local_domains.add(vd.domain.lower().strip())
+        except Exception:
+            pass
+
+        # 2. Obter total de registros na tabela para auditoria e diagnóstico
         total_db_records = 0
         try:
             total_db_records = db.session.query(func.count(MailLogHistory.id)).scalar() or 0
@@ -48,14 +132,14 @@ def get_mail_stats():
             logger.warning(f"[DASHBOARD] Falha ao contar registros em mail_logs_history: {count_err}")
             total_db_records = 0
 
-        # 2. Construir lista dos últimos 7 dias (hoje e os 6 dias anteriores)
+        # 3. Construir lista dos últimos 7 dias (hoje e os 6 dias anteriores)
         daily_history = []
         date_map = {}
 
         for i in range(6, -1, -1):
             dt = today - datetime.timedelta(days=i)
             dt_str = dt.strftime('%Y-%m-%d')
-            display_date = dt.strftime('%d/%m') # Ex: 31/08, 30/08
+            display_date = dt.strftime('%d/%m') # Ex: 31/08, 01/09
             full_display = f"{dt.strftime('%d/%m/%Y')} ({format_pt_weekday(dt)})"
 
             day_obj = {
@@ -80,12 +164,13 @@ def get_mail_stats():
                 'top_sender_domains': [],
                 'top_recipients': [],
                 'top_recipient_domains': [],
+                'top_mailboxes': [],
                 'spam_rules_triggered': []
             }
             daily_history.append(day_obj)
             date_map[dt_str] = day_obj
 
-        # 3. Consultar registros reais do banco de dados nos últimos 7 dias (ou total se houver datas)
+        # 4. Consultar registros reais do banco de dados nos últimos 7 dias
         seven_days_ago = datetime.datetime.combine(today - datetime.timedelta(days=6), datetime.time(0, 0, 0))
         
         try:
@@ -96,22 +181,23 @@ def get_mail_stats():
             logger.error(f"[DASHBOARD] Erro ao consultar registros em mail_logs_history: {q_err}")
             records = []
 
-        # Se não houver registros nos últimos 7 dias exatos mas houver registros em mail_logs_history em geral
+        # Se não houver registros nos últimos 7 dias exatos mas houver registros no banco
         if not records and total_db_records > 0:
             try:
-                # Pegar os registros mais recentes disponíveis no banco
                 records = MailLogHistory.query.order_by(MailLogHistory.timestamp.desc()).limit(1500).all()
                 records.reverse()
             except Exception:
                 records = []
 
-        # Processar registros do banco de dados
+        # Estruturas para agregação diária e global
         senders_by_day = {d: {} for d in date_map}
         rcpt_by_day = {d: {} for d in date_map}
+        mailboxes_by_day = {d: {} for d in date_map}
         rules_by_day = {d: {} for d in date_map}
 
         global_senders = {}
         global_recipients = {}
+        global_mailboxes = {}
         global_rules = {}
 
         if records:
@@ -120,66 +206,86 @@ def get_mail_stats():
                     continue
                 rec_dt_str = rec.timestamp.strftime('%Y-%m-%d')
                 
-                # Se a data estiver no mapa dos 7 dias
                 target_day = date_map.get(rec_dt_str)
                 if not target_day:
-                    # Se veio de um log histórico diferente, mapear para o dia correspondente ou criar entrada
                     continue
 
-                st = (rec.status or '').lower()
                 h = rec.timestamp.hour
                 msg_txt = (rec.message or '').lower()
+                cat = classify_mail_record(rec, local_domains)
 
-                # Categorização de status
-                if 'sent' in st or '250 ok' in msg_txt or 'status=sent' in msg_txt:
-                    target_day['sent'] += 1
-                    if 0 <= h < 24: target_day['hourly'][h]['sent'] += 1
-                elif 'spam' in st or 'passed spam' in msg_txt or 'hits=' in msg_txt or 'blocked' in st:
-                    target_day['spam_blocked'] += 1
-                    if 0 <= h < 24: target_day['hourly'][h]['spam'] += 1
-                elif 'virus' in st or 'infected' in msg_txt or 'clamav' in msg_txt:
-                    target_day['virus_blocked'] += 1
-                    if 0 <= h < 24: target_day['hourly'][h]['spam'] += 1
-                elif 'bounced' in st or 'rejected' in st or 'reject:' in msg_txt or '554' in msg_txt or 'undeliverable' in msg_txt:
-                    target_day['rejected_bounced'] += 1
-                    if 0 <= h < 24: target_day['hourly'][h]['bounces'] += 1
-                else:
-                    # Inbound normal ou entregue
+                if cat == 'ignore':
+                    continue
+
+                if cat == 'received':
                     target_day['received'] += 1
                     if 0 <= h < 24: target_day['hourly'][h]['received'] += 1
+                elif cat == 'sent':
+                    target_day['sent'] += 1
+                    if 0 <= h < 24: target_day['hourly'][h]['sent'] += 1
+                elif cat == 'spam':
+                    target_day['spam_blocked'] += 1
+                    if 0 <= h < 24: target_day['hourly'][h]['spam'] += 1
+                elif cat == 'virus':
+                    target_day['virus_blocked'] += 1
+                    if 0 <= h < 24: target_day['hourly'][h]['spam'] += 1
+                elif cat == 'bounced':
+                    target_day['rejected_bounced'] += 1
+                    if 0 <= h < 24: target_day['hourly'][h]['bounces'] += 1
 
-                # Top Remetentes (Domínios)
+                # Remetentes (Domínios)
                 s_domain = get_sender_domain(rec.sender)
                 if s_domain != 'desconhecido':
                     if s_domain not in senders_by_day[rec_dt_str]:
                         senders_by_day[rec_dt_str][s_domain] = {'count': 0, 'spam_count': 0, 'clean_count': 0}
                     senders_by_day[rec_dt_str][s_domain]['count'] += 1
-                    if 'spam' in st or 'virus' in st or 'blocked' in st:
+                    if cat in ('spam', 'virus'):
                         senders_by_day[rec_dt_str][s_domain]['spam_count'] += 1
                     else:
                         senders_by_day[rec_dt_str][s_domain]['clean_count'] += 1
 
-                    # Global
                     if s_domain not in global_senders:
                         global_senders[s_domain] = {'count': 0, 'spam_count': 0, 'clean_count': 0}
                     global_senders[s_domain]['count'] += 1
-                    if 'spam' in st or 'virus' in st:
+                    if cat in ('spam', 'virus'):
                         global_senders[s_domain]['spam_count'] += 1
                     else:
                         global_senders[s_domain]['clean_count'] += 1
 
-                # Top Destinatários
-                r_domain = get_sender_domain(rec.recipient)
+                # Destinatários (Domínios e Caixas)
+                raw_rcpt = str(rec.recipient or '').strip().lower()
+                r_domain = get_sender_domain(raw_rcpt)
                 if r_domain != 'desconhecido':
-                    if r_domain not in rcpt_by_day[rec_dt_str]:
-                        rcpt_by_day[rec_dt_str][r_domain] = {'count': 0}
-                    rcpt_by_day[rec_dt_str][r_domain]['count'] += 1
+                    # Normalização de Domínio Virtual vs Hostname do Servidor
+                    display_dom = r_domain
+                    is_system_host = False
+                    if 'brsaolxmail' in r_domain or r_domain == 'localhost':
+                        is_system_host = True
+                        display_dom = 'brsaolxmail.zrti.com.br (Host do Sistema / Alertas)'
+                    elif r_domain == 'zrti.com.br':
+                        display_dom = 'zrti.com.br'
 
-                    if r_domain not in global_recipients:
-                        global_recipients[r_domain] = {'count': 0, 'mailboxes_active': 2}
-                    global_recipients[r_domain]['count'] += 1
+                    if display_dom not in rcpt_by_day[rec_dt_str]:
+                        rcpt_by_day[rec_dt_str][display_dom] = {'count': 0, 'is_system': is_system_host, 'mailboxes': set()}
+                    rcpt_by_day[rec_dt_str][display_dom]['count'] += 1
+                    if raw_rcpt:
+                        rcpt_by_day[rec_dt_str][display_dom]['mailboxes'].add(raw_rcpt)
 
-                # Identificar regras de spam disparadas no texto da mensagem
+                    if display_dom not in global_recipients:
+                        global_recipients[display_dom] = {'count': 0, 'is_system': is_system_host, 'mailboxes': set()}
+                    global_recipients[display_dom]['count'] += 1
+                    if raw_rcpt:
+                        global_recipients[display_dom]['mailboxes'].add(raw_rcpt)
+
+                    # Caixas Postais Individuais (Mailboxes)
+                    if '@' in raw_rcpt:
+                        if raw_rcpt not in mailboxes_by_day[rec_dt_str]:
+                            mailboxes_by_day[rec_dt_str][raw_rcpt] = 0
+                        mailboxes_by_day[rec_dt_str][raw_rcpt] += 1
+
+                        global_mailboxes[raw_rcpt] = global_mailboxes.get(raw_rcpt, 0) + 1
+
+                # Regras de SpamAssassin Disparadas
                 if 'amavis' in msg_txt or 'hits=' in msg_txt or 'tests=' in msg_txt:
                     tests_m = re.search(r'tests=\[([^\]]+)\]', msg_txt)
                     if tests_m:
@@ -190,7 +296,7 @@ def get_mail_stats():
                             rules_by_day[rec_dt_str][r_name] += 1
                             global_rules[r_name] = global_rules.get(r_name, 0) + 1
 
-        # Finalizar cálculos e percentuais para cada dia
+        # Finalizar métricas para cada dia
         for d in daily_history:
             dt_k = d['date']
             d['total_processed'] = d['received'] + d['sent'] + d['spam_blocked'] + d['virus_blocked'] + d['rejected_bounced']
@@ -212,26 +318,50 @@ def get_mail_stats():
                 s_tot = stats['count']
                 sp_pct = (stats['spam_count'] / s_tot) * 100 if s_tot > 0 else 0
                 rep = 'Boa' if sp_pct < 10 else ('Suspeita' if sp_pct < 40 else 'Crítica')
+                is_blocked = rep == 'Crítica' or sp_pct >= 90
+                is_spam = sp_pct >= 50
+                verdict = '🛡️ Confiável (SPF Pass)' if rep == 'Boa' else ('⚠️ Suspeito (Spam Heurístico)' if rep == 'Suspeita' else '🚫 Bloqueado (DNSBL/SPAM)')
+                clean_c = stats['clean_count']
+                clean_p = round((clean_c / s_tot) * 100, 1) if s_tot > 0 else 100.0
+
                 day_s.append({
                     'domain': dom,
                     'count': s_tot,
                     'spam_count': stats['spam_count'],
-                    'clean_count': stats['clean_count'],
-                    'clean_pct': round((stats['clean_count'] / s_tot) * 100, 1) if s_tot > 0 else 100,
+                    'clean_count': clean_c,
+                    'clean_pct': clean_p,
                     'reputacao': rep,
-                    'reputation': rep
+                    'reputation': rep,
+                    'is_blocked': is_blocked,
+                    'is_spam': is_spam,
+                    'security_verdict': verdict,
+                    'status': 'blocked' if is_blocked else ('suspicious' if is_spam else 'clean')
                 })
             day_s.sort(key=lambda x: x['count'], reverse=True)
             d['top_senders'] = day_s[:8]
             d['top_sender_domains'] = day_s[:8]
 
-            # Recipients para o dia
+            # Recipients (Domínios) para o dia
             day_r = []
             for dom, stats in rcpt_by_day.get(dt_k, {}).items():
-                day_r.append({'domain': dom, 'count': stats['count']})
+                mbox_count = len(stats['mailboxes']) if stats.get('mailboxes') else 1
+                day_r.append({
+                    'domain': dom,
+                    'count': stats['count'],
+                    'mailboxes_active': mbox_count,
+                    'is_system': stats.get('is_system', False),
+                    'status': 'Host de Sistema (Notificações)' if stats.get('is_system') else 'Domínio Virtual (100% Entregue)'
+                })
             day_r.sort(key=lambda x: x['count'], reverse=True)
             d['top_recipients'] = day_r[:8]
             d['top_recipient_domains'] = day_r[:8]
+
+            # Top Mailboxes para o dia
+            day_mbox = []
+            for mbox, cnt in mailboxes_by_day.get(dt_k, {}).items():
+                day_mbox.append({'email': mbox, 'count': cnt})
+            day_mbox.sort(key=lambda x: x['count'], reverse=True)
+            d['top_mailboxes'] = day_mbox[:8]
 
             # Rules para o dia
             day_rules = []
@@ -248,22 +378,17 @@ def get_mail_stats():
             # Sincronizar aliases para componentes React e Vue/HTML
             d['hourly_distribution'] = d['hourly']
 
-        # 4. Cálculo do Resumo Consolidado de 7 Dias
-        total_received = sum(d['received'] for d in daily_history)
-        total_sent = sum(d['sent'] for d in daily_history)
-        total_spam_blocked = sum(d['spam_blocked'] for d in daily_history)
-        total_virus_blocked = sum(d['virus_blocked'] for d in daily_history)
-        total_rejected_bounced = sum(d['rejected_bounced'] for d in daily_history)
-        total_processed = sum(d['total_processed'] for d in daily_history)
+        # 5. Cálculo do Resumo Consolidado de 7 Dias
+        total_received_7d = sum(d['received'] for d in daily_history)
+        total_sent_7d = sum(d['sent'] for d in daily_history)
+        total_spam_blocked_7d = sum(d['spam_blocked'] for d in daily_history)
+        total_virus_blocked_7d = sum(d['virus_blocked'] for d in daily_history)
+        total_rejected_bounced_7d = sum(d['rejected_bounced'] for d in daily_history)
+        total_processed_7d = sum(d['total_processed'] for d in daily_history)
 
-        overall_spam_pct = round(((total_spam_blocked + total_virus_blocked) / total_processed * 100), 1) if total_processed > 0 else 0.0
-        inbound_tot = total_received + total_rejected_bounced
-        overall_clean_delivery_rate = round((total_received / inbound_tot * 100), 1) if inbound_tot > 0 else 100.0
-
-        # Tendência de redução de spam (primeiros 3 dias vs últimos 3 dias)
-        first3_spam = sum(d['spam_pct'] for d in daily_history[:3])
-        last3_spam = sum(d['spam_pct'] for d in daily_history[4:])
-        spam_reduction_trend = round(((last3_spam - first3_spam) / (first3_spam or 1)) * 100, 1)
+        overall_spam_pct_7d = round(((total_spam_blocked_7d + total_virus_blocked_7d) / total_processed_7d * 100), 1) if total_processed_7d > 0 else 0.0
+        inbound_tot_7d = total_received_7d + total_rejected_bounced_7d
+        overall_clean_delivery_rate_7d = round((total_received_7d / inbound_tot_7d * 100), 1) if inbound_tot_7d > 0 else 100.0
 
         # Global Top Senders
         aggregated_top_senders = []
@@ -271,27 +396,45 @@ def get_mail_stats():
             s_tot = stats['count']
             sp_pct = (stats['spam_count'] / s_tot) * 100 if s_tot > 0 else 0
             rep = 'Boa' if sp_pct < 10 else ('Suspeita' if sp_pct < 40 else 'Crítica')
+            is_blocked = rep == 'Crítica' or sp_pct >= 90
+            is_spam = sp_pct >= 50
+            verdict = '🛡️ Confiável (SPF Pass)' if rep == 'Boa' else ('⚠️ Suspeito (Spam Heurístico)' if rep == 'Suspeita' else '🚫 Bloqueado (DNSBL/SPAM)')
+            clean_c = stats['clean_count']
+            clean_p = round((clean_c / s_tot) * 100, 1) if s_tot > 0 else 100.0
+
             aggregated_top_senders.append({
                 'domain': dom,
                 'count': s_tot,
                 'spam_count': stats['spam_count'],
-                'clean_count': stats['clean_count'],
-                'clean_pct': round((stats['clean_count'] / s_tot) * 100, 1) if s_tot > 0 else 100,
+                'clean_count': clean_c,
+                'clean_pct': clean_p,
                 'reputacao': rep,
-                'reputation': rep
+                'reputation': rep,
+                'is_blocked': is_blocked,
+                'is_spam': is_spam,
+                'security_verdict': verdict,
+                'status': 'blocked' if is_blocked else ('suspicious' if is_spam else 'clean')
             })
         aggregated_top_senders.sort(key=lambda x: x['count'], reverse=True)
 
         # Global Top Recipients
         aggregated_top_recipients = []
         for dom, stats in global_recipients.items():
+            mbox_count = len(stats['mailboxes']) if stats.get('mailboxes') else 1
             aggregated_top_recipients.append({
                 'domain': dom,
                 'count': stats['count'],
-                'mailboxes_active': stats.get('mailboxes_active', 2),
-                'status': 'Normal (100% Entregue)'
+                'mailboxes_active': mbox_count,
+                'is_system': stats.get('is_system', False),
+                'status': 'Host de Sistema (Alertas)' if stats.get('is_system') else 'Domínio Virtual (100% Entregue)'
             })
         aggregated_top_recipients.sort(key=lambda x: x['count'], reverse=True)
+
+        # Global Top Mailboxes
+        aggregated_top_mailboxes = []
+        for mbox, cnt in global_mailboxes.items():
+            aggregated_top_mailboxes.append({'email': mbox, 'count': cnt})
+        aggregated_top_mailboxes.sort(key=lambda x: x['count'], reverse=True)
 
         # Global Top Rules
         aggregated_spam_rules = []
@@ -304,47 +447,79 @@ def get_mail_stats():
             })
         aggregated_spam_rules.sort(key=lambda x: x['hits'], reverse=True)
 
-        # Resumo
-        summary = {
-            'total_processed': total_processed,
-            'total_processed_7d': total_processed,
-            'total_received': total_received,
-            'total_received_7d': total_received,
-            'total_sent': total_sent,
-            'total_sent_7d': total_sent,
-            'total_spam_blocked': total_spam_blocked,
-            'total_spam_blocked_7d': total_spam_blocked,
-            'total_virus_blocked': total_virus_blocked,
-            'total_virus_blocked_7d': total_virus_blocked,
-            'total_rejected_bounced': total_rejected_bounced,
-            'total_rejected_bounced_7d': total_rejected_bounced,
-            'overall_spam_pct': overall_spam_pct,
-            'overall_clean_delivery_rate': overall_clean_delivery_rate,
-            'clean_delivery_rate_pct': overall_clean_delivery_rate,
-            'spam_reduction_trend': spam_reduction_trend,
-            'avg_latency_ms': 310,
-            'avg_latency_overall_ms': 310,
-            'total_database_records': total_db_records,
-            'database_source': 'MariaDB vmail.mail_logs_history (Log-to-DB)',
-            'last_sync_timestamp': now.strftime('%Y-%m-%d %H:%M:%S')
-        }
-
         # Specific day data se solicitado
         specific_day_data = None
         if selected_date and selected_date != 'all':
             specific_day_data = date_map.get(selected_date, None)
+            if not specific_day_data:
+                # Tentar encontrar por substring
+                for k, v in date_map.items():
+                    if selected_date in k:
+                        specific_day_data = v
+                        break
 
-        # 5. Registro de Auditoria para diagnóstico
+        # Resumo adaptativo: reflete o dia selecionado se filtrado, ou o consolidado de 7 dias
+        if specific_day_data:
+            summary = {
+                'total_processed': specific_day_data['total_processed'],
+                'total_processed_7d': total_processed_7d,
+                'total_received': specific_day_data['received'],
+                'total_received_7d': total_received_7d,
+                'total_sent': specific_day_data['sent'],
+                'total_sent_7d': total_sent_7d,
+                'total_spam_blocked': specific_day_data['spam_blocked'],
+                'total_spam_blocked_7d': total_spam_blocked_7d,
+                'total_virus_blocked': specific_day_data['virus_blocked'],
+                'total_virus_blocked_7d': total_virus_blocked_7d,
+                'total_rejected_bounced': specific_day_data['rejected_bounced'],
+                'total_rejected_bounced_7d': total_rejected_bounced_7d,
+                'overall_spam_pct': specific_day_data['spam_pct'],
+                'overall_clean_delivery_rate': specific_day_data['clean_delivery_rate'],
+                'clean_delivery_rate_pct': specific_day_data['clean_delivery_rate'],
+                'avg_latency_ms': specific_day_data['avg_latency_ms'],
+                'avg_latency_overall_ms': 310,
+                'is_single_day': True,
+                'selected_day_label': specific_day_data['full_date'],
+                'total_database_records': total_db_records,
+                'database_source': 'MariaDB vmail.mail_logs_history (Log-to-DB)',
+                'last_sync_timestamp': now.strftime('%Y-%m-%d %H:%M:%S')
+            }
+        else:
+            summary = {
+                'total_processed': total_processed_7d,
+                'total_processed_7d': total_processed_7d,
+                'total_received': total_received_7d,
+                'total_received_7d': total_received_7d,
+                'total_sent': total_sent_7d,
+                'total_sent_7d': total_sent_7d,
+                'total_spam_blocked': total_spam_blocked_7d,
+                'total_spam_blocked_7d': total_spam_blocked_7d,
+                'total_virus_blocked': total_virus_blocked_7d,
+                'total_virus_blocked_7d': total_virus_blocked_7d,
+                'total_rejected_bounced': total_rejected_bounced_7d,
+                'total_rejected_bounced_7d': total_rejected_bounced_7d,
+                'overall_spam_pct': overall_spam_pct_7d,
+                'overall_clean_delivery_rate': overall_clean_delivery_rate_7d,
+                'clean_delivery_rate_pct': overall_clean_delivery_rate_7d,
+                'avg_latency_ms': 310,
+                'avg_latency_overall_ms': 310,
+                'is_single_day': False,
+                'selected_day_label': 'Consolidado Últimos 7 Dias',
+                'total_database_records': total_db_records,
+                'database_source': 'MariaDB vmail.mail_logs_history (Log-to-DB)',
+                'last_sync_timestamp': now.strftime('%Y-%m-%d %H:%M:%S')
+            }
+
+        # 6. Registro de Auditoria para diagnóstico
         try:
             log_audit_action(
                 'DASHBOARD_QUERY',
                 target='Métricas de Tráfego de E-mail (Dashboard)',
                 details={
                     'selected_date': selected_date,
-                    'total_processed_7d': total_processed,
+                    'total_processed': summary['total_processed'],
                     'total_db_records': total_db_records,
-                    'db_table': 'mail_logs_history',
-                    'records_found_7d': len(records)
+                    'db_table': 'mail_logs_history'
                 },
                 severity_level='normal'
             )
@@ -360,9 +535,10 @@ def get_mail_stats():
             'daily_history': daily_history,
             'daily_metrics': daily_history,
             'specific_day_data': specific_day_data,
-            'aggregated_top_senders': aggregated_top_senders[:10],
-            'aggregated_top_recipients': aggregated_top_recipients[:10],
-            'aggregated_spam_rules': aggregated_spam_rules[:10]
+            'aggregated_top_senders': (specific_day_data['top_senders'] if specific_day_data and specific_day_data.get('top_senders') else aggregated_top_senders)[:10],
+            'aggregated_top_recipients': (specific_day_data['top_recipients'] if specific_day_data and specific_day_data.get('top_recipients') else aggregated_top_recipients)[:10],
+            'aggregated_top_mailboxes': (specific_day_data['top_mailboxes'] if specific_day_data and specific_day_data.get('top_mailboxes') else aggregated_top_mailboxes)[:10],
+            'aggregated_spam_rules': (specific_day_data['spam_rules_triggered'] if specific_day_data and specific_day_data.get('spam_rules_triggered') else aggregated_spam_rules)[:10]
         })
 
     except Exception as e:

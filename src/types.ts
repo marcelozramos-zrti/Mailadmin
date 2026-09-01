@@ -267,7 +267,13 @@ export interface TopSenderDomain {
   count: number;
   spam_count: number;
   clean_count: number;
-  reputation: 'Boa' | 'Suspeita' | 'Crítica';
+  clean_pct?: number;
+  reputation: 'Boa' | 'Suspeita' | 'Crítica' | string;
+  reputacao?: string;
+  status?: 'clean' | 'suspicious' | 'spam' | 'blocked';
+  security_verdict?: string;
+  is_blocked?: boolean;
+  is_spam?: boolean;
 }
 
 export interface TopRecipientDomain {
@@ -347,4 +353,37 @@ export interface PythonFiles {
   "mailadmin.service": string;
   "README_DEPLOY.md": string;
 }
+
+export interface AdminUserItem {
+  id: number;
+  username: string;
+  name?: string;
+  email?: string;
+  role: 'superadmin' | 'admin' | 'operator' | 'readonly';
+  active: boolean;
+  mfa_enabled?: boolean;
+  created_at?: string;
+  last_login?: string;
+}
+
+export interface SystemConfigSettings {
+  server_hostname: string;
+  server_ip: string;
+  message_size_limit_mb: number;
+  mailbox_size_limit_mb: number;
+  relayhost: string;
+  tls_security_level: string;
+  spam_required_score: number;
+  spam_auto_learn: boolean;
+  clamav_scan_enabled: boolean;
+  clamav_max_scan_size_mb: number;
+  log_ingestion_interval_min: number;
+  log_retention_days: number;
+  log_auto_truncate: boolean;
+  log_safety_backup: boolean;
+  cert_domain: string;
+  cert_issuer: string;
+  cert_valid_until: string;
+}
+
 

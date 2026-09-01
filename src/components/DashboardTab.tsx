@@ -5,7 +5,7 @@ import {
   Server, Zap, ShieldCheck, ArrowUpRight, ArrowDownLeft, Gauge,
   Clock, Check, Mail, Calendar, Download, Plus, BarChart2,
   TrendingDown, TrendingUp, AlertOctagon, HelpCircle, FileSpreadsheet,
-  Inbox, Share2, ShieldX, Sparkles
+  Inbox, Share2, ShieldX, Sparkles, AlertTriangle, Search
 } from 'lucide-react';
 import { 
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, 
@@ -209,19 +209,42 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   };
 
   // Selected Day Data or Consolidated 7-Day Metrics
-  const activeDayMetric: DailyMailMetric | null = selectedDay !== 'all' && mailStats?.daily_metrics
-    ? mailStats.daily_metrics.find(d => d.date === selectedDay) || null
+  const activeDayMetric: DailyMailMetric | null = selectedDay !== 'all' && mailStats
+    ? (mailStats.specific_day_data || mailStats.daily_metrics?.find(d => d.date === selectedDay || d.date.includes(selectedDay)) || null)
     : null;
 
-  // Compute metrics to display in KPI cards
-  const displayTotal = activeDayMetric ? activeDayMetric.total_processed : (mailStats?.summary.total_processed_7d || 0);
-  const displayReceived = activeDayMetric ? activeDayMetric.received : (mailStats?.summary.total_received_7d || 0);
-  const displaySent = activeDayMetric ? activeDayMetric.sent : (mailStats?.summary.total_sent_7d || 0);
-  const displaySpam = activeDayMetric ? activeDayMetric.spam_blocked : (mailStats?.summary.total_spam_blocked_7d || 0);
-  const displayBounce = activeDayMetric ? activeDayMetric.rejected_bounced : (mailStats?.summary.total_rejected_bounced_7d || 0);
-  const displaySpamPct = activeDayMetric ? activeDayMetric.spam_pct : (mailStats?.summary.overall_spam_pct || 0);
-  const displayCleanRate = activeDayMetric ? activeDayMetric.clean_delivery_rate : (mailStats?.summary.clean_delivery_rate_pct || 100);
-  const displayLatency = activeDayMetric ? activeDayMetric.avg_latency_ms : (mailStats?.summary.avg_latency_overall_ms || 300);
+  // Compute metrics to display in KPI cards with strict accuracy
+  const displayTotal = activeDayMetric 
+    ? activeDayMetric.total_processed 
+    : (mailStats?.summary?.is_single_day ? mailStats.summary.total_processed : (mailStats?.summary?.total_processed_7d ?? mailStats?.summary?.total_processed ?? 0));
+  
+  const displayReceived = activeDayMetric 
+    ? activeDayMetric.received 
+    : (mailStats?.summary?.is_single_day ? mailStats.summary.total_received : (mailStats?.summary?.total_received_7d ?? mailStats?.summary?.total_received ?? 0));
+  
+  const displaySent = activeDayMetric 
+    ? activeDayMetric.sent 
+    : (mailStats?.summary?.is_single_day ? mailStats.summary.total_sent : (mailStats?.summary?.total_sent_7d ?? mailStats?.summary?.total_sent ?? 0));
+  
+  const displaySpam = activeDayMetric 
+    ? activeDayMetric.spam_blocked 
+    : (mailStats?.summary?.is_single_day ? mailStats.summary.total_spam_blocked : (mailStats?.summary?.total_spam_blocked_7d ?? mailStats?.summary?.total_spam_blocked ?? 0));
+  
+  const displayBounce = activeDayMetric 
+    ? activeDayMetric.rejected_bounced 
+    : (mailStats?.summary?.is_single_day ? mailStats.summary.total_rejected_bounced : (mailStats?.summary?.total_rejected_bounced_7d ?? mailStats?.summary?.total_rejected_bounced ?? 0));
+  
+  const displaySpamPct = activeDayMetric 
+    ? activeDayMetric.spam_pct 
+    : (mailStats?.summary?.is_single_day ? mailStats.summary.overall_spam_pct : (mailStats?.summary?.overall_spam_pct ?? 0));
+  
+  const displayCleanRate = activeDayMetric 
+    ? activeDayMetric.clean_delivery_rate 
+    : (mailStats?.summary?.is_single_day ? mailStats.summary.clean_delivery_rate_pct : (mailStats?.summary?.clean_delivery_rate_pct ?? 100));
+  
+  const displayLatency = activeDayMetric 
+    ? activeDayMetric.avg_latency_ms 
+    : (mailStats?.summary?.avg_latency_ms ?? 300);
 
   // Verdict Pie Chart Data
   const verdictPieData = [
@@ -231,17 +254,23 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
     { name: 'Bounces / Rejeições', value: displayBounce, color: '#f59e0b' }
   ];
 
-  // Daily Chart Area Data
-  const dailyAreaChartData = mailStats?.daily_metrics.map(d => ({
-    date: d.displayDate || d.date,
-    rawDate: d.date,
-    Recebidos: d.received,
-    Enviados: d.sent,
-    SPAM: d.spam_blocked,
-    Bounces: d.rejected_bounced,
-    Total: d.total_processed,
-    SpamPct: d.spam_pct
-  })) || [];
+  // Daily Chart Area Data with clean display labels for full 7-day visibility
+  const dailyAreaChartData = (mailStats?.daily_metrics || []).map(d => {
+    // Format compact date for X-Axis (e.g. 25/08) to ensure all 7 days fit perfectly without clipping
+    const shortLabel = d.short_date || d.display_date || (d.displayDate ? d.displayDate.split(' ')[0] : d.date.substring(5).replace('-', '/'));
+    const fullLabel = `${shortLabel} (${d.weekday || ''})`;
+    return {
+      date: shortLabel,
+      fullDateLabel: fullLabel,
+      rawDate: d.date,
+      Recebidos: d.received,
+      Enviados: d.sent,
+      SPAM: d.spam_blocked,
+      Bounces: d.rejected_bounced,
+      Total: d.total_processed,
+      SpamPct: d.spam_pct
+    };
+  });
 
   // Hourly Distribution Data (If specific day selected, use that day; otherwise use today's or average)
   const hourlyData = activeDayMetric 
@@ -616,10 +645,22 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                           <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.0} />
                         </linearGradient>
                       </defs>
-                      <XAxis dataKey="date" stroke="#94a3b8" fontSize={11} tickLine={false} />
+                      <XAxis 
+                        dataKey="date" 
+                        stroke="#94a3b8" 
+                        fontSize={11} 
+                        tickLine={false} 
+                        interval={0}
+                      />
                       <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} />
                       <Tooltip
                         contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.75rem', color: '#fff', fontSize: '12px' }}
+                        labelFormatter={(_label, payload) => {
+                          if (payload && payload.length > 0 && payload[0].payload) {
+                            return payload[0].payload.fullDateLabel || payload[0].payload.date;
+                          }
+                          return _label;
+                        }}
                       />
                       <Area type="monotone" dataKey="Recebidos" stroke="#10b981" strokeWidth={2.5} fillOpacity={1} fill="url(#recGrad)" />
                       <Area type="monotone" dataKey="Enviados" stroke="#3b82f6" strokeWidth={2.5} fillOpacity={1} fill="url(#sentGrad)" />
@@ -730,10 +771,22 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 <div className="h-56 w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={dailyAreaChartData}>
-                      <XAxis dataKey="date" stroke="#94a3b8" fontSize={11} tickLine={false} />
+                      <XAxis 
+                        dataKey="date" 
+                        stroke="#94a3b8" 
+                        fontSize={11} 
+                        tickLine={false} 
+                        interval={0}
+                      />
                       <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit="%" domain={[0, 30]} />
                       <Tooltip
                         contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.75rem', color: '#fff', fontSize: '12px' }}
+                        labelFormatter={(_label, payload) => {
+                          if (payload && payload.length > 0 && payload[0].payload) {
+                            return payload[0].payload.fullDateLabel || payload[0].payload.date;
+                          }
+                          return _label;
+                        }}
                         formatter={(val: number) => [`${val}%`, 'Taxa de SPAM']}
                       />
                       <Bar dataKey="SpamPct" name="Taxa de SPAM (%)" radius={[6, 6, 0, 0]}>
@@ -810,37 +863,85 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 </h3>
                 <p className="text-xs text-slate-500 mb-4">Maiores emissores de mensagens e reputação SPF/DKIM</p>
 
-                <div className="space-y-2.5">
+                <div className="space-y-3">
                   {topSendersList.length === 0 ? (
                     <div className="p-4 bg-slate-50 rounded-xl text-center text-xs text-slate-400 font-mono">
                       Nenhum remetente catalogado no período
                     </div>
                   ) : (
-                    topSendersList.slice(0, 5).map((sender, idx) => (
-                      <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-bold text-slate-800 text-xs font-mono truncate">{sender.domain}</span>
-                          </div>
-                          <span className={`text-[10px] px-2 py-0.5 rounded font-semibold inline-block mt-1 ${
-                            sender.reputation === 'Boa' 
-                              ? 'bg-emerald-100 text-emerald-800' 
-                              : sender.reputation === 'Suspeita'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-rose-100 text-rose-800'
-                          }`}>
-                            {sender.reputation === 'Boa' ? 'Confiável (SPF Pass)' : sender.reputation === 'Suspeita' ? 'Suspeito' : 'Bloqueado (RBL)'}
-                          </span>
-                        </div>
+                    topSendersList.slice(0, 6).map((sender, idx) => {
+                      const isSpamDomain = sender.spam_count > 0 && (sender.spam_count / sender.count) >= 0.5;
+                      const isBlocked = sender.reputation === 'Crítica' || sender.is_blocked || (sender.spam_count === sender.count);
+                      const cleanCount = sender.clean_count ?? Math.max(0, sender.count - sender.spam_count);
+                      const cleanPct = sender.count > 0 ? Math.round((cleanCount / sender.count) * 100) : 100;
+                      const spamPct = 100 - cleanPct;
 
-                        <div className="text-right shrink-0 font-mono">
-                          <div className="text-sm font-bold text-slate-900">{sender.count} msgs</div>
-                          <div className="text-[10px] text-slate-500">
-                            {sender.spam_count > 0 ? <span className="text-rose-600 font-bold">{sender.spam_count} spams</span> : <span className="text-emerald-600">100% limpo</span>}
+                      return (
+                        <div key={idx} className="p-3.5 bg-slate-50 hover:bg-slate-100/80 transition-colors rounded-xl border border-slate-200/80 flex flex-col gap-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-bold text-slate-900 text-xs font-mono truncate">{sender.domain}</span>
+                                
+                                {isBlocked ? (
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-rose-100 text-rose-800 border border-rose-200 flex items-center gap-1">
+                                    <ShieldAlert className="w-2.5 h-2.5" />
+                                    <span>Bloqueado (SPAM)</span>
+                                  </span>
+                                ) : sender.reputation === 'Suspeita' || isSpamDomain ? (
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1">
+                                    <AlertTriangle className="w-2.5 h-2.5" />
+                                    <span>Suspeito / Quarentena</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                                    <CheckCircle className="w-2.5 h-2.5" />
+                                    <span>Confiável (SPF Pass)</span>
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-2">
+                                <span>Total: <strong className="text-slate-800 font-mono">{sender.count}</strong></span>
+                                <span>•</span>
+                                <span className="text-emerald-700">Limpos: <strong className="font-mono">{cleanCount}</strong></span>
+                                <span>•</span>
+                                <span className={sender.spam_count > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'}>
+                                  SPAMs: <strong className="font-mono">{sender.spam_count}</strong>
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="text-right shrink-0">
+                              <button
+                                onClick={() => {
+                                  setTableSearch(sender.domain);
+                                }}
+                                title="Filtrar tabela por este domínio"
+                                className="px-2 py-1 bg-white hover:bg-blue-50 text-slate-600 hover:text-blue-700 border border-slate-200 rounded-lg text-[10px] font-semibold transition-all flex items-center gap-1 shadow-2xs"
+                              >
+                                <Search className="w-3 h-3" />
+                                <span>Filtrar</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Barra de Proporção Visual Entrega Limpa vs SPAM */}
+                          <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden flex">
+                            <div 
+                              className="bg-emerald-500 h-full" 
+                              style={{ width: `${cleanPct}%` }} 
+                              title={`Entregas Limpas: ${cleanPct}%`}
+                            />
+                            <div 
+                              className="bg-rose-500 h-full" 
+                              style={{ width: `${spamPct}%` }} 
+                              title={`SPAM Bloqueado: ${spamPct}%`}
+                            />
                           </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -866,20 +967,32 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                       Nenhum domínio de destino catalogado
                     </div>
                   ) : (
-                    topRecipientsList.slice(0, 5).map((recip, idx) => (
-                      <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between">
-                        <div>
-                          <span className="font-bold text-slate-800 text-xs font-mono">{recip.domain}</span>
-                          <div className="text-[11px] text-slate-500 mt-0.5">
-                            {recip.mailboxes_active} caixas ativas
+                    topRecipientsList.slice(0, 6).map((recip, idx) => {
+                      const isHost = recip.domain.toLowerCase().includes('brsaolxmail') || recip.domain.toLowerCase().includes('localhost') || recip.domain.toLowerCase().includes('host');
+                      return (
+                        <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between">
+                          <div className="min-w-0 flex-1 pr-2">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-slate-800 text-xs font-mono truncate">{recip.domain}</span>
+                              <span className={`text-[9px] px-1.5 py-0.2 rounded font-semibold ${
+                                isHost 
+                                  ? 'bg-slate-200 text-slate-700' 
+                                  : 'bg-emerald-100 text-emerald-800'
+                              }`}>
+                                {isHost ? 'Host / Alertas' : 'Domínio vmail'}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-0.5">
+                              {isHost ? 'Notificações do sistema Debian/Postfix' : `${recip.mailboxes_active || 1} caixas ativas`}
+                            </div>
+                          </div>
+                          <div className="text-right font-mono shrink-0">
+                            <span className="text-sm font-bold text-emerald-700">{recip.count.toLocaleString()} entregues</span>
+                            <span className="block text-[10px] text-emerald-600">100% OK</span>
                           </div>
                         </div>
-                        <div className="text-right font-mono">
-                          <span className="text-sm font-bold text-emerald-700">{recip.count} entregues</span>
-                          <span className="block text-[10px] text-emerald-600">100% OK</span>
-                        </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
