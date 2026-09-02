@@ -3553,16 +3553,80 @@
         }).join('');
     }
     
+    function setCustomRuleModalMode(mode) {
+        currentModalMode = mode || 'regex';
+        const friendlyWrapper = document.getElementById('custom-rule-friendly-wrapper');
+        const friendlyKeywords = document.getElementById('custom-rule-friendly-keywords');
+        const patternInput = document.getElementById('custom-rule-pattern');
+
+        if (friendlyWrapper) {
+            if (mode === 'friendly') {
+                friendlyWrapper.classList.remove('d-none');
+            } else {
+                friendlyWrapper.classList.add('d-none');
+            }
+        }
+        if (mode === 'friendly' && friendlyKeywords && (!patternInput || !patternInput.value)) {
+            updateGeneratedPattern();
+        }
+    }
+
+    function updateGeneratedPattern() {
+        const friendlyKeywordsEl = document.getElementById('custom-rule-friendly-keywords');
+        const patternInput = document.getElementById('custom-rule-pattern');
+        if (!friendlyKeywordsEl || !patternInput) return;
+
+        const raw = (friendlyKeywordsEl.value || '').trim();
+        if (!raw) return;
+
+        const terms = raw.split(',')
+            .map(t => t.trim())
+            .filter(Boolean)
+            .map(t => t.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*'));
+
+        if (terms.length > 0) {
+            patternInput.value = `/${terms.join('|')}/i`;
+        }
+    }
+
     function openNewCustomSpamRuleModal() {
-        document.getElementById('custom-rule-old-name').value = '';
-        document.getElementById('custom-rule-name').value = 'LOCAL_REGRA_' + Math.floor(Math.random() * 8999 + 1000);
-        document.getElementById('custom-rule-name').readOnly = false;
-        document.getElementById('custom-rule-score').value = '15.0';
-        document.getElementById('custom-rule-target').value = 'Subject';
-        document.getElementById('custom-rule-describe').value = 'Regra de bloqueio personalizada local ZRTI';
-        document.getElementById('custom-rule-friendly-keywords').value = '';
-        document.getElementById('custom-rule-pattern').value = '';
-        setCustomRuleModalMode('friendly');
+        const oldNameEl = document.getElementById('custom-rule-old-name');
+        if (oldNameEl) oldNameEl.value = '';
+
+        const nameEl = document.getElementById('custom-rule-name');
+        if (nameEl) {
+            nameEl.value = 'LOCAL_REGRA_' + Math.floor(Math.random() * 8999 + 1000);
+            nameEl.readOnly = false;
+        }
+
+        const scoreEl = document.getElementById('custom-rule-score');
+        if (scoreEl) scoreEl.value = '15.0';
+
+        const targetEl = document.getElementById('custom-rule-target');
+        if (targetEl) targetEl.value = 'Subject';
+
+        const descEl = document.getElementById('custom-rule-describe');
+        if (descEl) descEl.value = 'Regra de bloqueio personalizada local ZRTI';
+
+        const kwEl = document.getElementById('custom-rule-friendly-keywords');
+        if (kwEl) kwEl.value = '';
+
+        const patEl = document.getElementById('custom-rule-pattern');
+        if (patEl) patEl.value = '';
+
+        const testInEl = document.getElementById('custom-rule-test-input');
+        if (testInEl) testInEl.value = '';
+
+        const testResEl = document.getElementById('custom-rule-test-result');
+        if (testResEl) {
+            testResEl.classList.add('d-none');
+            testResEl.innerHTML = '';
+        }
+
+        const titleEl = document.getElementById('custom-rule-modal-title');
+        if (titleEl) titleEl.textContent = 'Adicionar Regra Heurística Personalizada (SpamAssassin)';
+
+        setCustomRuleModalMode('regex');
 
         const modalEl = document.getElementById('customSpamRuleModal');
         if (modalEl) {
@@ -3575,14 +3639,42 @@
         const rule = currentCustomSpamRules.find(r => r.name === ruleName);
         if (!rule) return;
 
-        document.getElementById('custom-rule-old-name').value = rule.name;
-        document.getElementById('custom-rule-name').value = rule.name;
-        document.getElementById('custom-rule-name').readOnly = true;
-        document.getElementById('custom-rule-score').value = (parseFloat(rule.score || 15.0)).toFixed(1);
-        document.getElementById('custom-rule-target').value = rule.target || 'Subject';
-        document.getElementById('custom-rule-describe').value = rule.describe || '';
-        document.getElementById('custom-rule-pattern').value = rule.pattern || '';
-        document.getElementById('custom-rule-friendly-keywords').value = '';
+        const oldNameEl = document.getElementById('custom-rule-old-name');
+        if (oldNameEl) oldNameEl.value = rule.name;
+
+        const nameEl = document.getElementById('custom-rule-name');
+        if (nameEl) {
+            nameEl.value = rule.name;
+            nameEl.readOnly = true;
+        }
+
+        const scoreEl = document.getElementById('custom-rule-score');
+        if (scoreEl) scoreEl.value = (parseFloat(rule.score || 15.0)).toFixed(1);
+
+        const targetEl = document.getElementById('custom-rule-target');
+        if (targetEl) targetEl.value = rule.target || 'Subject';
+
+        const descEl = document.getElementById('custom-rule-describe');
+        if (descEl) descEl.value = rule.describe || '';
+
+        const patEl = document.getElementById('custom-rule-pattern');
+        if (patEl) patEl.value = rule.pattern || '';
+
+        const kwEl = document.getElementById('custom-rule-friendly-keywords');
+        if (kwEl) kwEl.value = '';
+
+        const testInEl = document.getElementById('custom-rule-test-input');
+        if (testInEl) testInEl.value = '';
+
+        const testResEl = document.getElementById('custom-rule-test-result');
+        if (testResEl) {
+            testResEl.classList.add('d-none');
+            testResEl.innerHTML = '';
+        }
+
+        const titleEl = document.getElementById('custom-rule-modal-title');
+        if (titleEl) titleEl.textContent = `Editar Regra Heurística: ${rule.name}`;
+
         setCustomRuleModalMode('regex');
 
         const modalEl = document.getElementById('customSpamRuleModal');
@@ -4575,21 +4667,151 @@ async function saveCustomSpamRule(event) {
         }).join('');
     }
     
-    async function deleteVisualSpamRule(escapedRaw) {
-        const rawRule = decodeURIComponent(escapedRaw);
-        if (!confirm(`Tem certeza que deseja remover a regra "${rawRule}"?`)) return;
-
+    async function openAuditDuplicatesModal() {
         try {
-            const data = await fetchJson('/api/services/spamassassin/visual-rules/delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ raw: rawRule })
-            });
+            const res = await fetchJson('/api/services/spamassassin/visual-rules/audit-duplicates');
+            if (res) {
+                const totalDups = res.duplicates_count || 0;
+                const conflicts = res.conflicts_count || 0;
+                const redundant = res.redundant_rules_count || 0;
+                if (totalDups === 0 && conflicts === 0 && redundant === 0) {
+                    showAlert('Parabéns! Nenhuma duplicidade ou conflito encontrado no SpamAssassin local.cf.', 'success');
+                } else {
+                    showAlert(`Diagnóstico: ${totalDups} regra(s) duplicada(s), ${redundant} redundante(s) e ${conflicts} conflito(s) identificados. Utilize o botão Higienizar para consolidar no padrão oficial.`, 'warning');
+                }
+            }
+        } catch (e) {
+            showAlert(`Erro ao auditar regras: ${e.message}`, 'danger');
+        }
+    }
 
-            showAlert(data.message, 'success');
+    async function executeCleanDuplicates() {
+        if (!confirm('Deseja executar a higienização inteligente do SpamAssassin? Regras duplicadas, redundantes e equivalentes serão consolidadas automaticamente no local.cf com backup de segurança.')) return;
+        try {
+            const data = await fetchJson('/api/services/spamassassin/visual-rules/clean-duplicates', {
+                method: 'POST'
+            });
+            showAlert(data.message || 'Higienização concluída com sucesso!', 'success');
             loadSpamRules();
         } catch (e) {
-            showAlert(`Erro ao remover regra: ${e.message}`, 'danger');
+            showAlert(`Erro na higienização: ${e.message}`, 'danger');
+        }
+    }
+
+    function exportVisualRulesTxt() {
+        if (!currentVisualSpamRules || currentVisualSpamRules.length === 0) {
+            showAlert('Nenhuma regra disponível para exportação.', 'warning');
+            return;
+        }
+        let txt = `# Exportação de Regras SpamAssassin ZRTI\n# Gerado em: ${new Date().toISOString()}\n\n`;
+        currentVisualSpamRules.forEach(r => {
+            if (r.raw) txt += `${r.raw}\n`;
+            else if (r.type && r.value) txt += `${r.type} ${r.value}\n`;
+        });
+        const blob = new Blob([txt], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `spamassassin_rules_${new Date().toISOString().slice(0, 10)}.cf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function openEditVisualRuleModal(rawRule) {
+        const rule = currentVisualSpamRules.find(r => r.raw === rawRule || r.value === rawRule);
+        if (rule) {
+            const valInput = document.getElementById('visual-rule-value');
+            const typeSelect = document.getElementById('visual-rule-type');
+            const reasonInput = document.getElementById('visual-rule-reason');
+            if (valInput) valInput.value = rule.value || rule.target_value || '';
+            if (typeSelect) typeSelect.value = rule.type || rule.action || 'blacklist_from';
+            if (reasonInput) reasonInput.value = rule.reason || '';
+            const formEl = document.getElementById('add-visual-rule-form');
+            if (formEl) {
+                window.scrollTo({ top: formEl.offsetTop - 100, behavior: 'smooth' });
+            }
+        }
+    }
+
+    async function checkAuditDuplicatesInBackground() {
+        try {
+            const res = await fetchJson('/api/services/spamassassin/visual-rules/audit-duplicates');
+            const el = document.getElementById('badge-spam-duplicates-count');
+            if (el && res) {
+                const total = (res.duplicates_count || 0) + (res.conflicts_count || 0);
+                el.textContent = total;
+                if (total > 0) el.classList.remove('d-none');
+            }
+        } catch (e) {}
+    }
+
+    function filterVisualRulesTable() {
+        renderVisualSpamRulesTable();
+    }
+
+    function handleEditTargetChange() {}
+
+    function openTestTargetModal(target) {
+        const input = document.getElementById('test-target-input');
+        if (input) input.value = target || '';
+        const modalEl = document.getElementById('testTargetModal');
+        if (modalEl) {
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            modal.show();
+        }
+    }
+
+    async function runModalTargetSimulation() {
+        const targetVal = document.getElementById('test-target-input')?.value || '';
+        const actionVal = document.getElementById('test-target-action')?.value || 'blacklist_from';
+        const resDiv = document.getElementById('test-target-modal-result');
+        if (!targetVal || !resDiv) return;
+
+        resDiv.classList.remove('d-none');
+        resDiv.innerHTML = '<span class="text-muted"><i class="bi bi-hourglass-split me-1"></i> Avaliando alvo...</span>';
+
+        try {
+            const data = await fetchJson('/api/services/spamassassin/visual-rules/test-target', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target: targetVal, action: actionVal })
+            });
+
+            if (data.success) {
+                resDiv.innerHTML = `
+                    <div class="p-2 rounded bg-light border small font-monospace">
+                        <div><strong>Tipo:</strong> ${data.pattern_type_label || data.pattern_type} (${data.scope_label || data.scope})</div>
+                        <div><strong>Interpretação:</strong> ${data.interpretation}</div>
+                        ${data.duplicates?.has_duplicate ? '<div class="text-warning fw-bold mt-1"><i class="bi bi-exclamation-triangle"></i> Duplicata já cadastrada</div>' : '<div class="text-success mt-1"><i class="bi bi-check-circle"></i> Regra única</div>'}
+                    </div>
+                `;
+            }
+        } catch (e) {
+            resDiv.innerHTML = `<span class="text-danger">Erro na simulação: ${e.message}</span>`;
+        }
+    }
+
+    async function saveEditedVisualSpamRule(event) {
+        if (event && event.preventDefault) event.preventDefault();
+        const form = document.getElementById('form-edit-visual-rule');
+        if (!form) return;
+        const raw = document.getElementById('edit-visual-rule-raw')?.value;
+        const newTarget = document.getElementById('edit-visual-rule-target')?.value;
+        const newAction = document.getElementById('edit-visual-rule-action')?.value;
+        const newReason = document.getElementById('edit-visual-rule-reason')?.value;
+
+        try {
+            const data = await fetchJson('/api/services/spamassassin/visual-rules/edit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ raw, new_target: newTarget, new_action: newAction, new_reason: newReason })
+            });
+            showAlert(data.message || 'Regra atualizada com sucesso!', 'success');
+            loadSpamRules();
+        } catch (e) {
+            showAlert(`Erro ao salvar regra: ${e.message}`, 'danger');
         }
     }
 

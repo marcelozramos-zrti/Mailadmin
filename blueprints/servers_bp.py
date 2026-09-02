@@ -4,7 +4,7 @@ import subprocess
 import os
 import re
 from datetime import datetime
-from blueprints.audit_helper import log_audit_action
+from blueprints.audit_helper import log_audit_action, safe_write_system_file, safe_read_system_file
 
 servers_bp = Blueprint('servers', __name__, url_prefix='/api/servers')
 
@@ -199,8 +199,9 @@ def handle_config():
             return jsonify({'success': False, 'message': 'Caminho do arquivo não fornecido.'}), 400
 
         try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(content)
+            write_res = safe_write_system_file(file_path, content, create_backup=True)
+            if not write_res.get('success'):
+                return jsonify({'success': False, 'message': f"Erro ao salvar arquivo: {write_res.get('error')}"}), 500
             log_audit_action('SERVER_CONFIG_SAVE', file_path, {'size': len(content)})
             return jsonify({'success': True, 'message': f'Arquivo {file_path} salvo com sucesso!'})
         except Exception as e:
@@ -211,13 +212,7 @@ def handle_config():
 
     resolved = file_arg or CONFIG_PATHS.get(f"{service_arg}_main", CONFIG_PATHS.get(f"{service_arg}_user", CONFIG_PATHS.get('postfix_main')))
 
-    content = ""
-    if os.path.exists(resolved):
-        try:
-            with open(resolved, 'r', encoding='utf-8') as f:
-                content = f.read()
-        except Exception:
-            pass
+    content = safe_read_system_file(resolved, default="")
 
     return jsonify({'success': True, 'file': resolved, 'content': content})
 
@@ -303,66 +298,71 @@ def update_spam_thresholds():
 
     # 1. Update local.cf (required_score)
     req_score = data.get('required_score')
-    if req_score is not None and os.path.exists(local_cf_path):
+    if req_score is not None:
         try:
-            with open(local_cf_path, 'r', encoding='utf-8') as f:
-                orig = f.read()
-            if re.search(r'^\s*required_(?:score|hits)\s+[\d\.]+', orig, re.MULTILINE):
-                new_c = re.sub(r'^\s*required_(?:score|hits)\s+[\d\.]+', f"required_score {float(req_score)}", orig, flags=re.MULTILINE)
+            orig = safe_read_system_file(local_cf_path, default="")
+            if orig:
+                if re.search(r'^\s*required_(?:score|hits)\s+[\d\.]+', orig, re.MULTILINE):
+                    new_c = re.sub(r'^\s*required_(?:score|hits)\s+[\d\.]+', f"required_score {float(req_score)}", orig, flags=re.MULTILINE)
+                else:
+                    new_c = orig.rstrip() + f"\nrequired_score {float(req_score)}\n"
             else:
-                new_c = orig + f"\nrequired_score {float(req_score)}\n"
-            with open(local_cf_path, 'w', encoding='utf-8') as f:
-                f.write(new_c)
+                new_c = f"required_score {float(req_score)}\n"
+
+            write_res = safe_write_system_file(local_cf_path, new_c, create_backup=True)
+            if not write_res.get('success'):
+                return jsonify({'success': False, 'error': f"Erro ao atualizar {local_cf_path}: {write_res.get('error')}"}), 500
+
             run_cmd(['sudo', 'systemctl', 'reload', 'spamassassin'])
+            run_cmd(['sudo', 'systemctl', 'reload', 'amavis'])
         except Exception as e:
             return jsonify({'success': False, 'error': f"Erro ao atualizar {local_cf_path}: {str(e)}"}), 500
 
     # 2. Update 50-user for Amavis
     amavis_changed = False
-    if os.path.exists(amavis_conf_path):
-        try:
-            with open(amavis_conf_path, 'r', encoding='utf-8') as f:
-                a_orig = f.read()
-            a_new = a_orig
+    try:
+        a_orig = safe_read_system_file(amavis_conf_path, default="")
+        a_new = a_orig
 
-            if 'sa_tag_level_deflt' in data and data['sa_tag_level_deflt'] is not None:
-                val = float(data['sa_tag_level_deflt'])
-                if re.search(r'\$sa_tag_level_deflt\s*=\s*[\d\.\-]+;', a_new):
-                    a_new = re.sub(r'\$sa_tag_level_deflt\s*=\s*[\d\.\-]+;', f'$sa_tag_level_deflt = {val};', a_new)
-                else:
-                    a_new += f"\n$sa_tag_level_deflt = {val};\n"
-                amavis_changed = True
+        if 'sa_tag_level_deflt' in data and data['sa_tag_level_deflt'] is not None:
+            val = float(data['sa_tag_level_deflt'])
+            if re.search(r'\$sa_tag_level_deflt\s*=\s*[\d\.\-]+;', a_new):
+                a_new = re.sub(r'\$sa_tag_level_deflt\s*=\s*[\d\.\-]+;', f'$sa_tag_level_deflt = {val};', a_new)
+            else:
+                a_new = a_new.rstrip() + f"\n$sa_tag_level_deflt = {val};\n"
+            amavis_changed = True
 
-            if 'sa_tag2_level_deflt' in data and data['sa_tag2_level_deflt'] is not None:
-                val = float(data['sa_tag2_level_deflt'])
-                if re.search(r'\$sa_tag2_level_deflt\s*=\s*[\d\.\-]+;', a_new):
-                    a_new = re.sub(r'\$sa_tag2_level_deflt\s*=\s*[\d\.\-]+;', f'$sa_tag2_level_deflt = {val};', a_new)
-                else:
-                    a_new += f"\n$sa_tag2_level_deflt = {val};\n"
-                amavis_changed = True
+        if 'sa_tag2_level_deflt' in data and data['sa_tag2_level_deflt'] is not None:
+            val = float(data['sa_tag2_level_deflt'])
+            if re.search(r'\$sa_tag2_level_deflt\s*=\s*[\d\.\-]+;', a_new):
+                a_new = re.sub(r'\$sa_tag2_level_deflt\s*=\s*[\d\.\-]+;', f'$sa_tag2_level_deflt = {val};', a_new)
+            else:
+                a_new = a_new.rstrip() + f"\n$sa_tag2_level_deflt = {val};\n"
+            amavis_changed = True
 
-            if 'sa_kill_level_deflt' in data and data['sa_kill_level_deflt'] is not None:
-                val = float(data['sa_kill_level_deflt'])
-                if re.search(r'\$sa_kill_level_deflt\s*=\s*[\d\.\-]+;', a_new):
-                    a_new = re.sub(r'\$sa_kill_level_deflt\s*=\s*[\d\.\-]+;', f'$sa_kill_level_deflt = {val};', a_new)
-                else:
-                    a_new += f"\n$sa_kill_level_deflt = {val};\n"
-                amavis_changed = True
+        if 'sa_kill_level_deflt' in data and data['sa_kill_level_deflt'] is not None:
+            val = float(data['sa_kill_level_deflt'])
+            if re.search(r'\$sa_kill_level_deflt\s*=\s*[\d\.\-]+;', a_new):
+                a_new = re.sub(r'\$sa_kill_level_deflt\s*=\s*[\d\.\-]+;', f'$sa_kill_level_deflt = {val};', a_new)
+            else:
+                a_new = a_new.rstrip() + f"\n$sa_kill_level_deflt = {val};\n"
+            amavis_changed = True
 
-            if 'sa_spam_subject_tag' in data and data['sa_spam_subject_tag'] is not None:
-                val = str(data['sa_spam_subject_tag']).replace("'", "\\'")
-                if re.search(r'\$sa_spam_subject_tag\s*=\s*[\'\"].*?[\'\"];', a_new):
-                    a_new = re.sub(r'\$sa_spam_subject_tag\s*=\s*[\'\"].*?[\'\"];', f"$sa_spam_subject_tag = '{val}';", a_new)
-                else:
-                    a_new += f"\n$sa_spam_subject_tag = '{val}';\n"
-                amavis_changed = True
+        if 'sa_spam_subject_tag' in data and data['sa_spam_subject_tag'] is not None:
+            val = str(data['sa_spam_subject_tag']).replace("'", "\\'")
+            if re.search(r'\$sa_spam_subject_tag\s*=\s*[\'\"].*?[\'\"];', a_new):
+                a_new = re.sub(r'\$sa_spam_subject_tag\s*=\s*[\'\"].*?[\'\"];', f"$sa_spam_subject_tag = '{val}';", a_new)
+            else:
+                a_new = a_new.rstrip() + f"\n$sa_spam_subject_tag = '{val}';\n"
+            amavis_changed = True
 
-            if amavis_changed:
-                with open(amavis_conf_path, 'w', encoding='utf-8') as f:
-                    f.write(a_new)
-                run_cmd(['sudo', 'systemctl', 'reload', 'amavis'])
-        except Exception as e:
-            return jsonify({'success': False, 'error': f"Erro ao atualizar {amavis_conf_path}: {str(e)}"}), 500
+        if amavis_changed:
+            write_a_res = safe_write_system_file(amavis_conf_path, a_new, create_backup=True)
+            if not write_a_res.get('success'):
+                return jsonify({'success': False, 'error': f"Erro ao atualizar {amavis_conf_path}: {write_a_res.get('error')}"}), 500
+            run_cmd(['sudo', 'systemctl', 'reload', 'amavis'])
+    except Exception as e:
+        return jsonify({'success': False, 'error': f"Erro ao atualizar {amavis_conf_path}: {str(e)}"}), 500
 
     log_audit_action('UPDATE_SPAM_THRESHOLDS', 'SpamAssassin/Amavis', data)
     return jsonify({

@@ -12,7 +12,7 @@ try:
 except Exception:
     dns = None
 
-from blueprints.audit_helper import log_audit_action
+from blueprints.audit_helper import log_audit_action, safe_read_system_file, safe_write_system_file
 
 troubleshooting_bp = Blueprint('troubleshooting', __name__, url_prefix='/api/troubleshooting')
 
@@ -1211,11 +1211,9 @@ def ensure_mail_rules_table():
 def sync_spamassassin_local_cf(target, action_type):
     """Sincroniza a regra no local.cf do SpamAssassin: remove regras anteriores do target e aplica a nova."""
     local_cf_path = os.environ.get('LOCAL_CF_PATH', '/etc/spamassassin/local.cf')
-    if not os.path.exists(local_cf_path):
-        return
     try:
-        with open(local_cf_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
+        content = safe_read_system_file(local_cf_path, default="")
+        lines = content.splitlines(keepends=True) if content else []
 
         target_clean = target.strip().lower()
         new_lines = []
@@ -1229,13 +1227,7 @@ def sync_spamassassin_local_cf(target, action_type):
         new_lines.append(rule_line)
 
         content = "".join(new_lines)
-        tmp_file = '/tmp/local.cf.tmp'
-        with open(tmp_file, 'w', encoding='utf-8') as f:
-            f.write(content)
-
-        subprocess.run(['sudo', 'cp', tmp_file, local_cf_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if os.path.exists(tmp_file):
-            os.remove(tmp_file)
+        safe_write_system_file(local_cf_path, content, create_backup=True)
 
         subprocess.run(['sudo', 'systemctl', 'restart', 'spamassassin'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         subprocess.run(['sudo', 'systemctl', 'restart', 'amavis'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)

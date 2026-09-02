@@ -322,12 +322,34 @@ def detect_real_spamassassin_settings() -> Dict[str, Any]:
     Detecta a configuração real em disco dos arquivos do SpamAssassin e Amavis.
     Não altera nada automaticamente.
     """
-    local_cf_path = "/etc/spamassassin/local.cf"
-    amavis_conf_paths = [
-        "/etc/amavis/conf.d/20-debian_defaults",
+    import subprocess
+    local_cf_path = os.environ.get('LOCAL_CF_PATH', "/etc/spamassassin/local.cf")
+    amavis_env = os.environ.get('AMAVIS_CONF')
+    amavis_conf_paths = []
+    if amavis_env:
+        amavis_conf_paths.append(amavis_env)
+    amavis_conf_paths.extend([
         "/etc/amavis/conf.d/50-user",
+        "/etc/amavis/conf.d/20-debian_defaults",
         "/etc/amavisd/amavisd.conf"
-    ]
+    ])
+
+    def read_conf_file(path: str) -> str:
+        if not path:
+            return ""
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    return f.read()
+            except Exception:
+                pass
+        try:
+            res = subprocess.run(['sudo', 'cat', path], capture_output=True, text=True, timeout=5)
+            if res.returncode == 0:
+                return res.stdout
+        except Exception:
+            pass
+        return ""
 
     detected = {
         "required_score": 4.5,
@@ -341,42 +363,38 @@ def detect_real_spamassassin_settings() -> Dict[str, Any]:
     }
 
     # 1. Leitura de /etc/spamassassin/local.cf
-    if os.path.exists(local_cf_path):
+    content = read_conf_file(local_cf_path)
+    if content:
         detected["files_found"].append(local_cf_path)
-        try:
-            with open(local_cf_path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-                # Procura 'required_score X.X' ou 'required_hits X.X'
-                m = re.search(r'^\s*required_(?:score|hits)\s+([\d\.]+)', content, re.MULTILINE | re.IGNORECASE)
-                if m:
-                    detected["required_score"] = float(m.group(1))
-                    detected["required_score_source"] = local_cf_path
-        except Exception:
-            pass
+        m = re.search(r'^\s*required_(?:score|hits)\s+([\d\.]+)', content, re.MULTILINE | re.IGNORECASE)
+        if m:
+            detected["required_score"] = float(m.group(1))
+            detected["required_score_source"] = local_cf_path
 
     # 2. Leitura dos arquivos do Amavis
+    seen_paths = set()
     for apath in amavis_conf_paths:
-        if os.path.exists(apath):
-            detected["files_found"].append(apath)
-            try:
-                with open(apath, "r", encoding="utf-8", errors="ignore") as f:
-                    acontent = f.read()
-                    tag_m = re.search(r'\$sa_tag_level_deflt\s*=\s*([\d\.\-]+);', acontent)
-                    tag2_m = re.search(r'\$sa_tag2_level_deflt\s*=\s*([\d\.]+);', acontent)
-                    kill_m = re.search(r'\$sa_kill_level_deflt\s*=\s*([\d\.]+);', acontent)
-                    subj_m = re.search(r'\$sa_spam_subject_tag\s*=\s*[\'\"](.*?)[\'\"];', acontent)
+        if apath in seen_paths:
+            continue
+        seen_paths.add(apath)
+        acontent = read_conf_file(apath)
+        if acontent:
+            if apath not in detected["files_found"]:
+                detected["files_found"].append(apath)
+            tag_m = re.search(r'\$sa_tag_level_deflt\s*=\s*([\d\.\-]+);', acontent)
+            tag2_m = re.search(r'\$sa_tag2_level_deflt\s*=\s*([\d\.]+);', acontent)
+            kill_m = re.search(r'\$sa_kill_level_deflt\s*=\s*([\d\.]+);', acontent)
+            subj_m = re.search(r'\$sa_spam_subject_tag\s*=\s*[\'\"](.*?)[\'\"];', acontent)
 
-                    if tag_m:
-                        detected["sa_tag_level_deflt"] = float(tag_m.group(1))
-                    if tag2_m:
-                        detected["sa_tag2_level_deflt"] = float(tag2_m.group(1))
-                        detected["amavis_source"] = apath
-                    if kill_m:
-                        detected["sa_kill_level_deflt"] = float(kill_m.group(1))
-                    if subj_m:
-                        detected["sa_spam_subject_tag"] = subj_m.group(1)
-            except Exception:
-                pass
+            if tag_m and "sa_tag_level_deflt" not in detected.get("_set", set()):
+                detected["sa_tag_level_deflt"] = float(tag_m.group(1))
+            if tag2_m:
+                detected["sa_tag2_level_deflt"] = float(tag2_m.group(1))
+                detected["amavis_source"] = apath
+            if kill_m:
+                detected["sa_kill_level_deflt"] = float(kill_m.group(1))
+            if subj_m:
+                detected["sa_spam_subject_tag"] = subj_m.group(1)
 
     return detected
 

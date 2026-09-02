@@ -5,7 +5,7 @@ import os
 import platform
 import time
 import re
-from blueprints.audit_helper import log_audit_action
+from blueprints.audit_helper import log_audit_action, safe_write_system_file, safe_read_system_file
 import spamassassin_engine as sa_engine
 
 try:
@@ -254,18 +254,12 @@ def handle_rules():
         content = data.get('content', '')
 
         try:
-            tmp_file = '/tmp/local.cf.tmp'
-            with open(tmp_file, 'w', encoding='utf-8') as f:
-                f.write(content)
+            write_res = safe_write_system_file(LOCAL_CF_PATH, content, create_backup=True)
+            if not write_res.get('success'):
+                return jsonify({'success': False, 'message': f"Erro ao atualizar {LOCAL_CF_PATH}: {write_res.get('error')}"}), 500
 
-            cp_res = run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
-            if cp_res['returncode'] != 0:
-                return jsonify({'success': False, 'message': f'Erro de cópia sudo: {cp_res["stderr"]}'}), 500
-
-            if os.path.exists(tmp_file):
-                os.remove(tmp_file)
-
-            restart_res = run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
+            run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
+            run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
 
             try:
                 log_audit_action("SPAM_RULES_RAW_UPDATE", target="/etc/spamassassin/local.cf", details={"length": len(content)}, severity_level="suspicious")
@@ -274,16 +268,13 @@ def handle_rules():
 
             return jsonify({
                 'success': True,
-                'message': 'Regras salvas no local.cf e Amavis reiniciado com sucesso!'
+                'message': 'Regras salvas no local.cf e SpamAssassin/Amavis reiniciados com sucesso!'
             })
         except Exception as e:
             return jsonify({'success': False, 'message': str(e)}), 500
     else:
         try:
-            if not os.path.exists(LOCAL_CF_PATH):
-                return jsonify({'success': False, 'message': f'Arquivo {LOCAL_CF_PATH} não encontrado.'}), 404
-            with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
-                content = f.read()
+            content = safe_read_system_file(LOCAL_CF_PATH, default="")
             return jsonify({'success': True, 'content': content})
         except Exception as e:
             return jsonify({'success': False, 'message': str(e)}), 500
@@ -294,11 +285,7 @@ def handle_rules():
 def handle_visual_rules():
     if request.method == 'GET':
         try:
-            content = ""
-            if os.path.exists(LOCAL_CF_PATH):
-                with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
-                    content = f.read()
-
+            content = safe_read_system_file(LOCAL_CF_PATH, default="")
             rules = sa_engine.parse_all_rules(content)
             audit_data = sa_engine.audit_rules_integrity(rules)
 
@@ -348,11 +335,7 @@ def handle_visual_rules():
             directive_line = f"# {directive_line}"
 
         try:
-            content = ""
-            if os.path.exists(LOCAL_CF_PATH):
-                with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
-                    content = f.read()
-
+            content = safe_read_system_file(LOCAL_CF_PATH, default="")
             existing_rules = sa_engine.parse_all_rules(content)
 
             # Verifica duplicidade semântica
@@ -376,21 +359,9 @@ def handle_visual_rules():
             lines.extend(new_block)
             new_content = "\n".join(lines) + "\n"
 
-            tmp_file = '/tmp/local.cf.tmp'
-            with open(tmp_file, 'w', encoding='utf-8') as f:
-                f.write(new_content)
-
-            cp_res = run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
-            if os.path.exists(tmp_file):
-                os.remove(tmp_file)
-
-            if cp_res['returncode'] != 0:
-                # Tenta gravação direta se sudo falhar (em ambiente não-root sem sudo)
-                try:
-                    with open(LOCAL_CF_PATH, 'w', encoding='utf-8') as f:
-                        f.write(new_content)
-                except Exception:
-                    return jsonify({'success': False, 'message': f'Erro ao atualizar local.cf: {cp_res["stderr"]}'}), 500
+            write_res = safe_write_system_file(LOCAL_CF_PATH, new_content, create_backup=True)
+            if not write_res.get('success'):
+                return jsonify({'success': False, 'message': f"Erro ao atualizar {LOCAL_CF_PATH}: {write_res.get('error')}"}), 500
 
             run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
             run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
@@ -453,11 +424,8 @@ def edit_visual_rule_logic():
         new_rule_line = f"# {new_rule_line}"
 
     try:
-        content = ""
-        lines = []
-        if os.path.exists(LOCAL_CF_PATH):
-            with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
+        content = safe_read_system_file(LOCAL_CF_PATH, default="")
+        lines = content.splitlines(keepends=True) if content else []
 
         new_lines = []
         replaced = False
@@ -478,16 +446,9 @@ def edit_visual_rule_logic():
             new_lines.append(new_rule_line + '\n')
 
         content = "".join(new_lines)
-        try:
-            with open(LOCAL_CF_PATH, 'w', encoding='utf-8') as f:
-                f.write(content)
-        except Exception:
-            tmp_file = '/tmp/local.cf.tmp'
-            with open(tmp_file, 'w', encoding='utf-8') as f:
-                f.write(content)
-            cp_res = run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
-            if os.path.exists(tmp_file):
-                os.remove(tmp_file)
+        write_res = safe_write_system_file(LOCAL_CF_PATH, content, create_backup=True)
+        if not write_res.get('success'):
+            return jsonify({'success': False, 'message': f"Erro ao atualizar {LOCAL_CF_PATH}: {write_res.get('error')}"}), 500
 
         run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
         run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
@@ -534,11 +495,8 @@ def delete_visual_rule_logic():
         return jsonify({'success': False, 'message': 'Especificação da regra para exclusão não fornecida.'}), 400
 
     try:
-        if not os.path.exists(LOCAL_CF_PATH):
-            return jsonify({'success': False, 'message': 'Arquivo de regras local.cf não encontrado.'}), 404
-
-        with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
+        content = safe_read_system_file(LOCAL_CF_PATH, default="")
+        lines = content.splitlines(keepends=True) if content else []
 
         new_lines = []
         target_clean = target_line.strip().lower()
@@ -549,16 +507,9 @@ def delete_visual_rule_logic():
             new_lines.append(line)
 
         content = "".join(new_lines)
-        try:
-            with open(LOCAL_CF_PATH, 'w', encoding='utf-8') as f:
-                f.write(content)
-        except Exception:
-            tmp_file = '/tmp/local.cf.tmp'
-            with open(tmp_file, 'w', encoding='utf-8') as f:
-                f.write(content)
-            cp_res = run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
-            if os.path.exists(tmp_file):
-                os.remove(tmp_file)
+        write_res = safe_write_system_file(LOCAL_CF_PATH, content, create_backup=True)
+        if not write_res.get('success'):
+            return jsonify({'success': False, 'message': f"Erro ao excluir regra em {LOCAL_CF_PATH}: {write_res.get('error')}"}), 500
 
         run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
         run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
@@ -592,11 +543,8 @@ def toggle_visual_rule():
         return jsonify({'success': False, 'message': 'Regra não fornecida.'}), 400
 
     try:
-        if not os.path.exists(LOCAL_CF_PATH):
-            return jsonify({'success': False, 'message': 'Arquivo local.cf não encontrado.'}), 404
-
-        with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
+        content = safe_read_system_file(LOCAL_CF_PATH, default="")
+        lines = content.splitlines(keepends=True) if content else []
 
         new_lines = []
         target_clean = raw.lower()
@@ -615,16 +563,9 @@ def toggle_visual_rule():
                 new_lines.append(line)
 
         content = "".join(new_lines)
-        try:
-            with open(LOCAL_CF_PATH, 'w', encoding='utf-8') as f:
-                f.write(content)
-        except Exception:
-            tmp_file = '/tmp/local.cf.tmp'
-            with open(tmp_file, 'w', encoding='utf-8') as f:
-                f.write(content)
-            run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
-            if os.path.exists(tmp_file):
-                os.remove(tmp_file)
+        write_res = safe_write_system_file(LOCAL_CF_PATH, content, create_backup=True)
+        if not write_res.get('success'):
+            return jsonify({'success': False, 'message': f"Erro ao atualizar status da regra em {LOCAL_CF_PATH}: {write_res.get('error')}"}), 500
 
         run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
         run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
@@ -650,13 +591,7 @@ def analyze_visual_rule():
     parsed = sa_engine.parse_rule_target(target, action)
 
     # Verifica contra regras existentes
-    content = ""
-    if os.path.exists(LOCAL_CF_PATH):
-        try:
-            with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
-                content = f.read()
-        except Exception:
-            pass
+    content = safe_read_system_file(LOCAL_CF_PATH, default="")
 
     existing_rules = sa_engine.parse_all_rules(content)
     exact_dup = None
@@ -720,14 +655,7 @@ def analyze_visual_rule():
 @services_bp.route('/spamassassin/visual-rules/audit-duplicates', methods=['GET', 'POST'])
 @login_required
 def audit_visual_rules():
-    content = ""
-    if os.path.exists(LOCAL_CF_PATH):
-        try:
-            with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
-                content = f.read()
-        except Exception as e:
-            return jsonify({'success': False, 'message': str(e)}), 500
-
+    content = safe_read_system_file(LOCAL_CF_PATH, default="")
     rules = sa_engine.parse_all_rules(content)
     audit_data = sa_engine.audit_rules_integrity(rules)
 
@@ -737,26 +665,15 @@ def audit_visual_rules():
 @services_bp.route('/spamassassin/visual-rules/clean-duplicates', methods=['POST'])
 @login_required
 def clean_visual_rules():
-    if not os.path.exists(LOCAL_CF_PATH):
-        return jsonify({'success': False, 'message': 'Arquivo local.cf não encontrado.'}), 404
+    content = safe_read_system_file(LOCAL_CF_PATH, default="")
+    if not content:
+        return jsonify({'success': False, 'message': 'Arquivo local.cf não encontrado ou vazio.'}), 404
 
     try:
-        with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
-            content = f.read()
-
         new_content, deduplicated_count = sa_engine.consolidate_and_clean_rules(content)
-
-        tmp_file = '/tmp/local.cf.tmp'
-        with open(tmp_file, 'w', encoding='utf-8') as f:
-            f.write(new_content)
-
-        cp_res = run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
-        if os.path.exists(tmp_file):
-            os.remove(tmp_file)
-
-        if cp_res['returncode'] != 0:
-            with open(LOCAL_CF_PATH, 'w', encoding='utf-8') as f:
-                f.write(new_content)
+        write_res = safe_write_system_file(LOCAL_CF_PATH, new_content, create_backup=True)
+        if not write_res.get('success'):
+            return jsonify({'success': False, 'message': f"Erro ao atualizar {LOCAL_CF_PATH}: {write_res.get('error')}"}), 500
 
         run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
         run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
@@ -778,13 +695,7 @@ def test_visual_rule_target():
     target = (data.get('target') or '').strip()
     custom_emails = data.get('custom_emails') or []
 
-    content = ""
-    if os.path.exists(LOCAL_CF_PATH):
-        try:
-            with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
-                content = f.read()
-        except Exception:
-            pass
+    content = safe_read_system_file(LOCAL_CF_PATH, default="")
 
     rules = sa_engine.parse_all_rules(content)
 
@@ -944,10 +855,7 @@ def parse_custom_spam_rules_py(cf_content):
 def handle_custom_spam_rules():
     if request.method == 'GET':
         try:
-            content = ''
-            if os.path.exists(LOCAL_CF_PATH):
-                with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
-                    content = f.read()
+            content = safe_read_system_file(LOCAL_CF_PATH, default="")
             rules = parse_custom_spam_rules_py(content)
             return jsonify({'success': True, 'rules': rules})
         except Exception as e:
@@ -977,11 +885,8 @@ def handle_custom_spam_rules():
         name_to_remove = old_name if old_name else clean_name
 
         try:
-            content = ''
-            lines = []
-            if os.path.exists(LOCAL_CF_PATH):
-                with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
+            content = safe_read_system_file(LOCAL_CF_PATH, default="")
+            lines = content.splitlines(keepends=True) if content else []
 
             new_lines = []
             for line in lines:
@@ -1004,17 +909,9 @@ def handle_custom_spam_rules():
                 rule_block = f"\n# Regra Customizada Heurística {clean_name}\nheader   {clean_name} {clean_target} =~ {clean_pattern}\nscore    {clean_name} {clean_score}\ndescribe {clean_name} {describe}\n"
 
             content = "".join(new_lines) + rule_block
-
-            try:
-                with open(LOCAL_CF_PATH, 'w', encoding='utf-8') as f:
-                    f.write(content)
-            except Exception:
-                tmp_file = '/tmp/local.cf.tmp'
-                with open(tmp_file, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
-                if os.path.exists(tmp_file):
-                    os.remove(tmp_file)
+            write_res = safe_write_system_file(LOCAL_CF_PATH, content, create_backup=True)
+            if not write_res.get('success'):
+                return jsonify({'success': False, 'message': f"Erro ao atualizar {LOCAL_CF_PATH}: {write_res.get('error')}"}), 500
 
             run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
             run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
@@ -1043,11 +940,8 @@ def delete_custom_spam_rule():
         return jsonify({'success': False, 'message': 'Nome da regra não informado.'}), 400
 
     try:
-        if not os.path.exists(LOCAL_CF_PATH):
-            return jsonify({'success': False, 'message': 'Arquivo local.cf não encontrado.'}), 404
-
-        with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
+        content = safe_read_system_file(LOCAL_CF_PATH, default="")
+        lines = content.splitlines(keepends=True) if content else []
 
         new_lines = []
         for line in lines:
@@ -1063,16 +957,9 @@ def delete_custom_spam_rule():
             new_lines.append(line)
 
         content = "".join(new_lines)
-        try:
-            with open(LOCAL_CF_PATH, 'w', encoding='utf-8') as f:
-                f.write(content)
-        except Exception:
-            tmp_file = '/tmp/local.cf.tmp'
-            with open(tmp_file, 'w', encoding='utf-8') as f:
-                f.write(content)
-            run_cmd(['sudo', 'cp', tmp_file, LOCAL_CF_PATH])
-            if os.path.exists(tmp_file):
-                os.remove(tmp_file)
+        write_res = safe_write_system_file(LOCAL_CF_PATH, content, create_backup=True)
+        if not write_res.get('success'):
+            return jsonify({'success': False, 'message': f"Erro ao excluir regra em {LOCAL_CF_PATH}: {write_res.get('error')}"}), 500
 
         run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
         run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
@@ -1133,10 +1020,7 @@ def test_spam_rules_simulation():
     test_reply_to = (data.get('reply_to') or data.get('replyto') or '').strip()
     test_body = (data.get('body') or '').strip()
 
-    content = ''
-    if os.path.exists(LOCAL_CF_PATH):
-        with open(LOCAL_CF_PATH, 'r', encoding='utf-8') as f:
-            content = f.read()
+    content = safe_read_system_file(LOCAL_CF_PATH, default="")
 
     triggered = []
     total_score = 0.0
