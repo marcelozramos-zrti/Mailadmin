@@ -5184,6 +5184,335 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
   });
 
   // ===============================================
+  // SCRIPT RUNNER STUDIO API (Execução & Gerenciamento de Scripts)
+  // ===============================================
+
+  const BUILTIN_SCRIPTS_CATALOG = [
+    {
+      id: "fix_permissions_and_amavis",
+      filename: "fix_permissions_and_amavis.py",
+      title: "Correção de Permissões, Sudoers & Restauração do Amavis",
+      category: "Segurança & Permissões",
+      description: "Restaura permissões seguras (0644) exigidas pelo Amavis, elimina o erro [Errno 13], configura /etc/sudoers.d/mailadmin com NOPASSWD e valida status de inicialização.",
+      icon: "bi-shield-lock-fill",
+      color: "primary",
+      default_args: "",
+      suggested_args: ["--user suporte", "--user www-data", "--user mailadmin"],
+      requires_sudo: true,
+      type: "python"
+    },
+    {
+      id: "fix_server",
+      filename: "fix_server.py",
+      title: "Correção & Inicialização dos Daemons do Servidor MTA",
+      category: "Serviços & Daemons",
+      description: "Verifica a integridade e inicializa os daemons Postfix, Amavis, ClamAV e SpamAssassin, corrigindo portas e sockets travados.",
+      icon: "bi-wrench-adjustable-circle-fill",
+      color: "success",
+      default_args: "",
+      suggested_args: [],
+      requires_sudo: true,
+      type: "python"
+    },
+    {
+      id: "diagnose_auth",
+      filename: "diagnose_auth.py",
+      title: "Diagnóstico de Autenticação SASL / Dovecot / Postfix",
+      category: "Diagnóstico & Redes",
+      description: "Testa a autenticação de contas de e-mail, portas 25/587/465, integridade do socket SASL e tabelas do MariaDB vmail.",
+      icon: "bi-person-badge-fill",
+      color: "info",
+      default_args: "",
+      suggested_args: [],
+      requires_sudo: false,
+      type: "python"
+    },
+    {
+      id: "migrate_database",
+      filename: "migrate_database.py",
+      title: "Migração & Criação de Estrutura no MariaDB (vmail)",
+      category: "Banco de Dados",
+      description: "Cria e valida a estrutura de tabelas no banco de dados vmail (domain, mailbox, alias, cron_jobs, system_audit_logs, spam_visual_rules).",
+      icon: "bi-database-fill-gear",
+      color: "warning",
+      default_args: "",
+      suggested_args: [],
+      requires_sudo: false,
+      type: "python"
+    },
+    {
+      id: "mail_log_ingestor",
+      filename: "mail_log_ingestor.py",
+      title: "Ingestão & Processamento de Logs do MTA para Telemetria",
+      category: "Logs & Telemetria",
+      description: "Processa o log do Postfix e popula a tabela mail_logs_history para exibição em tempo real de tráfego, entregas e rejeições.",
+      icon: "bi-activity",
+      color: "purple",
+      default_args: "",
+      suggested_args: [],
+      requires_sudo: false,
+      type: "python"
+    },
+    {
+      id: "reset_admin_password",
+      filename: "reset_admin_password.py",
+      title: "Redefinição de Senha e Credenciais do Administrador",
+      category: "Acesso & Segurança",
+      description: "Redefine a senha de acesso mestre do painel MailAdmin e reseta o status de 2FA/MFA para o usuário admin padrão.",
+      icon: "bi-key-fill",
+      color: "danger",
+      default_args: "",
+      suggested_args: [],
+      requires_sudo: false,
+      type: "python"
+    },
+    {
+      id: "show_logs",
+      filename: "show_logs.py",
+      title: "Inspeção e Diagnóstico de Logs do Sistema MTA",
+      category: "Logs & Telemetria",
+      description: "Exibe e analisa as últimas ocorrências registradas em /var/log/mail.log e no journalctl com destaque para erros e avisos.",
+      icon: "bi-file-text-fill",
+      color: "secondary",
+      default_args: "",
+      suggested_args: [],
+      requires_sudo: false,
+      type: "python"
+    }
+  ];
+
+  const getScriptsDir = () => {
+    const sDir = path.join(process.cwd(), "scripts");
+    if (!fs.existsSync(sDir)) {
+      fs.mkdirSync(sDir, { recursive: true });
+    }
+    return sDir;
+  };
+
+  app.get("/api/automation/scripts", (req, res) => {
+    try {
+      const scriptsDir = getScriptsDir();
+      const existingFiles = new Set(fs.existsSync(scriptsDir) ? fs.readdirSync(scriptsDir) : []);
+
+      const seen = new Set<string>();
+      const result: any[] = [];
+
+      for (const item of BUILTIN_SCRIPTS_CATALOG) {
+        seen.add(item.filename);
+        const fpath = path.join(scriptsDir, item.filename);
+        const exists = fs.existsSync(fpath);
+        let sizeBytes = 0;
+        let lastMod: string | null = null;
+        if (exists) {
+          try {
+            const st = fs.statSync(fpath);
+            sizeBytes = st.size;
+            lastMod = st.mtime.toISOString().replace("T", " ").substring(0, 19);
+          } catch (_) {}
+        }
+        result.push({
+          ...item,
+          exists,
+          path: fpath,
+          size_bytes: sizeBytes,
+          last_modified: lastMod,
+          is_builtin: true
+        });
+      }
+
+      existingFiles.forEach(fname => {
+        if (!seen.has(fname) && (fname.endsWith(".py") || fname.endsWith(".sh") || fname.endsWith(".bash"))) {
+          const fpath = path.join(scriptsDir, fname);
+          let sizeBytes = 0;
+          let lastMod: string | null = null;
+          try {
+            const st = fs.statSync(fpath);
+            sizeBytes = st.size;
+            lastMod = st.mtime.toISOString().replace("T", " ").substring(0, 19);
+          } catch (_) {}
+          const isPy = fname.endsWith(".py");
+          result.push({
+            id: path.parse(fname).name,
+            filename: fname,
+            title: `Script Personalizado: ${fname}`,
+            category: "Scripts Personalizados",
+            description: `Script salvo no servidor (${isPy ? "Python 3" : "Shell/Bash"}).`,
+            icon: "bi-file-earmark-code-fill",
+            color: "secondary",
+            default_args: "",
+            suggested_args: [],
+            requires_sudo: false,
+            type: isPy ? "python" : "shell",
+            exists: true,
+            path: fpath,
+            size_bytes: sizeBytes,
+            last_modified: lastMod,
+            is_builtin: false
+          });
+        }
+      });
+
+      res.json({
+        status: "success",
+        success: true,
+        scripts: result
+      });
+    } catch (err: any) {
+      res.status(500).json({ status: "error", success: false, message: err.message });
+    }
+  });
+
+  app.get("/api/automation/scripts/:filename/content", (req, res) => {
+    try {
+      const safeName = path.basename(req.params.filename);
+      const scriptsDir = getScriptsDir();
+      const fpath = path.join(scriptsDir, safeName);
+
+      if (!fs.existsSync(fpath)) {
+        return res.status(404).json({ status: "error", success: false, message: `Arquivo "${safeName}" não encontrado.` });
+      }
+
+      const content = fs.readFileSync(fpath, "utf-8");
+      res.json({
+        status: "success",
+        success: true,
+        filename: safeName,
+        path: fpath,
+        content
+      });
+    } catch (err: any) {
+      res.status(500).json({ status: "error", success: false, message: err.message });
+    }
+  });
+
+  app.post("/api/automation/scripts/save", (req, res) => {
+    try {
+      const { filename, content } = req.body || {};
+      if (!filename || typeof filename !== "string") {
+        return res.status(400).json({ status: "error", success: false, message: "Nome do arquivo é obrigatório." });
+      }
+
+      let safeName = path.basename(filename.trim());
+      if (!safeName.endsWith(".py") && !safeName.endsWith(".sh") && !safeName.endsWith(".bash")) {
+        safeName += ".py";
+      }
+
+      const scriptsDir = getScriptsDir();
+      const fpath = path.join(scriptsDir, safeName);
+      fs.writeFileSync(fpath, content || "", "utf-8");
+
+      try {
+        fs.chmodSync(fpath, 0o755);
+      } catch (_) {}
+
+      virtualAuditLogs.unshift({
+        id: virtualAuditLogs.length + 1,
+        username: virtualAdmin.username,
+        action: "SCRIPT_SAVE",
+        target: safeName,
+        ip_address: "127.0.0.1",
+        details: { filename: safeName, size: (content || "").length },
+        created_at: new Date().toISOString().replace("T", " ").substring(0, 19)
+      });
+
+      res.json({
+        status: "success",
+        success: true,
+        message: `Script "${safeName}" salvo com sucesso!`,
+        filename: safeName,
+        path: fpath
+      });
+    } catch (err: any) {
+      res.status(500).json({ status: "error", success: false, message: err.message });
+    }
+  });
+
+  app.post("/api/automation/scripts/run", (req, res) => {
+    try {
+      const { filename, args, use_sudo, custom_command } = req.body || {};
+      const scriptsDir = getScriptsDir();
+      let finalCmd = "";
+      let targetName = "";
+
+      if (custom_command && typeof custom_command === "string") {
+        finalCmd = custom_command.trim();
+        targetName = "custom_command";
+      } else if (filename && typeof filename === "string") {
+        const safeName = path.basename(filename.trim());
+        const fpath = path.join(scriptsDir, safeName);
+
+        if (!fs.existsSync(fpath)) {
+          return res.status(404).json({
+            status: "error",
+            success: false,
+            message: `Script "${safeName}" não encontrado em ${fpath}`
+          });
+        }
+
+        targetName = safeName;
+        if (safeName.endsWith(".py")) {
+          finalCmd = `python3 ${fpath}`;
+        } else {
+          finalCmd = `bash ${fpath}`;
+        }
+
+        if (args && typeof args === "string" && args.trim()) {
+          finalCmd += ` ${args.trim()}`;
+        }
+      } else {
+        return res.status(400).json({
+          status: "error",
+          success: false,
+          message: "Nenhum script ou comando informado."
+        });
+      }
+
+      if (use_sudo && !finalCmd.startsWith("sudo")) {
+        finalCmd = `sudo -n ${finalCmd}`;
+      }
+
+      const t0 = Date.now();
+      exec(finalCmd, { timeout: 120000, cwd: process.cwd() }, (err, stdout, stderr) => {
+        const duration_ms = Date.now() - t0;
+        const returncode = err ? (err.code || 1) : 0;
+        let output = stdout || "";
+        if (stderr) {
+          output = output ? `${output}\n--- STDERR ---\n${stderr}` : stderr;
+        }
+        if (!output.trim()) {
+          output = `Processo concluído com código ${returncode} (Sem saída textual no stdout/stderr).`;
+        }
+
+        const isSuccess = returncode === 0;
+        virtualAuditLogs.unshift({
+          id: virtualAuditLogs.length + 1,
+          username: virtualAdmin.username,
+          action: "SCRIPT_EXECUTE",
+          target: targetName,
+          ip_address: "127.0.0.1",
+          details: { command: finalCmd, returncode, duration_ms, isSuccess },
+          created_at: new Date().toISOString().replace("T", " ").substring(0, 19)
+        });
+
+        res.json({
+          status: isSuccess ? "success" : "warning",
+          success: isSuccess,
+          returncode,
+          command: finalCmd,
+          stdout: stdout || "",
+          stderr: stderr || "",
+          output,
+          duration_ms,
+          executed_at: new Date().toISOString().replace("T", " ").substring(0, 19),
+          message: `Execução concluída com código ${returncode} (${duration_ms}ms).`
+        });
+      });
+    } catch (err: any) {
+      res.status(500).json({ status: "error", success: false, message: err.message });
+    }
+  });
+
+  // ===============================================
   // SQL STUDIO / MARIADB QUERY EXPLORER
   // ===============================================
 

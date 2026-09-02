@@ -5508,6 +5508,413 @@ async function saveCustomSpamRule(event) {
         }
     }
 
+    // ==========================================
+    // 12.1 SCRIPT RUNNER & MANUTENÇÃO STUDIO
+    // ==========================================
+    let scriptsCatalogCache = [];
+    let currentSelectedScript = null;
+    let isCodePreviewOpen = false;
+
+    async function loadAvailableScripts() {
+        const selector = document.getElementById('script-selector');
+        if (!selector) return;
+
+        try {
+            const data = await fetchJson('/api/automation/scripts');
+            if (!data || !data.scripts) return;
+
+            scriptsCatalogCache = data.scripts;
+
+            // Group by category
+            const categories = {};
+            data.scripts.forEach(s => {
+                const cat = s.category || 'Geral';
+                if (!categories[cat]) categories[cat] = [];
+                categories[cat].push(s);
+            });
+
+            let html = '';
+            for (const [catName, list] of Object.entries(categories)) {
+                html += `<optgroup label="${escapeHtml(catName)}">`;
+                list.forEach(item => {
+                    const iconEmoji = item.type === 'python' ? '🐍' : '📜';
+                    html += `<option value="${escapeHtml(item.filename)}" ${item.filename === 'fix_permissions_and_amavis.py' ? 'selected' : ''}>${iconEmoji} ${escapeHtml(item.filename)} - ${escapeHtml(item.title)}</option>`;
+                });
+                html += `</optgroup>`;
+            }
+
+            selector.innerHTML = html;
+
+            // Select default script or current
+            const target = currentSelectedScript ? currentSelectedScript.filename : 'fix_permissions_and_amavis.py';
+            if (selector.querySelector(`option[value="${target}"]`)) {
+                selector.value = target;
+            }
+            onScriptSelected(selector.value);
+
+        } catch (e) {
+            console.error("Erro ao carregar catálogo de scripts:", e);
+            showAlert(`Erro ao carregar scripts do servidor: ${e.message}`, 'danger');
+        }
+    }
+
+    function selectScriptShortcut(filename) {
+        const selector = document.getElementById('script-selector');
+        if (selector) {
+            selector.value = filename;
+            onScriptSelected(filename);
+        }
+    }
+
+    async function onScriptSelected(filename) {
+        if (!filename) return;
+        const script = scriptsCatalogCache.find(s => s.filename === filename);
+        currentSelectedScript = script || { filename, title: filename, type: filename.endsWith('.py') ? 'python' : 'shell', requires_sudo: true, suggested_args: [] };
+
+        // Update Details Card
+        const titleEl = document.getElementById('script-selected-title');
+        const descEl = document.getElementById('script-selected-description');
+        const typeBadge = document.getElementById('script-badge-type');
+        const catBadge = document.getElementById('script-badge-category');
+        const existsBadge = document.getElementById('script-badge-exists');
+        const sudoCheck = document.getElementById('script-use-sudo-check');
+        const argsInput = document.getElementById('script-args-input');
+        const suggestedContainer = document.getElementById('suggested-args-container');
+        const cmdDisplay = document.getElementById('terminal-cmd-display');
+
+        if (titleEl) titleEl.textContent = script?.title ? `${script.title} (${script.filename})` : script.filename;
+        if (descEl) descEl.textContent = script?.description || 'Script executável para tarefas de manutenção do sistema.';
+        if (typeBadge) {
+            typeBadge.textContent = (script?.type === 'python') ? 'PYTHON 3' : 'BASH SHELL';
+            typeBadge.className = `badge bg-${script?.type === 'python' ? 'primary' : 'dark'} px-2.5 py-1.5 font-monospace`;
+        }
+        if (catBadge) catBadge.textContent = script?.category || 'Manutenção';
+        if (existsBadge) {
+            if (script?.exists) {
+                existsBadge.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> Arquivo Presente';
+                existsBadge.className = 'badge bg-success-subtle text-success border border-success-subtle small font-monospace';
+            } else {
+                existsBadge.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1"></i> Não Encontrado';
+                existsBadge.className = 'badge bg-warning-subtle text-warning border border-warning-subtle small font-monospace';
+            }
+        }
+        if (sudoCheck && script) {
+            sudoCheck.checked = script.requires_sudo !== false;
+        }
+        if (argsInput) {
+            argsInput.value = script?.default_args || '';
+        }
+
+        // Suggested Args Pills
+        if (suggestedContainer) {
+            const list = script?.suggested_args || [];
+            if (list.length > 0) {
+                let pills = '<small class="text-muted small">Sugestões:</small>';
+                list.forEach(arg => {
+                    pills += `<button type="button" class="btn btn-xs btn-outline-secondary font-monospace py-0 px-2 rounded-pill" onclick="applySuggestedArg('${escapeHtml(arg)}')">${escapeHtml(arg)}</button>`;
+                });
+                suggestedContainer.innerHTML = pills;
+                suggestedContainer.classList.remove('d-none');
+            } else {
+                suggestedContainer.innerHTML = '';
+                suggestedContainer.classList.add('d-none');
+            }
+        }
+
+        if (cmdDisplay) {
+            cmdDisplay.textContent = `mailadmin@server:~$ ${sudoCheck?.checked ? 'sudo -n ' : ''}${script?.type === 'python' ? 'python3 scripts/' : 'bash scripts/'}${filename}`;
+        }
+
+        // Load preview code if preview open
+        if (isCodePreviewOpen) {
+            fetchAndRenderScriptCode(filename);
+        }
+    }
+
+    function applySuggestedArg(argText) {
+        const input = document.getElementById('script-args-input');
+        if (input) {
+            input.value = argText;
+            input.focus();
+        }
+    }
+
+    async function toggleScriptCodePreview() {
+        const container = document.getElementById('script-code-preview-container');
+        const btnText = document.getElementById('btn-toggle-code-text');
+        if (!container) return;
+
+        isCodePreviewOpen = !isCodePreviewOpen;
+        if (isCodePreviewOpen) {
+            container.classList.remove('d-none');
+            if (btnText) btnText.textContent = 'Ocultar Código';
+            const selector = document.getElementById('script-selector');
+            if (selector && selector.value) {
+                fetchAndRenderScriptCode(selector.value);
+            }
+        } else {
+            container.classList.add('d-none');
+            if (btnText) btnText.textContent = 'Inspecionar Código';
+        }
+    }
+
+    async function fetchAndRenderScriptCode(filename) {
+        const previewEl = document.getElementById('script-code-preview');
+        const filenameEl = document.getElementById('script-code-filename');
+        const sizeEl = document.getElementById('script-code-size');
+
+        if (!previewEl) return;
+        previewEl.textContent = '# Carregando código-fonte de scripts/' + filename + '...';
+        if (filenameEl) filenameEl.textContent = 'scripts/' + filename;
+
+        try {
+            const data = await fetchJson(`/api/automation/scripts/${encodeURIComponent(filename)}/content`);
+            if (data && data.content) {
+                previewEl.textContent = data.content;
+                if (sizeEl) sizeEl.textContent = `${data.content.length} bytes`;
+            } else {
+                previewEl.textContent = '# Arquivo vazio ou sem conteúdo retornado.';
+            }
+        } catch (e) {
+            previewEl.textContent = `# Não foi possível ler o arquivo: ${e.message}`;
+        }
+    }
+
+    async function runSelectedScript() {
+        const selector = document.getElementById('script-selector');
+        const filename = selector ? selector.value : '';
+        const args = document.getElementById('script-args-input')?.value || '';
+        const useSudo = document.getElementById('script-use-sudo-check')?.checked || false;
+        const terminalOut = document.getElementById('terminal-output');
+        const statusBadge = document.getElementById('terminal-status-badge');
+        const returnBadge = document.getElementById('terminal-returncode-badge');
+        const durationBadge = document.getElementById('terminal-duration-badge');
+        const cmdDisplay = document.getElementById('terminal-cmd-display');
+        const runBtn = document.getElementById('btn-run-script');
+
+        if (!filename) {
+            showAlert('Por favor, selecione um script no dropdown.', 'warning');
+            return;
+        }
+
+        // Set UI to Running state
+        if (statusBadge) {
+            statusBadge.className = 'badge bg-warning text-dark font-monospace';
+            statusBadge.textContent = 'Executando...';
+        }
+        if (returnBadge) {
+            returnBadge.className = 'badge bg-dark border border-secondary font-monospace';
+            returnBadge.textContent = 'Exit: ...';
+        }
+        if (durationBadge) durationBadge.textContent = '... ms';
+        if (runBtn) {
+            runBtn.disabled = true;
+            runBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Executando...';
+        }
+
+        const fullCommandStr = `${useSudo ? 'sudo -n ' : ''}${filename.endsWith('.py') ? 'python3 scripts/' : 'bash scripts/'}${filename} ${args}`.trim();
+        if (cmdDisplay) cmdDisplay.textContent = `mailadmin@server:~$ ${fullCommandStr}`;
+
+        const timestampStr = new Date().toLocaleTimeString();
+        if (terminalOut) {
+            terminalOut.innerHTML += `\n<span class="text-secondary">[${timestampStr}]</span> <span class="text-warning fw-bold">$ ${escapeHtml(fullCommandStr)}</span>\n<span class="text-info"><i class="bi bi-hourglass-split"></i> Disparando subprocess no servidor Linux...</span>\n`;
+            document.getElementById('terminal-viewport')?.scrollTo({ top: 999999, behavior: 'smooth' });
+        }
+
+        const t0 = performance.now();
+        try {
+            const data = await fetchJson('/api/automation/scripts/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filename,
+                    args,
+                    use_sudo: useSudo
+                })
+            });
+
+            const elapsed = Math.round(performance.now() - t0);
+            if (durationBadge) durationBadge.textContent = `${data.duration_ms || elapsed} ms`;
+
+            const exitCode = data.returncode !== undefined ? data.returncode : 0;
+            if (returnBadge) {
+                returnBadge.textContent = `Exit: ${exitCode}`;
+                returnBadge.className = `badge font-monospace ${exitCode === 0 ? 'bg-success' : 'bg-danger'}`;
+            }
+
+            if (statusBadge) {
+                statusBadge.textContent = exitCode === 0 ? 'Sucesso' : 'Erro na Execução';
+                statusBadge.className = `badge font-monospace ${exitCode === 0 ? 'bg-success' : 'bg-danger'}`;
+            }
+
+            // Append Output to Terminal with formatting
+            let cleanOutput = data.output || data.stdout || '';
+            if (data.stderr && !cleanOutput.includes(data.stderr)) {
+                cleanOutput += `\n[STDERR]\n${data.stderr}`;
+            }
+
+            let formatted = escapeHtml(cleanOutput);
+            // Highlight common patterns
+            formatted = formatted
+                .replace(/(\[OK\]|\[SUCESSO\]|SUCESSO|ATIVO|RUNNING|OK)/g, '<span class="text-success fw-bold">$1</span>')
+                .replace(/(\[AVISO\]|\[WARNING\]|ALERTA|WARNING)/g, '<span class="text-warning fw-bold">$1</span>')
+                .replace(/(\[ERRO\]|\[ERROR\]|\[FALHA\]|FALHA|ERROR|FAILED)/g, '<span class="text-danger fw-bold">$1</span>')
+                .replace(/(\=\=\=.*?\=\=\=)/g, '<span class="text-info fw-bold">$1</span>');
+
+            if (terminalOut) {
+                terminalOut.innerHTML += `${formatted}\n<span class="text-success">[Processo concluído com código ${exitCode}]</span>\n`;
+                document.getElementById('terminal-viewport')?.scrollTo({ top: 999999, behavior: 'smooth' });
+            }
+
+            if (exitCode === 0) {
+                showAlert(`Script "${filename}" executado com sucesso!`, 'success');
+            } else {
+                showAlert(`Script "${filename}" finalizou com código de erro ${exitCode}. Verifique os detalhes no terminal.`, 'danger');
+            }
+
+        } catch (e) {
+            const elapsed = Math.round(performance.now() - t0);
+            if (durationBadge) durationBadge.textContent = `${elapsed} ms`;
+            if (statusBadge) {
+                statusBadge.textContent = 'Falha de Conexão';
+                statusBadge.className = 'badge bg-danger font-monospace';
+            }
+            if (returnBadge) {
+                returnBadge.textContent = 'Exit: 1';
+                returnBadge.className = 'badge bg-danger font-monospace';
+            }
+            if (terminalOut) {
+                terminalOut.innerHTML += `<span class="text-danger fw-bold">[ERRO DE REQUISIÇÃO] ${escapeHtml(e.message)}</span>\n`;
+                document.getElementById('terminal-viewport')?.scrollTo({ top: 999999, behavior: 'smooth' });
+            }
+            showAlert(`Falha ao executar script: ${e.message}`, 'danger');
+        } finally {
+            if (runBtn) {
+                runBtn.disabled = false;
+                runBtn.innerHTML = '<i class="bi bi-play-fill fs-5"></i> Executar Script Agora';
+            }
+        }
+    }
+
+    function clearTerminalConsole() {
+        const terminalOut = document.getElementById('terminal-output');
+        if (terminalOut) {
+            terminalOut.innerHTML = `<span class="text-secondary">[Console limpo em ${new Date().toLocaleTimeString()}]</span>\n<span class="text-secondary">┌──(mailadmin㉿zrti-mailserver)-[/opt/mailadmin]\n└─$</span> `;
+        }
+        const statusBadge = document.getElementById('terminal-status-badge');
+        const returnBadge = document.getElementById('terminal-returncode-badge');
+        const durationBadge = document.getElementById('terminal-duration-badge');
+        if (statusBadge) { statusBadge.textContent = 'Pronto'; statusBadge.className = 'badge bg-secondary font-monospace'; }
+        if (returnBadge) { returnBadge.textContent = 'Exit: -'; returnBadge.className = 'badge bg-dark border border-secondary font-monospace'; }
+        if (durationBadge) durationBadge.textContent = '0 ms';
+    }
+
+    function copyTerminalOutput() {
+        const terminalOut = document.getElementById('terminal-output');
+        if (!terminalOut) return;
+        const text = terminalOut.innerText || terminalOut.textContent;
+        navigator.clipboard.writeText(text).then(() => {
+            showAlert('Saída do terminal copiada para a área de transferência!', 'info');
+        }).catch(() => {
+            alert('Saída copiada!');
+        });
+    }
+
+    function downloadTerminalOutput() {
+        const terminalOut = document.getElementById('terminal-output');
+        if (!terminalOut) return;
+        const text = terminalOut.innerText || terminalOut.textContent;
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `script_execution_${Date.now()}.log`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function showCreateScriptModal() {
+        const filenameInput = document.getElementById('custom-script-filename-input');
+        if (filenameInput) filenameInput.value = '';
+        applyScriptTemplate('python_clean');
+        new bootstrap.Modal(document.getElementById('createScriptModal')).show();
+    }
+
+    function applyScriptTemplate(templateKey) {
+        const filenameInput = document.getElementById('custom-script-filename-input');
+        const codeInput = document.getElementById('custom-script-code-input');
+        if (!codeInput) return;
+
+        if (templateKey === 'python_clean') {
+            if (filenameInput && !filenameInput.value) filenameInput.value = 'cleanup_tasks.py';
+            codeInput.value = `#!/usr/bin/env python3
+"""
+Script de Manutenção e Limpeza
+Executado via MailAdmin Studio
+"""
+import sys
+import os
+
+print("=== INICIANDO ROTINA DE MANUTENÇÃO ===")
+print("Verificando arquivos temporários...")
+# Insira sua lógica de limpeza aqui
+print("[OK] Rotina concluída com sucesso.")
+sys.exit(0)
+`;
+        } else if (templateKey === 'python_db') {
+            if (filenameInput && !filenameInput.value) filenameInput.value = 'custom_db_report.py';
+            codeInput.value = `#!/usr/bin/env python3
+"""
+Relatório Customizado no MariaDB
+"""
+import sys
+
+print("=== GERANDO RELATÓRIO DO MARIADB ===")
+# Consulta e processamento de dados
+print("[OK] Relatório gerado.")
+sys.exit(0)
+`;
+        } else if (templateKey === 'bash_service') {
+            if (filenameInput && !filenameInput.value) filenameInput.value = 'restart_mta_services.sh';
+            codeInput.value = `#!/bin/bash
+set -e
+echo "=== REINICIANDO SERVIÇOS MTA ==="
+systemctl restart postfix
+systemctl restart amavis
+echo "[OK] Serviços reiniciados."
+exit 0
+`;
+        }
+    }
+
+    async function saveCustomScript(event) {
+        if (event) event.preventDefault();
+        const filename = document.getElementById('custom-script-filename-input')?.value.trim();
+        const content = document.getElementById('custom-script-code-input')?.value;
+
+        if (!filename) {
+            alert('Por favor informe o nome do arquivo do script.');
+            return;
+        }
+
+        try {
+            const data = await fetchJson('/api/automation/scripts/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename, content })
+            });
+
+            showAlert(data.message || 'Script salvo com sucesso!', 'success');
+            closeModal('createScriptModal');
+            await loadAvailableScripts();
+            selectScriptShortcut(data.filename || filename);
+        } catch (e) {
+            showAlert(`Erro ao salvar script: ${e.message}`, 'danger');
+        }
+    }
+
     // 11. TRILHA DE AUDITORIA DE AÇÕES E GERENCIAMENTO DE INCIDENTES
     let currentIncidents = [];
 
@@ -8628,6 +9035,11 @@ async function saveCustomSpamRule(event) {
                             </button>
                         </li>
                         <li class="nav-item" role="presentation">
+                            <button class="nav-link fw-semibold" id="scripts-runner-tab" data-bs-toggle="tab" data-bs-target="#tab-scripts-runner" type="button" role="tab" aria-controls="tab-scripts-runner" aria-selected="false" onclick="loadAvailableScripts()">
+                                <i class="bi bi-terminal-fill me-1.5 text-success"></i> Script Runner & Manutenção
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
                             <button class="nav-link fw-semibold" id="automacoes-tab" data-bs-toggle="tab" data-bs-target="#tab-automacoes" type="button" role="tab" aria-controls="tab-automacoes" aria-selected="false" onclick="loadCronJobs()">
                                 <i class="bi bi-calendar-check me-1.5 text-purple"></i> Automações & Agendamentos (Crontab Visual)
                             </button>
@@ -8718,7 +9130,178 @@ async function saveCustomSpamRule(event) {
                             </div>
                         </div>
 
-                        <!-- ABA 2: Automações & Agendamentos (Crontab Visual) -->
+                        <!-- ABA 2: Script Runner & Manutenção (Execução Interativa & Terminal) -->
+                        <div class="tab-pane fade" id="tab-scripts-runner" role="tabpanel" aria-labelledby="scripts-runner-tab">
+                            <div class="card p-4">
+                                <!-- Header do Script Runner -->
+                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4 border-bottom pb-3">
+                                    <div>
+                                        <h3 class="h6 mb-1 fw-bold text-dark d-flex align-items-center gap-2">
+                                            <i class="bi bi-terminal-fill text-success"></i> Script Runner & Execução de Manutenção
+                                        </h3>
+                                        <small class="text-muted">Execute rotinas de correção de permissões, diagnósticos de autenticação, migração de banco e scripts personalizados com parametrização em tempo real e visualização de saída no terminal.</small>
+                                    </div>
+                                    <div class="d-flex gap-2">
+                                        <button class="btn btn-outline-secondary btn-sm rounded-3 d-flex align-items-center gap-1" onclick="loadAvailableScripts()" title="Recarregar Scripts do Servidor">
+                                            <i class="bi bi-arrow-clockwise"></i> Atualizar Catálogo
+                                        </button>
+                                        <button class="btn btn-outline-primary btn-sm rounded-3 d-flex align-items-center gap-1" onclick="showCreateScriptModal()">
+                                            <i class="bi bi-plus-circle-fill"></i> Novo Script
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div id="script-runner-alert-container"></div>
+
+                                <!-- 1. Seletor de Scripts & Atalhos Rápidos -->
+                                <div class="row g-3 mb-4">
+                                    <div class="col-lg-6">
+                                        <label class="form-label small fw-bold text-dark mb-1">
+                                            <i class="bi bi-list-nested text-primary me-1"></i> Selecionar Script no Servidor:
+                                        </label>
+                                        <select id="script-selector" class="form-select font-monospace shadow-sm" onchange="onScriptSelected(this.value)">
+                                            <option value="">Carregando scripts disponíveis...</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-lg-6">
+                                        <label class="form-label small fw-bold text-dark mb-1">
+                                            <i class="bi bi-lightning-fill text-warning me-1"></i> Acesso Rápido aos Scripts Oficiais:
+                                        </label>
+                                        <div class="d-flex flex-wrap gap-1.5" id="script-quick-badges">
+                                            <button class="btn btn-sm btn-outline-primary font-monospace rounded-pill text-nowrap py-1 px-2.5" onclick="selectScriptShortcut('fix_permissions_and_amavis.py')">
+                                                ⚡ fix_permissions_and_amavis.py
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-success font-monospace rounded-pill text-nowrap py-1 px-2.5" onclick="selectScriptShortcut('fix_server.py')">
+                                                🔧 fix_server.py
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-info font-monospace rounded-pill text-nowrap py-1 px-2.5" onclick="selectScriptShortcut('diagnose_auth.py')">
+                                                🔍 diagnose_auth.py
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-warning font-monospace rounded-pill text-nowrap py-1 px-2.5" onclick="selectScriptShortcut('migrate_database.py')">
+                                                🗄️ migrate_database.py
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-purple font-monospace rounded-pill text-nowrap py-1 px-2.5" onclick="selectScriptShortcut('mail_log_ingestor.py')">
+                                                📊 mail_log_ingestor.py
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger font-monospace rounded-pill text-nowrap py-1 px-2.5" onclick="selectScriptShortcut('reset_admin_password.py')">
+                                                🔑 reset_admin_password.py
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 2. Card de Detalhes & Configuração de Parâmetros -->
+                                <div class="bg-light border rounded-3 p-3 mb-4 shadow-sm" id="script-details-card">
+                                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2 pb-2 border-bottom">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="badge bg-primary px-2.5 py-1.5 font-monospace" id="script-badge-type">PYTHON 3</span>
+                                            <h4 class="h6 mb-0 fw-bold text-dark font-monospace" id="script-selected-title">fix_permissions_and_amavis.py</h4>
+                                            <span class="badge bg-secondary-subtle text-secondary border font-monospace small" id="script-badge-category">Segurança & Permissões</span>
+                                        </div>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle small font-monospace" id="script-badge-exists">
+                                                <i class="bi bi-check-circle-fill me-1"></i> Arquivo Presente
+                                            </span>
+                                            <button class="btn btn-sm btn-outline-dark font-monospace rounded-3 d-flex align-items-center gap-1" onclick="toggleScriptCodePreview()" id="btn-toggle-code">
+                                                <i class="bi bi-code-slash"></i> <span id="btn-toggle-code-text">Inspecionar Código</span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <p class="small text-muted mb-3" id="script-selected-description">
+                                        Restaura permissões seguras (0644) exigidas pelo Amavis, elimina o erro [Errno 13], configura /etc/sudoers.d/mailadmin com NOPASSWD e valida status de inicialização.
+                                    </p>
+
+                                    <!-- Área Colapsável de Inspeção do Código-Fonte -->
+                                    <div class="d-none mb-3" id="script-code-preview-container">
+                                        <div class="d-flex align-items-center justify-content-between bg-dark text-secondary px-3 py-1.5 rounded-top small border-bottom border-secondary">
+                                            <span class="font-monospace text-info small" id="script-code-filename">scripts/fix_permissions_and_amavis.py</span>
+                                            <span class="badge bg-secondary font-monospace" id="script-code-size">0 bytes</span>
+                                        </div>
+                                        <pre class="bg-dark text-light p-3 rounded-bottom mb-0 font-monospace small overflow-auto border border-dark" style="max-height: 280px;"><code id="script-code-preview"># Carregando código-fonte...</code></pre>
+                                    </div>
+
+                                    <!-- Parametrização & Argumentos -->
+                                    <div class="row g-3 align-items-end">
+                                        <div class="col-lg-6">
+                                            <label class="form-label small fw-bold text-dark mb-1 d-flex align-items-center justify-content-between">
+                                                <span><i class="bi bi-sliders text-primary me-1"></i> Parâmetros / Argumentos CLI:</span>
+                                                <span class="text-muted small fw-normal">Opcional</span>
+                                            </label>
+                                            <input type="text" id="script-args-input" class="form-control font-monospace shadow-sm" placeholder="Ex: --user suporte">
+                                            <div class="d-flex flex-wrap align-items-center gap-1.5 mt-1.5" id="suggested-args-container">
+                                                <small class="text-muted small">Sugestões:</small>
+                                                <button type="button" class="btn btn-xs btn-outline-secondary font-monospace py-0 px-2 rounded-pill" onclick="applySuggestedArg('--user suporte')">--user suporte</button>
+                                                <button type="button" class="btn btn-xs btn-outline-secondary font-monospace py-0 px-2 rounded-pill" onclick="applySuggestedArg('--user www-data')">--user www-data</button>
+                                                <button type="button" class="btn btn-xs btn-outline-secondary font-monospace py-0 px-2 rounded-pill" onclick="applySuggestedArg('--dry-run')">--dry-run</button>
+                                            </div>
+                                        </div>
+
+                                        <div class="col-lg-3">
+                                            <div class="form-check form-switch p-2 bg-white rounded border">
+                                                <input class="form-check-input ms-0 me-2" type="checkbox" id="script-use-sudo-check" checked>
+                                                <label class="form-check-label small fw-bold text-dark cursor-pointer" for="script-use-sudo-check">
+                                                    Executar via Sudo (<code class="text-danger small">sudo -n</code>)
+                                                </label>
+                                            </div>
+                                            <small class="text-muted d-block mt-1" style="font-size: 11px;">Requerido para comandos do systemctl e /etc/sudoers</small>
+                                        </div>
+
+                                        <div class="col-lg-3 text-end">
+                                            <button id="btn-run-script" class="btn btn-success fw-bold px-4 py-2.5 rounded-3 shadow-sm w-100 d-flex align-items-center justify-content-center gap-2" onclick="runSelectedScript()">
+                                                <i class="bi bi-play-fill fs-5"></i> Executar Script Agora
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 3. Terminal Interativo de Execução -->
+                                <div class="terminal-container border rounded-3 overflow-hidden shadow">
+                                    <!-- Header do Terminal com Estilo Console Unix -->
+                                    <div class="bg-slate-900 bg-dark text-white px-3 py-2 d-flex flex-wrap align-items-center justify-content-between gap-2 border-bottom border-secondary">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="d-flex gap-1.5 me-2">
+                                                <span class="d-inline-block rounded-circle bg-danger" style="width: 10px; height: 10px;"></span>
+                                                <span class="d-inline-block rounded-circle bg-warning" style="width: 10px; height: 10px;"></span>
+                                                <span class="d-inline-block rounded-circle bg-success" style="width: 10px; height: 10px;"></span>
+                                            </div>
+                                            <span class="font-monospace small text-white fw-bold">
+                                                <i class="bi bi-terminal me-1 text-info"></i> Terminal de Execução
+                                            </span>
+                                            <span class="text-secondary">|</span>
+                                            <span class="font-monospace small text-secondary" id="terminal-cmd-display">mailadmin@server:~$ aguardando comando...</span>
+                                        </div>
+
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span id="terminal-status-badge" class="badge bg-secondary font-monospace">Pronto</span>
+                                            <span id="terminal-returncode-badge" class="badge bg-dark border border-secondary font-monospace">Exit: -</span>
+                                            <span id="terminal-duration-badge" class="badge bg-dark border border-secondary font-monospace">0 ms</span>
+
+                                            <button class="btn btn-sm btn-outline-light py-0 px-2 font-monospace" onclick="copyTerminalOutput()" title="Copiar Saída do Terminal">
+                                                <i class="bi bi-clipboard me-1"></i> Copiar
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-light py-0 px-2 font-monospace" onclick="downloadTerminalOutput()" title="Baixar Log (.log)">
+                                                <i class="bi bi-download me-1"></i> Salvar
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger py-0 px-2 font-monospace" onclick="clearTerminalConsole()" title="Limpar Console">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Canvas do Terminal Escuro com Suporte a ANSI e Scroll Automático -->
+                                    <div class="bg-black p-3 text-light font-monospace small overflow-auto" id="terminal-viewport" style="min-height: 280px; max-height: 480px; font-family: 'Fira Code', 'Cascadia Code', 'Courier New', monospace; line-height: 1.5;">
+                                        <div id="terminal-output" class="text-light">
+<span class="text-secondary">┌──(mailadmin㉿zrti-mailserver)-[/opt/mailadmin]</span>
+<span class="text-secondary">└─$</span> <span class="text-info"># Selecione um script acima e clique em 'Executar Script Agora' para visualizar o output em tempo real.</span>
+<span class="text-secondary"># Scripts suportados: fix_permissions_and_amavis.py, fix_server.py, diagnose_auth.py, migrate_database.py, etc.</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ABA 3: Automações & Agendamentos (Crontab Visual) -->
                         <div class="tab-pane fade" id="tab-automacoes" role="tabpanel" aria-labelledby="automacoes-tab">
                             <div class="card p-4">
                                 <div class="d-flex align-items-center justify-content-between mb-3 border-bottom pb-3">
@@ -10165,7 +10748,56 @@ async function saveCustomSpamRule(event) {
     </div>
 </div>
 
-<!-- 12. Modal: Detalhes DNS -->
+<!-- 12. Modal: Criar / Salvar Script Customizado -->
+<div class="modal fade" id="createScriptModal" tabindex="-1" aria-labelledby="createScriptModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light border-bottom">
+                <h5 class="modal-title fw-bold text-dark fs-6" id="createScriptModalLabel">
+                    <i class="bi bi-file-earmark-code-fill me-1 text-success"></i> Criar / Editar Script Customizado
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <form onsubmit="saveCustomScript(event)">
+                <div class="modal-body p-4">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-7">
+                            <label class="form-label small fw-semibold text-dark">Nome do Arquivo (em scripts/)</label>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text font-monospace bg-light">scripts/</span>
+                                <input type="text" class="form-control font-monospace" id="custom-script-filename-input" placeholder="ex: cleanup_tasks.py" required>
+                            </div>
+                            <small class="text-muted" style="font-size: 11px;">Extensões suportadas: .py (Python 3) ou .sh (Bash Shell)</small>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label small fw-semibold text-dark">Modelo Inicial / Template</label>
+                            <select class="form-select form-select-sm font-monospace" id="custom-script-template-select" onchange="applyScriptTemplate(this.value)">
+                                <option value="python_clean">Python 3 (Limpeza e Manutenção)</option>
+                                <option value="python_db">Python 3 (MariaDB Query / Relatório)</option>
+                                <option value="bash_service">Bash (Reiniciar Serviços MTA)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="d-flex align-items-center justify-content-between mb-1">
+                            <label class="form-label small fw-semibold text-dark mb-0">Código-Fonte do Script</label>
+                            <span class="badge bg-secondary font-monospace">UTF-8</span>
+                        </div>
+                        <textarea id="custom-script-code-input" class="form-control font-monospace p-3 bg-dark text-light rounded-3 small" rows="12" placeholder="#!/usr/bin/env python3&#10;import sys&#10;print('Executando tarefa...')"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-sm btn-success px-4">
+                        <i class="bi bi-save me-1"></i> Salvar no Servidor
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 13. Modal: Detalhes DNS -->
 <div class="modal fade" id="dnsDetailsModal" tabindex="-1" aria-labelledby="dnsDetailsModalTitle" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content border-0 shadow">

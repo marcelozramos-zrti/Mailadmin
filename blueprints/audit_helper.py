@@ -179,6 +179,10 @@ def safe_write_system_file(file_path: str, content: str, create_backup: bool = T
     try:
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(content)
+        try:
+            os.chmod(file_path, 0o644)
+        except Exception:
+            pass
         return {"success": True}
     except (PermissionError, IOError):
         pass
@@ -218,6 +222,8 @@ def safe_write_system_file(file_path: str, content: str, create_backup: bool = T
             )
             if tee_res.returncode == 0:
                 success = True
+            else:
+                last_err = tee_res.stderr.strip()
         except Exception as e:
             last_err = str(e)
 
@@ -232,10 +238,12 @@ def safe_write_system_file(file_path: str, content: str, create_backup: bool = T
             )
             if dd_res.returncode == 0:
                 success = True
+            else:
+                last_err = dd_res.stderr.strip()
         except Exception as e:
             last_err = str(e)
 
-    # Ajusta permissões para leitura dos serviços do sistema
+    # Ajusta permissões para leitura dos serviços do sistema (0644 seguro exigido pelo Amavis)
     if success:
         try:
             subprocess.run(['sudo', '-n', 'chmod', '644', file_path], capture_output=True, timeout=5)
@@ -254,7 +262,7 @@ def safe_write_system_file(file_path: str, content: str, create_backup: bool = T
     else:
         current_user = getpass.getuser()
         err_detail = f"Permissão negada para o usuário '{current_user}' ao gravar em '{file_path}'. "
-        err_detail += f"Execute no terminal do servidor: 'sudo chmod 666 {file_path}' ou configure sudoers sem senha para '{current_user}'."
+        err_detail += f"Para corrigir com segurança sem violar o Amavis, configure sudoers NOPASSWD para '{current_user}' ou execute: 'sudo setfacl -m u:{current_user}:rw {file_path}'. (Aviso: Nunca use chmod 666, pois o Amavis bloqueia inicialização com arquivos world-writable)."
         if last_err:
             err_detail += f" (Detalhes do sistema: {last_err})"
         return {"success": False, "error": err_detail}

@@ -7,6 +7,7 @@ import { TroubleshootingTab } from './components/TroubleshootingTab';
 import { SpamRulesTab } from './components/SpamRulesTab';
 import { ServersTab } from './components/ServersTab';
 import { LogAuditTab } from './components/LogAuditTab';
+import { StudioTab } from './components/StudioTab';
 import { PythonExportTab } from './components/PythonExportTab';
 import { SettingsTab } from './components/SettingsTab';
 import { UsersTab } from './components/UsersTab';
@@ -15,7 +16,7 @@ import { ServicesMap, LayoutPosition } from './types';
 import { CheckCircle, AlertTriangle, X } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export' | 'settings' | 'usuarios'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'studio' | 'export' | 'settings' | 'usuarios'>('dashboard');
   const [services, setServices] = useState<ServicesMap>({});
   const [loadingStatus, setLoadingStatus] = useState<boolean>(true);
   const [isMfaOpen, setIsMfaOpen] = useState<boolean>(false);
@@ -173,6 +174,8 @@ export default function App() {
               onRefreshStatus={fetchStatus}
             />
           )}
+
+          {activeTab === 'studio' && <StudioTab onShowAlert={showAlert} />}
 
           {activeTab === 'logs' && <LogAuditTab />}
 

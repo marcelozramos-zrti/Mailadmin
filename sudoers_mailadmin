@@ -1,16 +1,28 @@
-# Configuração de Sudoers para o Painel Web Admin Mail Server
+# Configuração de Sudoers para o Painel Web Admin Mail Server (ZRTI Suite)
 # Coloque este arquivo em: /etc/sudoers.d/mailadmin
 # Permissões do arquivo: chmod 440 /etc/sudoers.d/mailadmin
 
-# Permite ao usuário 'suporte' executar comandos específicos do systemctl e manuseio do local.cf e logs sem senha
+# Comandos de controle de serviços do MTA e Segurança
+suporte ALL=(ALL) NOPASSWD: /bin/systemctl is-active postfix, /usr/bin/systemctl is-active postfix
+suporte ALL=(ALL) NOPASSWD: /bin/systemctl is-active amavis, /usr/bin/systemctl is-active amavis
+suporte ALL=(ALL) NOPASSWD: /bin/systemctl is-active spamassassin, /usr/bin/systemctl is-active spamassassin
+suporte ALL=(ALL) NOPASSWD: /bin/systemctl is-active clamav-daemon, /usr/bin/systemctl is-active clamav-daemon
+suporte ALL=(ALL) NOPASSWD: /bin/systemctl restart postfix, /usr/bin/systemctl restart postfix
+suporte ALL=(ALL) NOPASSWD: /bin/systemctl restart amavis, /usr/bin/systemctl restart amavis
+suporte ALL=(ALL) NOPASSWD: /bin/systemctl restart spamassassin, /usr/bin/systemctl restart spamassassin
+suporte ALL=(ALL) NOPASSWD: /bin/systemctl restart clamav-daemon, /usr/bin/systemctl restart clamav-daemon
+suporte ALL=(ALL) NOPASSWD: /usr/sbin/service *
 
-suporte ALL=(ALL) NOPASSWD: /bin/systemctl is-active postfix
-suporte ALL=(ALL) NOPASSWD: /bin/systemctl is-active amavis
-suporte ALL=(ALL) NOPASSWD: /bin/systemctl is-active clamav-daemon
-suporte ALL=(ALL) NOPASSWD: /bin/systemctl restart postfix
-suporte ALL=(ALL) NOPASSWD: /bin/systemctl restart amavis
-suporte ALL=(ALL) NOPASSWD: /bin/systemctl restart clamav-daemon
-suporte ALL=(ALL) NOPASSWD: /bin/systemctl restart spamassassin
-suporte ALL=(ALL) NOPASSWD: /bin/cp /tmp/local.cf.tmp /etc/spamassassin/local.cf
-suporte ALL=(ALL) NOPASSWD: /usr/bin/tail -n * /var/log/mail.log
-suporte ALL=(ALL) NOPASSWD: /bin/journalctl -u postfix -u amavis *
+# Operações de I/O de configuração segura do SpamAssassin e Amavis
+suporte ALL=(ALL) NOPASSWD: /bin/cp, /usr/bin/cp
+suporte ALL=(ALL) NOPASSWD: /usr/bin/tee, /bin/tee
+suporte ALL=(ALL) NOPASSWD: /bin/chmod, /usr/bin/chmod
+suporte ALL=(ALL) NOPASSWD: /bin/mkdir, /usr/bin/mkdir
+suporte ALL=(ALL) NOPASSWD: /bin/dd, /usr/bin/dd
+suporte ALL=(ALL) NOPASSWD: /usr/bin/test, /bin/test
+suporte ALL=(ALL) NOPASSWD: /bin/cat, /usr/bin/cat
+
+# Leitura e acompanhamento de logs
+suporte ALL=(ALL) NOPASSWD: /usr/bin/tail
+suporte ALL=(ALL) NOPASSWD: /bin/journalctl, /usr/bin/journalctl
+

@@ -7,8 +7,8 @@ import {
 } from 'lucide-react';
 
 interface SidebarProps {
-  activeTab: 'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export' | 'settings' | 'usuarios';
-  setActiveTab: (tab: 'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export' | 'settings' | 'usuarios') => void;
+  activeTab: 'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'studio' | 'export' | 'settings' | 'usuarios';
+  setActiveTab: (tab: 'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'studio' | 'export' | 'settings' | 'usuarios') => void;
   services: ServicesMap;
   onOpenMfa: () => void;
   collapsed: boolean;
@@ -39,7 +39,8 @@ export function Sidebar({
     { id: 'vmail', label: 'Domínios & Contas', icon: Mail, badge: 'MariaDB vmail' },
     { id: 'troubleshooting', label: 'Troubleshooting', icon: Wrench, badge: 'Logs & DNS' },
     { id: 'spam', label: 'AntiSpam & Regras', icon: Shield, badge: 'Inteligência & Blacklist' },
-    { id: 'logs', label: 'Audit Logs', icon: Terminal, badge: 'Tempo Real' },
+    { id: 'studio', label: 'Studio & Scripts', icon: Terminal, badge: 'Script Runner & SQL' },
+    { id: 'logs', label: 'Audit Logs', icon: Activity, badge: 'Tempo Real' },
     { id: 'settings', label: 'Configurações', icon: Settings, badge: 'Parâmetros & TLS' },
     { id: 'usuarios', label: 'Usuários', icon: Users, badge: 'Admin & 2FA' },
     { id: 'export', label: 'Código Python', icon: Download, badge: 'Flask Suite' },

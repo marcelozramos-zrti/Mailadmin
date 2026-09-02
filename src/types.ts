@@ -386,4 +386,36 @@ export interface SystemConfigSettings {
   cert_valid_until: string;
 }
 
+export interface ServerScriptItem {
+  id: string;
+  filename: string;
+  title: string;
+  category: string;
+  description: string;
+  icon: string;
+  color: string;
+  default_args: string;
+  suggested_args: string[];
+  requires_sudo: boolean;
+  type: 'python' | 'shell';
+  exists: boolean;
+  path: string;
+  size_bytes: number;
+  last_modified?: string;
+  is_builtin: boolean;
+}
+
+export interface ScriptExecutionResult {
+  status: 'success' | 'warning' | 'error';
+  success: boolean;
+  returncode: number;
+  command: string;
+  stdout: string;
+  stderr: string;
+  output: string;
+  duration_ms: number;
+  executed_at: string;
+  message: string;
+}
+
 

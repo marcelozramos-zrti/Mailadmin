@@ -3,8 +3,8 @@ import { ServicesMap, LayoutPosition } from '../types';
 import { Server, Mail, Wrench, Shield, Terminal, Download, ShieldCheck, LayoutGrid, PanelLeft, Settings, Users } from 'lucide-react';
 
 interface NavbarProps {
-  activeTab: 'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export' | 'settings' | 'usuarios';
-  setActiveTab: (tab: 'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'export' | 'settings' | 'usuarios') => void;
+  activeTab: 'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'studio' | 'export' | 'settings' | 'usuarios';
+  setActiveTab: (tab: 'dashboard' | 'servers' | 'vmail' | 'troubleshooting' | 'spam' | 'logs' | 'studio' | 'export' | 'settings' | 'usuarios') => void;
   services: ServicesMap;
   onOpenMfa: () => void;
   layoutPosition: LayoutPosition;
@@ -138,6 +138,18 @@ export function Navbar({
               >
                 <Shield className="w-4 h-4" />
                 Regras Spam
+              </button>
+
+              <button
+                onClick={() => setActiveTab('studio')}
+                className={`px-3.5 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 ${
+                  activeTab === 'studio'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <Terminal className="w-4 h-4 text-emerald-400" />
+                Studio & Scripts
               </button>
 
               <button
