@@ -106,7 +106,7 @@ def log_audit_action(action_type, target=None, details=None, severity_level='nor
 def safe_read_system_file(file_path: str, default: str = "") -> str:
     """
     Lê o conteúdo de um arquivo de configuração do sistema (/etc/...) de forma segura.
-    Tenta leitura direta e, caso ocorra PermissionError ou restrição de diretório, tenta via sudo cat.
+    Tenta leitura direta e, caso ocorra PermissionError ou restrição de diretório, tenta via sudo -n cat.
     """
     import os, subprocess
     if not file_path:
@@ -122,9 +122,9 @@ def safe_read_system_file(file_path: str, default: str = "") -> str:
     except Exception:
         pass
 
-    # Fallback via sudo cat
+    # Fallback via sudo -n cat (não-interativo)
     try:
-        res = subprocess.run(['sudo', 'cat', file_path], capture_output=True, text=True, timeout=5)
+        res = subprocess.run(['sudo', '-n', 'cat', file_path], capture_output=True, text=True, timeout=5)
         if res.returncode == 0:
             return res.stdout
     except Exception:
@@ -136,10 +136,10 @@ def safe_read_system_file(file_path: str, default: str = "") -> str:
 def safe_write_system_file(file_path: str, content: str, create_backup: bool = True) -> dict:
     """
     Grava com segurança o conteúdo em arquivos protegidos do sistema (/etc/spamassassin/local.cf, /etc/amavis/..., etc).
-    Utiliza múltiplos mecanismos resilientes (sudo cp, sudo tee, sudo dd, gravação direta),
-    cria diretórios pais automaticamente e garante consistência sem falhas de permissão [Errno 13].
+    Utiliza múltiplos mecanismos resilientes (gravação direta, sudo -n cp, sudo -n tee, sudo -n dd),
+    cria diretórios pais automaticamente e fornece diagnóstico claro em caso de restrição de sudoers.
     """
-    import os, subprocess, tempfile, uuid, datetime
+    import os, subprocess, tempfile, uuid, datetime, getpass
 
     if not file_path:
         return {"success": False, "error": "Caminho do arquivo não fornecido."}
@@ -151,7 +151,7 @@ def safe_write_system_file(file_path: str, content: str, create_backup: bool = T
             os.makedirs(dir_name, exist_ok=True)
         except Exception:
             try:
-                subprocess.run(['sudo', 'mkdir', '-p', dir_name], capture_output=True, timeout=5)
+                subprocess.run(['sudo', '-n', 'mkdir', '-p', dir_name], capture_output=True, timeout=5)
             except Exception:
                 pass
 
@@ -162,40 +162,43 @@ def safe_write_system_file(file_path: str, content: str, create_backup: bool = T
             if os.path.exists(file_path):
                 file_exists = True
             else:
-                t_res = subprocess.run(['sudo', 'test', '-f', file_path], capture_output=True)
+                t_res = subprocess.run(['sudo', '-n', 'test', '-f', file_path], capture_output=True)
                 file_exists = (t_res.returncode == 0)
 
             if file_exists:
                 ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
                 bak_path = f"{file_path}.bak_{ts}"
                 try:
-                    subprocess.run(['sudo', 'cp', '-p', file_path, bak_path], capture_output=True, timeout=5)
+                    subprocess.run(['sudo', '-n', 'cp', '-p', file_path, bak_path], capture_output=True, timeout=5)
                 except Exception:
                     pass
         except Exception as bak_err:
             print(f"[safe_write_system_file] Alerta de backup para {file_path}: {bak_err}")
 
-    # 2. Escreve o novo conteúdo no arquivo temporário
+    # 2. Estratégia 1: Tenta gravação direta em Python (se o processo tiver permissão direta)
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return {"success": True}
+    except (PermissionError, IOError):
+        pass
+    except Exception as e:
+        pass
+
+    # 3. Estratégia 2: Escreve no arquivo temporário para transferência com sudo -n
     tmp_path = os.path.join(tempfile.gettempdir(), f"zrti_sysfile_{uuid.uuid4().hex}.tmp")
     try:
         with open(tmp_path, 'w', encoding='utf-8') as f:
             f.write(content)
     except Exception as tmp_err:
-        # Tenta fallback de gravação direta se /tmp falhar
-        try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            return {"success": True}
-        except Exception:
-            return {"success": False, "error": f"Erro ao gerar arquivo temporário: {str(tmp_err)}"}
+        return {"success": False, "error": f"Erro ao gerar arquivo temporário: {str(tmp_err)}"}
 
-    # 3. Transfere para o caminho final com múltiplas estratégias de privilégio
     success = False
     last_err = ""
 
-    # Estratégia A: sudo cp
+    # Estratégia A: sudo -n cp
     try:
-        cp_res = subprocess.run(['sudo', 'cp', tmp_path, file_path], capture_output=True, text=True, timeout=10)
+        cp_res = subprocess.run(['sudo', '-n', 'cp', tmp_path, file_path], capture_output=True, text=True, timeout=10)
         if cp_res.returncode == 0:
             success = True
         else:
@@ -203,11 +206,11 @@ def safe_write_system_file(file_path: str, content: str, create_backup: bool = T
     except Exception as e:
         last_err = str(e)
 
-    # Estratégia B: sudo tee
+    # Estratégia B: sudo -n tee
     if not success:
         try:
             tee_res = subprocess.run(
-                ['sudo', 'tee', file_path],
+                ['sudo', '-n', 'tee', file_path],
                 input=content,
                 text=True,
                 capture_output=True,
@@ -218,34 +221,24 @@ def safe_write_system_file(file_path: str, content: str, create_backup: bool = T
         except Exception as e:
             last_err = str(e)
 
-    # Estratégia C: sudo sh -c cat
+    # Estratégia C: sudo -n dd
     if not success:
         try:
-            sh_res = subprocess.run(
-                ['sudo', 'sh', '-c', f'cat > "{file_path}"'],
-                input=content,
-                text=True,
+            dd_res = subprocess.run(
+                ['sudo', '-n', 'dd', f'of={file_path}'],
+                input=content.encode('utf-8'),
                 capture_output=True,
                 timeout=10
             )
-            if sh_res.returncode == 0:
+            if dd_res.returncode == 0:
                 success = True
         except Exception as e:
             last_err = str(e)
 
-    # Estratégia D: Gravação direta em Python (se o processo tiver permissão direta)
-    if not success:
-        try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            success = True
-        except Exception as direct_err:
-            last_err = str(direct_err)
-
     # Ajusta permissões para leitura dos serviços do sistema
     if success:
         try:
-            subprocess.run(['sudo', 'chmod', '644', file_path], capture_output=True, timeout=5)
+            subprocess.run(['sudo', '-n', 'chmod', '644', file_path], capture_output=True, timeout=5)
         except Exception:
             pass
 
@@ -259,6 +252,12 @@ def safe_write_system_file(file_path: str, content: str, create_backup: bool = T
     if success:
         return {"success": True}
     else:
-        return {"success": False, "error": f"Não foi possível gravar no arquivo {file_path}: {last_err}"}
+        current_user = getpass.getuser()
+        err_detail = f"Permissão negada para o usuário '{current_user}' ao gravar em '{file_path}'. "
+        err_detail += f"Execute no terminal do servidor: 'sudo chmod 666 {file_path}' ou configure sudoers sem senha para '{current_user}'."
+        if last_err:
+            err_detail += f" (Detalhes do sistema: {last_err})"
+        return {"success": False, "error": err_detail}
+
 
 
