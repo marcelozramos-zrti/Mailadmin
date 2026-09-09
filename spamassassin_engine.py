@@ -7,7 +7,11 @@ import os
 import subprocess
 from typing import Dict, List, Any, Optional, Tuple
 
-LOCAL_CF_PATH = "/etc/spamassassin/local.cf"
+LOCAL_CF_PATHS = [
+    "/etc/mail/spamassassin/local.cf",
+    "/etc/spamassassin/local.cf"
+]
+LOCAL_CF_PATH = next((p for p in LOCAL_CF_PATHS if os.path.exists(p)), "/etc/spamassassin/local.cf")
 DANGEROUS_PATTERNS = {"*", "*@*", "*@*.*", "*.*", "@*", "@*.*"}
 DANGEROUS_TLDS = {
     "com", "net", "org", "br", "gov.br", "edu.br", "com.br", "io", "info",
@@ -601,15 +605,24 @@ def consolidate_and_clean_rules(cf_content: str) -> Tuple[str, int]:
     """
     Higieniza o conteúdo de local.cf:
     - Normaliza regras de remetentes para padrão canônico (*@dominio.com)
-    - Remove duplicatas exatas e equivalentes
-    - Mantém diretivas heurísticas (score, header, etc.) e comentários intactos
-    - Retorna novo conteúdo e quantidade de regras deduplicadas
+    - Remove duplicatas exatas e equivalentes de acesso
+    - Deduplica diretivas heurísticas (header, body, uri, score, describe), garantindo unicidade absoluta
+    - Calibra VALIDITY_CERTIFIED e VALIDITY_SAFE para 0.0
+    - Retorna novo conteúdo e quantidade total de duplicatas removidas
     """
     lines = cf_content.splitlines()
-    seen_keys = set()
+    seen_access_keys = set()
+    seen_headers = set()
+    seen_scores = set()
+    seen_describes = set()
     cleaned_lines = []
     deduplicated_count = 0
 
+    has_validity_certified = False
+    has_validity_safe = False
+
+    # Primeira passagem de trás para frente ou com rastreamento para manter a definição mais recente
+    # Vamos processar linha a linha guardando a ocorrência única de cada regra
     for line in lines:
         raw = line.strip()
         if not raw:
@@ -617,32 +630,74 @@ def consolidate_and_clean_rules(cf_content: str) -> Tuple[str, int]:
             continue
 
         if raw.startswith("#"):
-            # Linha comentada de regra ou comentário geral
-            parsed_list = parse_single_line(raw)
-            if not parsed_list:
-                cleaned_lines.append(line)
-                continue
-            # Mantém linhas comentadas preservando
             cleaned_lines.append(line)
             continue
 
+        # 1. Regras de acesso (blacklist_from, whitelist_from, spam_from)
         parsed_list = parse_single_line(raw)
-        if not parsed_list:
-            # Diretivas gerais (ex: score URIBL_SBL..., required_score, use_bayes, etc.)
-            cleaned_lines.append(line)
+        if parsed_list:
+            for parsed in parsed_list:
+                key = f"{parsed['action']}:{parsed['canonical_pattern']}"
+                if key in seen_access_keys:
+                    deduplicated_count += 1
+                    continue
+                seen_access_keys.add(key)
+                cleaned_lines.append(f"{parsed['action']} {parsed['value']}")
             continue
 
-        # Para cada regra legítima de remetente
-        for parsed in parsed_list:
-            key = f"{parsed['action']}:{parsed['canonical_pattern']}"
-            if key in seen_keys:
+        # 2. Diretivas Heurísticas: header, body, uri, mimeheader
+        m_def = re.match(r'^(header|body|uri|rawbody|mimeheader)\s+([A-Za-z0-9_]+)\s+', raw, re.IGNORECASE)
+        if m_def:
+            directive = m_def.group(1).lower()
+            rule_name = m_def.group(2).upper()
+            if rule_name in seen_headers:
                 deduplicated_count += 1
                 continue
+            seen_headers.add(rule_name)
+            cleaned_lines.append(line)
+            continue
 
-            seen_keys.add(key)
-            # Salva linha formatada no padrão universal
-            formatted_rule = f"{parsed['action']} {parsed['value']}"
-            cleaned_lines.append(formatted_rule)
+        # 3. Diretiva Score
+        m_score = re.match(r'^score\s+([A-Za-z0-9_]+)\s+([0-9\.\-]+)', raw, re.IGNORECASE)
+        if m_score:
+            rule_name = m_score.group(1).upper()
+            if rule_name == "VALIDITY_CERTIFIED":
+                has_validity_certified = True
+                cleaned_lines.append("score VALIDITY_CERTIFIED 0.0")
+                seen_scores.add(rule_name)
+                continue
+            elif rule_name == "VALIDITY_SAFE":
+                has_validity_safe = True
+                cleaned_lines.append("score VALIDITY_SAFE 0.0")
+                seen_scores.add(rule_name)
+                continue
+
+            if rule_name in seen_scores:
+                deduplicated_count += 1
+                continue
+            seen_scores.add(rule_name)
+            cleaned_lines.append(line)
+            continue
+
+        # 4. Diretiva Describe
+        m_desc = re.match(r'^describe\s+([A-Za-z0-9_]+)\s+', raw, re.IGNORECASE)
+        if m_desc:
+            rule_name = m_desc.group(1).upper()
+            if rule_name in seen_describes:
+                deduplicated_count += 1
+                continue
+            seen_describes.add(rule_name)
+            cleaned_lines.append(line)
+            continue
+
+        # Outras diretivas gerais (required_score, use_bayes, etc.)
+        cleaned_lines.append(line)
+
+    # Garante que as calibrações de VALIDITY estejam presentes
+    if not has_validity_certified:
+        cleaned_lines.append("score VALIDITY_CERTIFIED 0.0")
+    if not has_validity_safe:
+        cleaned_lines.append("score VALIDITY_SAFE 0.0")
 
     new_content = "\n".join(cleaned_lines)
     if not new_content.endswith("\n"):

@@ -450,6 +450,10 @@ score HELO_DYNAMIC_IPADDR 2.5
 score SPF_FAIL 3.0
 score DKIM_SIGNED -0.5
 
+# Calibração de Reputação Externa (Reputação técnica não neutraliza inteligência local)
+score VALIDITY_CERTIFIED 0.0
+score VALIDITY_SAFE 0.0
+
 # Listas de Acesso Padrão (White List & Blacklist)
 whitelist_from *@empresa.com.br
 whitelist_from *@parceiro.com.br
@@ -466,9 +470,13 @@ blacklist_from *@uraprods.com
 
 # ==========================================================
 # INTELIGÊNCIA SPAM ZRTI: GOLPES, PHISHING E FRAUDES
+# HIERARQUIA ARQUITETURAL:
+# - SpamAssassin = Motor de heurística antispam nativa (RFC, Bayes, DNSBL)
+# - Motor ZRTI = Autoridade soberana sobre Inteligência Local ZRTI (LOCAL_*)
+# - Prevenção de Dupla Contagem: Regras locais sincronizadas e consolidadas
 # ==========================================================
-# 1. Pega palavras no Assunto (Subject) ignorando acentos
-header   LOCAL_GOLPE_PEDAGIO Subject =~ /ped.gios?|vi.ria|rodovi.rio|pend.ncia/i
+# 1. Pega palavras de pedágio / rodovia no Assunto (Subject) ignorando acentos
+header   LOCAL_GOLPE_PEDAGIO Subject =~ /ped.gios?|vi.ria|rodovi.rio/i
 score    LOCAL_GOLPE_PEDAGIO 15.0
 describe LOCAL_GOLPE_PEDAGIO ZRTI - Phishing de Notificacao de Pedagio / Rodovia
 
@@ -496,12 +504,12 @@ describe LOCAL_GOLPE_DOCUSIGN ZRTI - Phishing de Falsa Assinatura DocuSign / Con
 # INTELIGÊNCIA SPAM ZRTI: LINKS NO E-MAIL E ENCURTADORES
 # ==========================================================
 # 6. Links Encurtados e Redirecionadores Suspeitos no Corpo
-uri      LOCAL_LINK_SUSPEITO /(bit\.ly|tinyurl|is\.gd|cutt\.ly|t\.co|wa\.me|goo\.gl)\/[a-zA-Z0-9]+/i
+uri      LOCAL_LINK_SUSPEITO /(bit\\.ly|tinyurl|is\\.gd|cutt\\.ly|t\\.co|wa\\.me|goo\\.gl)\\/[a-zA-Z0-9]+/i
 score    LOCAL_LINK_SUSPEITO 12.0
 describe LOCAL_LINK_SUSPEITO ZRTI - Link Encurtador ou Redirecionamento Suspeito no Corpo
 
 # 7. Links com Endereco IP Direto no E-mail
-uri      LOCAL_LINK_IP_DIRETO /https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/i
+uri      LOCAL_LINK_IP_DIRETO /https?:\\/\\/\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}/i
 score    LOCAL_LINK_IP_DIRETO 14.0
 describe LOCAL_LINK_IP_DIRETO ZRTI - Link com Endereco IP Direto no E-mail
 
@@ -509,19 +517,57 @@ describe LOCAL_LINK_IP_DIRETO ZRTI - Link com Endereco IP Direto no E-mail
 # INTELIGÊNCIA SPAM ZRTI: OFUSCAÇÃO E CARACTERES ESTRANHOS
 # ==========================================================
 # 8. Multiplas interrogacoes no Assunto (Falha de charset)
-header   LOCAL_ASSUNTO_QUEBRADO Subject =~ /\?{2,}/
+header   LOCAL_ASSUNTO_QUEBRADO Subject =~ /\\?{2,}/
 score    LOCAL_ASSUNTO_QUEBRADO 5.0
 describe LOCAL_ASSUNTO_QUEBRADO ZRTI - Assunto com erro de codificacao (??)
 
 # 9. Remetente com Caracteres Ofuscados (ex: S.e.r.v.i.c.o)
-header   LOCAL_REMETENTE_OFUSCADO From =~ /[a-z][._\-*&%][a-z][._\-*&%][a-z]/i
+header   LOCAL_REMETENTE_OFUSCADO From =~ /[a-z][._*&%-][a-z][._*&%-][a-z]/i
 score    LOCAL_REMETENTE_OFUSCADO 5.0
 describe LOCAL_REMETENTE_OFUSCADO ZRTI - Remetente com caracteres ofuscados
 
 # 10. Caracteres Invisiveis, Zero-Width e Homografos
-header   LOCAL_CARACTERES_ESTRANHOS Subject =~ /[\u200B-\u200D\uFEFF]|[\u0400-\u04FF].*[\u0041-\u007A]/
+header   LOCAL_CARACTERES_ESTRANHOS Subject =~ /[\\u200B-\\u200D\\uFEFF]|[\\u0400-\\u04FF].*[\\u0041-\\u007A]/
 score    LOCAL_CARACTERES_ESTRANHOS 10.0
-describe LOCAL_CARACTERES_ESTRANHOS ZRTI - Caracteres estranhos, zero-width ou homografos no assunto`;
+describe LOCAL_CARACTERES_ESTRANHOS ZRTI - Caracteres estranhos, zero-width ou homografos no assunto
+
+# ==========================================================
+# INTELIGÊNCIA SPAM ZRTI: SUBDOMÍNIOS, ALFANUMÉRICO E CORPO
+# ==========================================================
+# 11. Remetente com padrão alfanumérico suspeito
+header   LOCAL_REMETENTE_ALFANUMERICO From =~ /[a-z][a-z0-9.*%+-]*[0-9][a-z0-9.*%+-]*@/i
+score    LOCAL_REMETENTE_ALFANUMERICO 3.0
+describe LOCAL_REMETENTE_ALFANUMERICO ZRTI - Remetente com padrao alfanumerico suspeito
+
+# 12. Subdomínio com identificador hexadecimal de 8 caracteres
+header   LOCAL_SUBDOMINIO_HEX_8 From =~ /@[a-f0-9]{8}\\.[a-z0-9-]+\\.[a-z]{2,}(?:\\.[a-z]{2,})?(?:>|\\s|$)/i
+score    LOCAL_SUBDOMINIO_HEX_8 5.0
+describe LOCAL_SUBDOMINIO_HEX_8 ZRTI - Subdominio com identificador hexadecimal de 8 caracteres
+
+# 13. Envio originado de subdomínio (Tratamento estruturado ccTLD e TLD genérico)
+header   LOCAL_SUBDOMAIN_SENDER From =~ /@[a-z0-9_.-]+\\.[a-z0-9-]+\\.(?:com|net|org|gov|edu|mil|jus|art|co|ind|inf|adm)\\.[a-z]{2}(?:>|\\s|$)|@[a-z0-9_.-]+\\.[a-z0-9-]+\\.[a-z]{3,}(?:>|\\s|$)/i
+score    LOCAL_SUBDOMAIN_SENDER 3.5
+describe LOCAL_SUBDOMAIN_SENDER ZRTI - Envio originado de subdominio
+
+# 14. Domínio ou subdomínio com composição alfanumérica
+header   LOCAL_DOMINIO_ALFANUMERICO From =~ /@(?:[a-z0-9-]*[0-9][a-z0-9-]*[a-z]|[a-z][a-z0-9-]*[0-9])[a-z0-9-]*\\.[a-z0-9-.]+/i
+score    LOCAL_DOMINIO_ALFANUMERICO 3.0
+describe LOCAL_DOMINIO_ALFANUMERICO ZRTI - Dominio ou subdominio com composicao alfanumerica
+
+# 15. URL suspeita no corpo da mensagem (Avaliada como URI - Score Autoridade ZRTI = 2.0)
+uri      LOCAL_URL_NO_CORPO /https?:\\/\\/[a-z0-9.-]+\\/(?:r|track|click|link|notificacao|procon)[a-z0-9_?&=%-]*/i
+score    LOCAL_URL_NO_CORPO 2.0
+describe LOCAL_URL_NO_CORPO ZRTI - URL suspeita identificada no corpo do e-mail
+
+# 16. Termos e gatilhos coercitivos suspeitos no corpo da mensagem (Score Autoridade ZRTI = 5.0)
+body     LOCAL_CORPO_SUSPEITO /(?:a..o\\s+necess.ria|urgente|evitar\\s+processo|regularize\\s+agora|evas.o\\s+de\\s+ped.gio|processo\\s+administrativo|bloqueio\\s+imediato)/i
+score    LOCAL_CORPO_SUSPEITO 5.0
+describe LOCAL_CORPO_SUSPEITO ZRTI - Termos e gatilhos coercitivos suspeitos no corpo da mensagem
+
+# 17. Phishing e Fraude Simulação de Órgãos Reguladores (PROCON - Score Autoridade ZRTI = 6.0)
+header   LOCAL_GOLPE_PROCON Subject =~ /(procon|notifica[cç][aã]o urgente|defesa.*consumidor|d[eé]bito pendente)/i
+score    LOCAL_GOLPE_PROCON 6.0
+describe LOCAL_GOLPE_PROCON ZRTI - Phishing Simulacao de Orgaos Reguladores / PROCON`;
 
   let virtualMainCf = `# /etc/postfix/main.cf - Debian 12 Production Config
 # Gerenciado via MailAdmin Suite Web
@@ -3055,51 +3101,199 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
     res.json({ success: true, metrics });
   });
 
-  // File path for real SpamAssassin local.cf in Linux Debian/Ubuntu production
-  const SPAMASSASSIN_LOCAL_CF_PATH = "/etc/spamassassin/local.cf";
+  // Suporte a múltiplos caminhos de local.cf em distribuições Linux (Debian/Ubuntu/CentOS)
+  const POSSIBLE_SPAMASSASSIN_CF_PATHS = [
+    "/etc/mail/spamassassin/local.cf",
+    "/etc/spamassassin/local.cf"
+  ];
+  let ACTIVE_SPAMASSASSIN_CF_PATH = POSSIBLE_SPAMASSASSIN_CF_PATHS.find(p => fs.existsSync(p)) || "/etc/spamassassin/local.cf";
+
+  // Função de deduplicação e consolidação de local.cf
+  function deduplicateAndConsolidateLocalCf(cfContent: string): { cleanedContent: string; duplicatesRemoved: number } {
+    const lines = cfContent.split("\n");
+    const seenAccess = new Set<string>();
+    const seenDirectives = new Set<string>();
+    const seenScores = new Set<string>();
+    const seenDescribes = new Set<string>();
+    const cleanedLines: string[] = [];
+    let duplicatesRemoved = 0;
+
+    let hasValidityCertified = false;
+    let hasValiditySafe = false;
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) {
+        cleanedLines.push(rawLine);
+        continue;
+      }
+      if (line.startsWith("#")) {
+        cleanedLines.push(rawLine);
+        continue;
+      }
+
+      // 1. Listas de acesso (blacklist_from, whitelist_from, spam_from)
+      const accessMatch = line.match(/^(blacklist_from|whitelist_from|spam_from)\s+(.+)$/i);
+      if (accessMatch) {
+        const action = accessMatch[1].toLowerCase();
+        const value = accessMatch[2].trim().toLowerCase();
+        const key = `${action}:${value}`;
+        if (seenAccess.has(key)) {
+          duplicatesRemoved++;
+          continue;
+        }
+        seenAccess.add(key);
+        cleanedLines.push(`${action} ${value}`);
+        continue;
+      }
+
+      // 2. Diretivas Heurísticas (header, body, uri, mimeheader, rawbody)
+      const dirMatch = line.match(/^(header|body|uri|mimeheader|rawbody)\s+([A-Za-z0-9_]+)\s+/i);
+      if (dirMatch) {
+        const ruleName = dirMatch[2].toUpperCase();
+        if (seenDirectives.has(ruleName)) {
+          duplicatesRemoved++;
+          continue;
+        }
+        seenDirectives.add(ruleName);
+        cleanedLines.push(rawLine);
+        continue;
+      }
+
+      // 3. Score
+      const scoreMatch = line.match(/^score\s+([A-Za-z0-9_]+)\s+([0-9\.\-]+)/i);
+      if (scoreMatch) {
+        const ruleName = scoreMatch[1].toUpperCase();
+        if (ruleName === "VALIDITY_CERTIFIED") {
+          hasValidityCertified = true;
+          if (seenScores.has(ruleName)) {
+            duplicatesRemoved++;
+            continue;
+          }
+          seenScores.add(ruleName);
+          cleanedLines.push("score VALIDITY_CERTIFIED 0.0");
+          continue;
+        } else if (ruleName === "VALIDITY_SAFE") {
+          hasValiditySafe = true;
+          if (seenScores.has(ruleName)) {
+            duplicatesRemoved++;
+            continue;
+          }
+          seenScores.add(ruleName);
+          cleanedLines.push("score VALIDITY_SAFE 0.0");
+          continue;
+        }
+
+        if (seenScores.has(ruleName)) {
+          duplicatesRemoved++;
+          continue;
+        }
+        seenScores.add(ruleName);
+        cleanedLines.push(rawLine);
+        continue;
+      }
+
+      // 4. Describe
+      const descMatch = line.match(/^describe\s+([A-Za-z0-9_]+)\s+/i);
+      if (descMatch) {
+        const ruleName = descMatch[1].toUpperCase();
+        if (seenDescribes.has(ruleName)) {
+          duplicatesRemoved++;
+          continue;
+        }
+        seenDescribes.add(ruleName);
+        cleanedLines.push(rawLine);
+        continue;
+      }
+
+      // Outras diretivas de configuração mantêm-se
+      cleanedLines.push(rawLine);
+    }
+
+    if (!hasValidityCertified) {
+      cleanedLines.push("score VALIDITY_CERTIFIED 0.0");
+    }
+    if (!hasValiditySafe) {
+      cleanedLines.push("score VALIDITY_SAFE 0.0");
+    }
+
+    return {
+      cleanedContent: cleanedLines.join("\n"),
+      duplicatesRemoved
+    };
+  }
 
   // Helper to load local.cf from real filesystem if present, otherwise use virtualLocalCf
   function getSpamAssassinConfigContent(): string {
-    try {
-      if (fs.existsSync(SPAMASSASSIN_LOCAL_CF_PATH)) {
-        const fileContent = fs.readFileSync(SPAMASSASSIN_LOCAL_CF_PATH, "utf-8");
-        if (fileContent && fileContent.trim().length > 0) {
-          virtualLocalCf = fileContent;
-          return fileContent;
+    for (const p of POSSIBLE_SPAMASSASSIN_CF_PATHS) {
+      try {
+        if (fs.existsSync(p)) {
+          const fileContent = fs.readFileSync(p, "utf-8");
+          if (fileContent && fileContent.trim().length > 0) {
+            ACTIVE_SPAMASSASSIN_CF_PATH = p;
+            virtualLocalCf = fileContent;
+            return fileContent;
+          }
         }
+      } catch (e: any) {
+        console.warn(`Aviso ao ler ${p}:`, e?.message || e);
       }
-    } catch (e: any) {
-      console.warn("Aviso ao ler /etc/spamassassin/local.cf físico:", e?.message || e);
     }
     return virtualLocalCf;
   }
 
   // Helper to save local.cf to virtual and real filesystem (with amavis reload) if in production
   function saveSpamAssassinConfigContent(newContent: string): boolean {
-    virtualLocalCf = newContent;
-    try {
-      if (fs.existsSync("/etc/spamassassin")) {
-        fs.writeFileSync(SPAMASSASSIN_LOCAL_CF_PATH, newContent, "utf-8");
-        // Reload SpamAssassin and Amavis in background if systemd is available
-        exec("sudo systemctl reload amavis spamassassin || sudo systemctl restart amavis", () => {});
-        return true;
+    const { cleanedContent } = deduplicateAndConsolidateLocalCf(newContent);
+    virtualLocalCf = cleanedContent;
+    let written = false;
+
+    for (const p of POSSIBLE_SPAMASSASSIN_CF_PATHS) {
+      try {
+        const dir = path.dirname(p);
+        if (fs.existsSync(dir)) {
+          fs.writeFileSync(p, cleanedContent, "utf-8");
+          ACTIVE_SPAMASSASSIN_CF_PATH = p;
+          written = true;
+        }
+      } catch (e: any) {
+        console.warn(`Aviso ao gravar em ${p} físico:`, e?.message || e);
       }
-    } catch (e: any) {
-      console.warn("Aviso ao gravar em /etc/spamassassin/local.cf físico:", e?.message || e);
+    }
+
+    if (written) {
+      // Reload SpamAssassin and Amavis in background if systemd is available
+      exec("sudo systemctl reload amavis spamassassin || sudo systemctl restart amavis", () => {});
+      return true;
     }
     return false;
   }
 
   app.get("/api/services/spamassassin/rules", (req, res) => {
     const currentContent = getSpamAssassinConfigContent();
-    res.json({ success: true, content: currentContent });
+    res.json({ success: true, content: currentContent, active_path: ACTIVE_SPAMASSASSIN_CF_PATH });
   });
 
   app.post("/api/services/spamassassin/rules", (req, res) => {
     const { content } = req.body || {};
     saveSpamAssassinConfigContent(content || "");
-    addAuditLog("SPAM_RULES_RAW_UPDATE", "/etc/spamassassin/local.cf", { length: (content || "").length }, "suspicious", req);
-    res.json({ success: true, message: "Regras salvas no local.cf e Amavis reiniciado!" });
+    addAuditLog("SPAM_RULES_RAW_UPDATE", ACTIVE_SPAMASSASSIN_CF_PATH, { length: (content || "").length }, "suspicious", req);
+    res.json({ success: true, message: "Regras salvas no local.cf e Amavis reiniciado!", active_path: ACTIVE_SPAMASSASSIN_CF_PATH });
+  });
+
+  // POST endpoint para deduplicação manual de local.cf
+  app.post("/api/services/spamassassin/deduplicate", (req, res) => {
+    const current = getSpamAssassinConfigContent();
+    const { cleanedContent, duplicatesRemoved } = deduplicateAndConsolidateLocalCf(current);
+    saveSpamAssassinConfigContent(cleanedContent);
+    addAuditLog("SPAM_RULES_DEDUPLICATE", ACTIVE_SPAMASSASSIN_CF_PATH, { duplicatesRemoved }, "normal", req);
+    res.json({
+      success: true,
+      duplicates_removed: duplicatesRemoved,
+      message: duplicatesRemoved > 0 
+        ? `Consolidação concluída! ${duplicatesRemoved} regra(s) duplicada(s) ou redundante(s) foram removidas com sucesso de ${ACTIVE_SPAMASSASSIN_CF_PATH}.`
+        : `O arquivo ${ACTIVE_SPAMASSASSIN_CF_PATH} já está perfeitamente otimizado e sem regras duplicadas.`
+    });
   });
 
   // =========================================================================
@@ -4157,25 +4351,24 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
     if (!cleanPattern.startsWith("/")) {
       cleanPattern = `/${cleanPattern}/i`;
     }
-    const cleanScore = typeof score === "number" ? score.toFixed(1) : (parseFloat(score) || 15.0).toFixed(1);
+    const cleanScore = typeof score === "number" ? score.toFixed(1) : (parseFloat(score) || 5.0).toFixed(1);
     const cleanDesc = (describe || `ZRTI - Regra Customizada ${cleanName}`).trim();
 
     const targetNameToRemove = old_name ? old_name.trim().toUpperCase() : cleanName;
 
-    // Remove old definitions of this rule name
-    const lines = virtualLocalCf.split("\n");
+    // 1. Localizar e remover definições anteriores da regra no local.cf
+    const currentCf = getSpamAssassinConfigContent();
+    const lines = currentCf.split("\n");
     const newLines = lines.filter(l => {
       const t = l.trim();
-      if (t.startsWith(`header ${targetNameToRemove} `) || t.startsWith(`header   ${targetNameToRemove} `)) return false;
-      if (t.startsWith(`body ${targetNameToRemove} `) || t.startsWith(`body   ${targetNameToRemove} `)) return false;
-      if (t.startsWith(`uri ${targetNameToRemove} `) || t.startsWith(`uri   ${targetNameToRemove} `)) return false;
-      if (t.startsWith(`score ${targetNameToRemove} `) || t.startsWith(`score    ${targetNameToRemove} `)) return false;
-      if (t.startsWith(`describe ${targetNameToRemove} `) || t.startsWith(`describe ${targetNameToRemove} `)) return false;
+      if (t.match(new RegExp(`^(?:header|body|uri|rawbody|mimeheader)\\s+${targetNameToRemove}\\b`, "i"))) return false;
+      if (t.match(new RegExp(`^score\\s+${targetNameToRemove}\\b`, "i"))) return false;
+      if (t.match(new RegExp(`^describe\\s+${targetNameToRemove}\\b`, "i"))) return false;
       return true;
     });
 
     const isBody = cleanTarget.toLowerCase() === "body";
-    const isUri = cleanTarget.toLowerCase() === "uri";
+    const isUri = cleanTarget.toLowerCase() === "uri" || cleanTarget.toLowerCase().includes("uri");
 
     let ruleBlock = "";
     if (isBody) {
@@ -4186,13 +4379,14 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       ruleBlock = `\n# Regra Customizada Heurística ${cleanName}\nheader   ${cleanName} ${cleanTarget} =~ ${cleanPattern}\nscore    ${cleanName} ${cleanScore}\ndescribe ${cleanName} ${cleanDesc}\n`;
     }
 
-    virtualLocalCf = newLines.join("\n") + ruleBlock;
+    const consolidated = newLines.join("\n") + ruleBlock;
+    saveSpamAssassinConfigContent(consolidated);
 
     addAuditLog("SPAM_CUSTOM_RULE_SAVE", cleanName, { target: cleanTarget, pattern: cleanPattern, score: cleanScore, describe: cleanDesc }, "normal", req);
 
     res.json({
       success: true,
-      message: `Regra customizada '${cleanName}' salva com sucesso no local.cf! SpamAssassin atualizado.`
+      message: `Regra customizada '${cleanName}' gravada com unicidade garantida no local.cf! SpamAssassin/Amavis sincronizados.`
     });
   };
 
@@ -4207,18 +4401,17 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
     }
 
     const cleanName = name.trim().toUpperCase();
-    const lines = virtualLocalCf.split("\n");
+    const currentCf = getSpamAssassinConfigContent();
+    const lines = currentCf.split("\n");
     const newLines = lines.filter(l => {
       const t = l.trim();
-      if (t.startsWith(`header ${cleanName} `) || t.startsWith(`header   ${cleanName} `)) return false;
-      if (t.startsWith(`body ${cleanName} `) || t.startsWith(`body   ${cleanName} `)) return false;
-      if (t.startsWith(`uri ${cleanName} `) || t.startsWith(`uri   ${cleanName} `)) return false;
-      if (t.startsWith(`score ${cleanName} `) || t.startsWith(`score    ${cleanName} `)) return false;
-      if (t.startsWith(`describe ${cleanName} `) || t.startsWith(`describe ${cleanName} `)) return false;
+      if (t.match(new RegExp(`^(?:header|body|uri|rawbody|mimeheader)\\s+${cleanName}\\b`, "i"))) return false;
+      if (t.match(new RegExp(`^score\\s+${cleanName}\\b`, "i"))) return false;
+      if (t.match(new RegExp(`^describe\\s+${cleanName}\\b`, "i"))) return false;
       return true;
     });
 
-    virtualLocalCf = newLines.join("\n");
+    saveSpamAssassinConfigContent(newLines.join("\n"));
 
     addAuditLog("SPAM_CUSTOM_RULE_DELETE", cleanName, { name: cleanName }, "normal", req);
 
@@ -4240,19 +4433,42 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
     return emails;
   }
 
+  // Helper to extract all URLs from text
+  function extractUrls(text: string): string[] {
+    if (!text) return [];
+    const matches = text.match(/https?:\/\/[^\s<>"'\)]+/gi);
+    return matches ? Array.from(new Set(matches)) : [];
+  }
+
   // POST Simulator & Tester for E-mail Headers / Subject / From against local.cf (Blacklist, Whitelist, Inteligência AntiSPAM)
   const handleSpamSimulate = (req: express.Request, res: express.Response) => {
-    const { subject, from, reply_to, replyto, body, raw_headers } = req.body || {};
+    const {
+      subject,
+      from,
+      reply_to,
+      replyto,
+      body,
+      raw_headers,
+      client_ip,
+      helo,
+      spf_status,
+      dkim_status,
+      dmarc_status,
+      sa_base_score: reqSaBase
+    } = req.body || {};
+
     const testSubj = String(subject || "").trim();
     const testFrom = String(from || "").trim();
     const testReplyTo = String(reply_to || replyto || "").trim();
     const testBody = String(body || "").trim();
     const testHeaders = String(raw_headers || "").trim();
+    const testClientIp = String(client_ip || "192.168.1.10").trim();
+    const testHelo = String(helo || "").trim();
 
     const triggered: Array<{
       rule: string;
       name: string;
-      type: 'blacklist' | 'whitelist' | 'spam_list' | 'heuristic';
+      type: 'blacklist' | 'whitelist' | 'spam_list' | 'heuristic' | 'auth' | 'reputation';
       category_label: string;
       target: string;
       pattern: string;
@@ -4262,12 +4478,26 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       matched_value: string;
     }> = [];
 
-    let totalScore = 0;
+    const auditRecords: Array<{
+      rule_id: string;
+      name: string;
+      field_analyzed: string;
+      matched_value: string;
+      condition: string;
+      score_applied: number;
+      rule_source: string;
+      rule_version: string;
+      timestamp: string;
+      match_result: boolean;
+    }> = [];
+
+    const currentTimestamp = new Date().toISOString();
     let isBlacklisted = false;
     let isWhitelisted = false;
 
     // 1. EVALUATE BLACKLIST & LISTAS DE ACESSO (blacklist_from, whitelist_from, spam_from)
-    const lines = virtualLocalCf.split("\n");
+    const currentCf = getSpamAssassinConfigContent();
+    const lines = currentCf.split("\n");
     for (const rawLine of lines) {
       const line = rawLine.trim();
       if (!line || line.startsWith("#")) continue;
@@ -4282,10 +4512,10 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
         if (fromMatched || replyToMatched || headersMatched) {
           isBlacklisted = true;
           const matchedVal = fromMatched ? testFrom : (replyToMatched ? testReplyTo : testHeaders);
-          triggered.push({
+          const item = {
             rule: `BLACKLIST_FROM (${pattern})`,
             name: "BLACKLIST_FROM",
-            type: "blacklist",
+            type: "blacklist" as const,
             category_label: "🚫 Blacklist (Lista Negra)",
             target: fromMatched ? "From (Remetente)" : (replyToMatched ? "Reply-To" : "Header"),
             pattern: pattern,
@@ -4293,8 +4523,20 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
             points: 100.0,
             describe: `Remetente ou domínio presente na Blacklist oficial (${pattern})`,
             matched_value: matchedVal
+          };
+          triggered.push(item);
+          auditRecords.push({
+            rule_id: "BLACKLIST_FROM",
+            name: "BLACKLIST_FROM",
+            field_analyzed: item.target,
+            matched_value: matchedVal,
+            condition: pattern,
+            score_applied: 100.0,
+            rule_source: "local.cf",
+            rule_version: "2026.09.09-rev1",
+            timestamp: currentTimestamp,
+            match_result: true
           });
-          totalScore += 100.0;
         }
       }
 
@@ -4307,10 +4549,10 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
         if (fromMatched || replyToMatched) {
           isWhitelisted = true;
           const matchedVal = fromMatched ? testFrom : testReplyTo;
-          triggered.push({
+          const item = {
             rule: `WHITELIST_FROM (${pattern})`,
             name: "WHITELIST_FROM",
-            type: "whitelist",
+            type: "whitelist" as const,
             category_label: "🟢 Whitelist (Lista Confiável)",
             target: fromMatched ? "From (Remetente)" : "Reply-To",
             pattern: pattern,
@@ -4318,8 +4560,20 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
             points: -100.0,
             describe: `Remetente ou domínio liberado na Whitelist (${pattern})`,
             matched_value: matchedVal
+          };
+          triggered.push(item);
+          auditRecords.push({
+            rule_id: "WHITELIST_FROM",
+            name: "WHITELIST_FROM",
+            field_analyzed: item.target,
+            matched_value: matchedVal,
+            condition: pattern,
+            score_applied: -100.0,
+            rule_source: "local.cf",
+            rule_version: "2026.09.09-rev1",
+            timestamp: currentTimestamp,
+            match_result: true
           });
-          totalScore -= 100.0;
         }
       }
 
@@ -4331,10 +4585,10 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
 
         if (fromMatched || replyToMatched) {
           const matchedVal = fromMatched ? testFrom : testReplyTo;
-          triggered.push({
+          const item = {
             rule: `SPAM_FROM (${pattern})`,
             name: "SPAM_FROM",
-            type: "spam_list",
+            type: "spam_list" as const,
             category_label: "⚠️ Lista de SPAM Direto",
             target: fromMatched ? "From (Remetente)" : "Reply-To",
             pattern: pattern,
@@ -4342,14 +4596,28 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
             points: 20.0,
             describe: `Remetente ou domínio marcado como SPAM direto (${pattern})`,
             matched_value: matchedVal
+          };
+          triggered.push(item);
+          auditRecords.push({
+            rule_id: "SPAM_FROM",
+            name: "SPAM_FROM",
+            field_analyzed: item.target,
+            matched_value: matchedVal,
+            condition: pattern,
+            score_applied: 20.0,
+            rule_source: "local.cf",
+            rule_version: "2026.09.09-rev1",
+            timestamp: currentTimestamp,
+            match_result: true
           });
-          totalScore += 20.0;
         }
       }
     }
 
-    // 2. EVALUATE INTELIGÊNCIA ANTISPAM (Regras Heurísticas Locais)
-    const customRules = parseCustomSpamRules(virtualLocalCf);
+    // 2. EVALUATE INTELIGÊNCIA ANTISPAM (Regras Heurísticas Locais do local.cf)
+    let localIntelligenceScore = 0.0;
+    const customRules = parseCustomSpamRules(currentCf);
+    const extractedBodyUrls = extractUrls(`${testBody}\n${testHeaders}`);
 
     for (const rule of customRules) {
       if (!rule.pattern) continue;
@@ -4361,80 +4629,344 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
         regexStr = regexStr.substring(1, regexStr.lastIndexOf("/"));
       }
 
-      try {
-        const re = new RegExp(regexStr, flags);
-        const targetLower = (rule.target || "subject").toLowerCase();
-        let targetText = "";
+      // Defensive regex normalization for unescaped patterns from templates or manual entry
+      if (/^[?*+]/.test(regexStr)) {
+        regexStr = "\\" + regexStr;
+      }
+      regexStr = regexStr.replace(/\[\._-\*&%\]/g, "[._*&%-]");
 
-        if (targetLower === "subject") {
-          targetText = testSubj;
-        } else if (targetLower === "from") {
-          targetText = testFrom;
-        } else if (targetLower === "reply-to" || targetLower === "replyto") {
-          targetText = testReplyTo;
+      let re: RegExp;
+      try {
+        re = new RegExp(regexStr, flags);
+      } catch (compileErr: any) {
+        try {
+          const repaired = regexStr
+            .replace(/([^\\])-([^\s\]])/g, "$1\\-$2")
+            .replace(/^([?*+])/, "\\$1");
+          re = new RegExp(repaired, flags);
+        } catch {
+          console.warn(`[SpamAssassin Sim] Regra ignorada por padrão regex inválido (${rule.name}):`, compileErr?.message || compileErr);
+          continue;
+        }
+      }
+
+      try {
+        const targetLower = (rule.target || "subject").toLowerCase();
+        let isMatch = false;
+        let matchedText = "";
+        let fieldName = rule.target || "Subject";
+
+        if (targetLower === "uri" || targetLower.includes("uri")) {
+          fieldName = "URI / URL";
+          // Test against extracted URLs first
+          for (const u of extractedBodyUrls) {
+            if (re.test(u)) {
+              isMatch = true;
+              matchedText = u;
+              break;
+            }
+          }
+          // If not matched, test whole body/subject
+          if (!isMatch && re.test(`${testSubj}\n${testBody}\n${testHeaders}`)) {
+            const m = `${testSubj}\n${testBody}\n${testHeaders}`.match(re);
+            isMatch = true;
+            matchedText = m ? m[0] : "URL / Padrão identificado";
+          }
         } else if (targetLower === "body") {
-          targetText = testBody;
-        } else if (targetLower === "uri") {
-          targetText = `${testSubj}\n${testBody}\n${testHeaders}`;
+          fieldName = "Body";
+          if (testBody && re.test(testBody)) {
+            isMatch = true;
+            const m = testBody.match(re);
+            matchedText = m ? m[0] : testBody.substring(0, 60);
+          }
+        } else if (targetLower === "subject") {
+          fieldName = "Subject";
+          if (testSubj && re.test(testSubj)) {
+            isMatch = true;
+            const m = testSubj.match(re);
+            matchedText = m ? m[0] : testSubj;
+          }
+        } else if (targetLower === "from") {
+          fieldName = rule.name === "LOCAL_SUBDOMINIO_HEX_8" ? "From Domain" : "From";
+          const cleanAddr = testFrom.includes("<") ? (testFrom.match(/<([^>]+)>/)?.[1] || testFrom) : testFrom;
+          if (testFrom && (re.test(testFrom) || re.test(cleanAddr))) {
+            isMatch = true;
+            const m = testFrom.match(re) || cleanAddr.match(re);
+            matchedText = m ? m[0] : testFrom;
+          }
+        } else if (targetLower === "reply-to" || targetLower === "replyto") {
+          fieldName = "Reply-To";
+          if (testReplyTo && re.test(testReplyTo)) {
+            isMatch = true;
+            const m = testReplyTo.match(re);
+            matchedText = m ? m[0] : testReplyTo;
+          }
         } else {
-          targetText = `${testHeaders}\nSubject: ${testSubj}\nFrom: ${testFrom}\nReply-To: ${testReplyTo}\n\n${testBody}`;
+          fieldName = rule.target || "Header";
+          const fullText = `${testHeaders}\nSubject: ${testSubj}\nFrom: ${testFrom}\nReply-To: ${testReplyTo}\n\n${testBody}`;
+          if (re.test(fullText)) {
+            isMatch = true;
+            const m = fullText.match(re);
+            matchedText = m ? m[0] : fullText.substring(0, 60);
+          }
         }
 
-        if (targetText && re.test(targetText)) {
+        if (isMatch) {
           const pts = Number(rule.score || 0);
+          localIntelligenceScore += pts;
           triggered.push({
             rule: rule.name,
             name: rule.name,
             type: "heuristic",
             category_label: "🧠 Inteligência AntiSPAM (Regra Heurística)",
-            target: rule.target,
+            target: fieldName,
             pattern: rule.pattern,
             score: pts,
             points: pts,
             describe: rule.describe || "Regra customizada heurística acionada",
-            matched_value: targetText.length > 80 ? `${targetText.substring(0, 80)}...` : targetText
+            matched_value: matchedText.length > 100 ? `${matchedText.substring(0, 100)}...` : matchedText
           });
-          totalScore += pts;
+
+          auditRecords.push({
+            rule_id: rule.name,
+            name: rule.name,
+            field_analyzed: fieldName,
+            matched_value: matchedText,
+            condition: rule.pattern,
+            score_applied: pts,
+            rule_source: "local.cf",
+            rule_version: "2026.09.09-rev1",
+            timestamp: currentTimestamp,
+            match_result: true
+          });
         }
       } catch (err) {
         console.error("Regex test error for rule:", rule.name, err);
       }
     }
 
-    const isSpam = isBlacklisted || (!isWhitelisted && totalScore >= 5.0);
+    // 3. SEPARAÇÃO ESTRITA DOS 4 COMPONENTES DE SCORE
+    // A. Score SpamAssassin Base (Bayes, Pyzor, Razor, etc.)
+    const saBaseScore = typeof reqSaBase === "number" ? reqSaBase : 0.0;
 
+    // B. Score de Autenticação (SPF, DKIM, DMARC)
+    // PRINCÍPIO ZRTI: AUTENTICAÇÃO NÃO É SINÔNIMO DE LEGITIMIDADE
+    // PASS = 0.0 (conformidade técnica não concede bônus contra phishing)
+    let authScore = 0.0;
+    const curSpf = String(spf_status || "").toUpperCase();
+    const curDkim = String(dkim_status || "").toUpperCase();
+    const curDmarc = String(dmarc_status || "").toUpperCase();
+
+    if (curSpf === "FAIL") {
+      authScore += 4.0;
+      triggered.push({
+        rule: "SPF_FAIL",
+        name: "SPF_FAIL",
+        type: "auth",
+        category_label: "🔒 Autenticação SPF (-all)",
+        target: "SPF",
+        pattern: "SPF: FAIL",
+        score: 4.0,
+        points: 4.0,
+        describe: "IP não autorizado pelo registro SPF restritivo (-all)",
+        matched_value: `IP: ${testClientIp}`
+      });
+    } else if (curSpf === "SOFTFAIL") {
+      authScore += 2.0;
+      triggered.push({
+        rule: "SPF_SOFTFAIL",
+        name: "SPF_SOFTFAIL",
+        type: "auth",
+        category_label: "🔒 Autenticação SPF (~all)",
+        target: "SPF",
+        pattern: "SPF: SOFTFAIL",
+        score: 2.0,
+        points: 2.0,
+        describe: "IP não listado em SPF com transição suave (~all)",
+        matched_value: `IP: ${testClientIp}`
+      });
+    } else if (curSpf === "PASS") {
+      triggered.push({
+        rule: "SPF_PASS",
+        name: "SPF_PASS",
+        type: "auth",
+        category_label: "🔒 Autenticação SPF (Pass)",
+        target: "SPF",
+        pattern: "SPF: PASS",
+        score: 0.0,
+        points: 0.0,
+        describe: "SPF Válido (Conformidade técnica, score 0.0)",
+        matched_value: `IP: ${testClientIp}`
+      });
+    }
+
+    if (curDkim === "FAIL") {
+      authScore += 3.0;
+      triggered.push({
+        rule: "DKIM_FAIL",
+        name: "DKIM_FAIL",
+        type: "auth",
+        category_label: "🔑 Assinatura DKIM",
+        target: "DKIM",
+        pattern: "DKIM: FAIL",
+        score: 3.0,
+        points: 3.0,
+        describe: "Assinatura DKIM corrompida ou inválida",
+        matched_value: "DKIM-Signature corrupt"
+      });
+    } else if (curDkim === "PASS") {
+      triggered.push({
+        rule: "DKIM_PASS",
+        name: "DKIM_PASS",
+        type: "auth",
+        category_label: "🔑 Assinatura DKIM (Pass)",
+        target: "DKIM",
+        pattern: "DKIM: PASS",
+        score: 0.0,
+        points: 0.0,
+        describe: "DKIM Válido (Conformidade técnica, score 0.0)",
+        matched_value: "DKIM-Signature valid"
+      });
+    }
+
+    if (curDmarc === "FAIL") {
+      authScore += 4.0;
+      triggered.push({
+        rule: "DMARC_FAIL",
+        name: "DMARC_FAIL",
+        type: "auth",
+        category_label: "🛡️ Política DMARC",
+        target: "DMARC",
+        pattern: "DMARC: FAIL",
+        score: 4.0,
+        points: 4.0,
+        describe: "Violação de alinhamento DMARC",
+        matched_value: "DMARC alignment failed"
+      });
+    } else if (curDmarc === "PASS") {
+      triggered.push({
+        rule: "DMARC_PASS",
+        name: "DMARC_PASS",
+        type: "auth",
+        category_label: "🛡️ Política DMARC (Pass)",
+        target: "DMARC",
+        pattern: "DMARC: PASS",
+        score: 0.0,
+        points: 0.0,
+        describe: "DMARC Válido (Conformidade técnica, score 0.0)",
+        matched_value: "DMARC pass"
+      });
+    }
+
+    // C. Score de Reputação Externa
+    // PRINCÍPIO ZRTI: VALIDITY_CERTIFIED = 0.0, VALIDITY_SAFE = 0.0
+    // Reputação externa NÃO deve conceder imunidade contra sinais comportamentais ou heurísticos locais
+    let reputationScore = 0.0;
+    if (testHeaders.includes("VALIDITY_CERTIFIED") || testHeaders.includes("Validity-Certified")) {
+      triggered.push({
+        rule: "VALIDITY_CERTIFIED",
+        name: "VALIDITY_CERTIFIED",
+        type: "reputation",
+        category_label: "🌐 Reputação Externa (Validity)",
+        target: "Header",
+        pattern: "VALIDITY_CERTIFIED",
+        score: 0.0,
+        points: 0.0,
+        describe: "Certificação Externa Informativa (Calibrado para 0.0)",
+        matched_value: "Validity Certified Header"
+      });
+    }
+    if (testHeaders.includes("VALIDITY_SAFE") || testHeaders.includes("Validity-Safe")) {
+      triggered.push({
+        rule: "VALIDITY_SAFE",
+        name: "VALIDITY_SAFE",
+        type: "reputation",
+        category_label: "🌐 Reputação Externa (Validity)",
+        target: "Header",
+        pattern: "VALIDITY_SAFE",
+        score: 0.0,
+        points: 0.0,
+        describe: "Lista Segura Externa Informativa (Calibrado para 0.0)",
+        matched_value: "Validity Safe Header"
+      });
+    }
+
+    // D. Cálculo do Score Final
+    localIntelligenceScore = Number(localIntelligenceScore.toFixed(1));
+    authScore = Number(authScore.toFixed(1));
+    reputationScore = Number(reputationScore.toFixed(1));
+
+    let finalScore = isBlacklisted ? 100.0 : (isWhitelisted ? -100.0 : Number((saBaseScore + authScore + reputationScore + localIntelligenceScore).toFixed(1)));
+    const isSpam = isBlacklisted || (!isWhitelisted && finalScore >= 5.0);
+
+    // Decisão e Ação do Motor ZRTI
+    let decision = "PASS";
     let verdictStatus = "CLEAN";
     let verdictTitle = "MENSAGEM LIMPA / ACEITA";
     let verdictAction = "Entregar normalmente na Caixa de Entrada";
 
-    if (isBlacklisted) {
-      verdictStatus = "BLACKLISTED";
-      verdictTitle = "BLOQUEIO IMEDIATO (Blacklist)";
+    if (isBlacklisted || finalScore >= 15.0) {
+      decision = "REJECT";
+      verdictStatus = isBlacklisted ? "BLACKLISTED" : "REJECTED_SPAM";
+      verdictTitle = isBlacklisted ? "BLOQUEIO IMEDIATO (Blacklist)" : "REJEIÇÃO CRÍTICA (Score >= 15.0)";
       verdictAction = "Rejeitar conexão SMTP / Descarte Imediato";
     } else if (isWhitelisted) {
+      decision = "PASS";
       verdictStatus = "WHITELISTED";
       verdictTitle = "LIBERADO POR WHITELIST (Lista Confiável)";
       verdictAction = "Entregar na Caixa de Entrada (Ignorar regras de Spam)";
-    } else if (isSpam) {
+    } else if (finalScore >= 10.0) {
+      decision = "DISCARD";
+      verdictStatus = "HIGH_RISK_SPAM";
+      verdictTitle = "SPAM DE ALTO RISCO (Score >= 10.0)";
+      verdictAction = "Descarte silencioso ou Quarentena Restrita";
+    } else if (finalScore >= 5.0) {
+      decision = "QUARANTINE";
       verdictStatus = "SPAM_DETECTED";
-      verdictTitle = "CLASSIFICADO COMO SPAM";
+      verdictTitle = "CLASSIFICADO COMO SPAM (Score >= 5.0)";
       verdictAction = "Mover para Quarentena / Pasta de Lixo Eletrônico";
     }
+
+    // Geração dos cabeçalhos obrigatórios X-ZRTI-*
+    const localTriggered = triggered.filter(r => r.type === "heuristic");
+    const rulesSummaryStr = localTriggered.map(r => `${r.name}(${r.score >= 0 ? '+' : ''}${r.score.toFixed(1)})`).join(", ") || "NONE";
+
+    const zrtiHeaders: Record<string, string> = {
+      "X-ZRTI-Spam-Score": finalScore.toFixed(1),
+      "X-ZRTI-Spam-Decision": decision,
+      "X-ZRTI-Spam-Threshold": "5.0",
+      "X-ZRTI-Spam-Rules": rulesSummaryStr,
+      "X-ZRTI-Engine-Version": "ZRTI-Antispam-Core/2.4.0",
+      "X-ZRTI-Rule-Version": "2026.09.09-rev1"
+    };
 
     const blacklistMatches = triggered.filter(r => r.type === "blacklist" || r.type === "spam_list");
     const whitelistMatches = triggered.filter(r => r.type === "whitelist");
     const heuristicMatches = triggered.filter(r => r.type === "heuristic");
+    const authMatches = triggered.filter(r => r.type === "auth");
+    const reputationMatches = triggered.filter(r => r.type === "reputation");
 
     const breakdown = triggered.length > 0
-      ? `Pontuação Total: ${totalScore.toFixed(1)} / 5.0 (${verdictTitle}). ${triggered.length} regra(s) acionada(s).`
-      : `Pontuação Total: 0.0 / 5.0 (Nenhuma regra heurística ou blacklist ativada). Mensagem limpa.`;
+      ? `Pontuação Total: ${finalScore.toFixed(1)} / 5.0 (${verdictTitle}). Decomposição: SA Base (${saBaseScore.toFixed(1)}) + Auth (${authScore.toFixed(1)}) + Reputação (${reputationScore.toFixed(1)}) + Inteligência Local (${localIntelligenceScore.toFixed(1)}). Decisão: ${decision}.`
+      : `Pontuação Total: 0.0 / 5.0. Nenhuma regra ativada. Mensagem limpa.`;
 
     res.json({
       success: true,
       matched: triggered.length > 0,
-      total_score: Number(totalScore.toFixed(1)),
-      score: Number(totalScore.toFixed(1)),
+      total_score: finalScore,
+      score: finalScore,
+      final_score: finalScore,
+      score_breakdown: {
+        sa_base_score: saBaseScore,
+        auth_score: authScore,
+        reputation_score: reputationScore,
+        local_intelligence_score: localIntelligenceScore,
+        final_score: finalScore,
+        formula: "Score Final = SA Base + Autenticação + Reputação + Inteligência Local ZRTI"
+      },
+      headers: zrtiHeaders,
       required_score: 5.0,
+      decision: decision,
       is_spam: isSpam,
       is_blacklisted: isBlacklisted,
       is_whitelisted: isWhitelisted,
@@ -4446,6 +4978,9 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       blacklist_matches: blacklistMatches,
       whitelist_matches: whitelistMatches,
       heuristic_matches: heuristicMatches,
+      auth_matches: authMatches,
+      reputation_matches: reputationMatches,
+      audit_records: auditRecords,
       breakdown_text: breakdown
     });
   };
@@ -4455,6 +4990,87 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
 
   app.post("/api/services/spamassassin/lint", (req, res) => {
     res.json({ success: true, message: "Sintaxe OK! O arquivo de regras local.cf é válido." });
+  });
+
+  // POST Consolidate & Deduplicate local.cf
+  app.post("/api/services/spamassassin/consolidate", (req, res) => {
+    try {
+      const currentCf = getSpamAssassinConfigContent();
+      const lines = currentCf.split("\n");
+      const linesBefore = lines.length;
+
+      const seenAccess = new Set<string>();
+      const seenDirectives = new Map<string, string>();
+      const otherLines: string[] = [];
+
+      let accessRemoved = 0;
+      let rulesDeduplicated = 0;
+
+      for (const rawLine of lines) {
+        const trimmed = rawLine.trim();
+        if (!trimmed || trimmed.startsWith("#")) {
+          otherLines.push(rawLine);
+          continue;
+        }
+
+        const accessMatch = trimmed.match(/^(whitelist_from|blacklist_from|spam_from)\s+(\S+)/i);
+        if (accessMatch) {
+          const key = `${accessMatch[1].toLowerCase()} ${accessMatch[2].toLowerCase()}`;
+          if (seenAccess.has(key)) {
+            accessRemoved++;
+            continue;
+          }
+          seenAccess.add(key);
+          otherLines.push(trimmed);
+          continue;
+        }
+
+        const ruleMatch = trimmed.match(/^(header|body|uri|rawbody|score|describe)\s+([A-Za-z0-9_]+)\b(.*)$/i);
+        if (ruleMatch) {
+          const type = ruleMatch[1].toLowerCase();
+          const name = ruleMatch[2].toUpperCase();
+          const key = `${type} ${name}`;
+          if (seenDirectives.has(key)) {
+            rulesDeduplicated++;
+          }
+          seenDirectives.set(key, trimmed);
+          continue;
+        }
+
+        otherLines.push(rawLine);
+      }
+
+      // Recompõe arquivo limpo
+      const consolidatedContent = [
+        ...otherLines,
+        "",
+        "# === REGRAS HEURÍSTICAS E DIRETIVAS CONSOLIDADAS (ZRTI ENGINE) ===",
+        ...Array.from(seenDirectives.values())
+      ].join("\n").replace(/\n{3,}/g, "\n\n");
+
+      saveSpamAssassinConfigContent(consolidatedContent);
+      const linesAfter = consolidatedContent.split("\n").length;
+
+      addAuditLog("SPAM_LOCAL_CF_CONSOLIDATE", "local.cf", {
+        access_removed: accessRemoved,
+        rules_deduplicated: rulesDeduplicated,
+        lines_before: linesBefore,
+        lines_after: linesAfter
+      }, "normal", req);
+
+      res.json({
+        success: true,
+        message: `local.cf consolidado com sucesso! ${rulesDeduplicated} diretiva(s) repetida(s) e ${accessRemoved} item(ns) de lista deduplicados.`,
+        stats: {
+          access_list_removed: accessRemoved,
+          rules_deduplicated: rulesDeduplicated,
+          lines_before: linesBefore,
+          lines_after: linesAfter
+        }
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: "Erro ao consolidar local.cf: " + err.message });
+    }
   });
 
   app.all("/api/services/logs", (req, res) => {
@@ -4859,7 +5475,7 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
 
   // GET /api/servers/spamassassin/thresholds
   app.get("/api/servers/spamassassin/thresholds", (req, res) => {
-    const requiredScore = parseFloat(virtualAntispamSettings["spam_threshold_quarantine"] || "4.5");
+    const requiredScore = parseFloat(virtualAntispamSettings["spam_threshold_quarantine"] || "5.0");
     const tagLevel = parseFloat(virtualAntispamSettings["spam_threshold_tag"] || "2.0");
     const killLevel = parseFloat(virtualAntispamSettings["spam_threshold_kill"] || "6.9");
     const subjectTag = virtualAntispamSettings["sa_spam_subject_tag"] || "***SPAM*** ";
@@ -4900,7 +5516,7 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
 
     addAuditLog("UPDATE_SPAM_THRESHOLDS", "SpamAssassin/Amavis", data, "normal", req);
 
-    const requiredScore = parseFloat(virtualAntispamSettings["spam_threshold_quarantine"] || "4.5");
+    const requiredScore = parseFloat(virtualAntispamSettings["spam_threshold_quarantine"] || "5.0");
     const tagLevel = parseFloat(virtualAntispamSettings["spam_threshold_tag"] || "2.0");
     const killLevel = parseFloat(virtualAntispamSettings["spam_threshold_kill"] || "6.9");
     const subjectTag = virtualAntispamSettings["sa_spam_subject_tag"] || "***SPAM*** ";
@@ -5188,6 +5804,32 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
   // ===============================================
 
   const BUILTIN_SCRIPTS_CATALOG = [
+    {
+      id: "consolidate_localcf",
+      filename: "consolidate_localcf.py",
+      title: "Consolidação, Deduplicação e Limpeza do local.cf",
+      category: "Antispam & Inteligência ZRTI",
+      description: "Deduplica diretivas no SpamAssassin, consolida blacklists/whitelists, remove regras órfãs e valida sintaxe com spamassassin --lint.",
+      icon: "bi-shield-shaded",
+      color: "warning",
+      default_args: "--check",
+      suggested_args: ["--check", "--apply", "--apply --reload"],
+      requires_sudo: true,
+      type: "python"
+    },
+    {
+      id: "test_policy_engine",
+      filename: "test_policy_engine.py",
+      title: "Testador Automatizado de Políticas e Regressão PROCON",
+      category: "Antispam & Inteligência ZRTI",
+      description: "Executa bateria de testes automatizados simulando ataque de phishing PROCON, valida decomposição de score nos 4 componentes e geração de cabeçalhos X-ZRTI.",
+      icon: "bi-shield-check",
+      color: "info",
+      default_args: "",
+      suggested_args: [],
+      requires_sudo: false,
+      type: "python"
+    },
     {
       id: "fix_permissions_and_amavis",
       filename: "fix_permissions_and_amavis.py",
@@ -5639,9 +6281,9 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
   ];
 
   let virtualAntispamSettings: Record<string, string> = {
-    score_spam_threshold: "4.5",
-    score_high_risk_threshold: "8.0",
-    score_critical_threshold: "10.0",
+    score_spam_threshold: "5.0",
+    score_high_risk_threshold: "10.0",
+    score_critical_threshold: "15.0",
     enable_fcr_dns: "true",
     enable_impersonation_check: "true",
     enable_helo_validation: "true",
@@ -5698,8 +6340,8 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       target: "Policy Engine v1.1.1",
       valor_anterior: null,
       old_value: null,
-      valor_novo: "Threshold SPAM: 4.5, Alto Risco: 8.0, Crítico: 10.0",
-      new_value: "Threshold SPAM: 4.5, Alto Risco: 8.0, Crítico: 10.0",
+      valor_novo: "Threshold SPAM: 5.0, Alto Risco: 10.0, Crítico: 15.0",
+      new_value: "Threshold SPAM: 5.0, Alto Risco: 10.0, Crítico: 15.0",
       motivo: "Inicialização do motor complementar de segurança",
       reason: "Inicialização do motor complementar de segurança",
       ip_origem: "127.0.0.1",
@@ -5720,18 +6362,18 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
         total_protected_brands: virtualImpersonationProfiles.length
       },
       spamassassin_detected: {
-        required_score: 4.5,
+        required_score: 5.0,
         required_score_source: "/etc/spamassassin/local.cf",
         sa_tag_level_deflt: 2.0,
-        sa_tag2_level_deflt: 4.5,
+        sa_tag2_level_deflt: 5.0,
         sa_kill_level_deflt: 6.9,
         amavis_source: "/etc/amavis/conf.d/20-debian_defaults",
         files_found: ["/etc/spamassassin/local.cf", "/etc/amavis/conf.d/20-debian_defaults"]
       },
       policy_engine_thresholds: {
-        score_spam: parseFloat(virtualAntispamSettings.score_spam_threshold || "4.5"),
-        score_high_risk: parseFloat(virtualAntispamSettings.score_high_risk_threshold || "8.0"),
-        score_critical: parseFloat(virtualAntispamSettings.score_critical_threshold || "10.0"),
+        score_spam: parseFloat(virtualAntispamSettings.score_spam_threshold || "5.0"),
+        score_high_risk: parseFloat(virtualAntispamSettings.score_high_risk_threshold || "10.0"),
+        score_critical: parseFloat(virtualAntispamSettings.score_critical_threshold || "15.0"),
         fcr_dns_enabled: virtualAntispamSettings.enable_fcr_dns === "true",
         impersonation_enabled: virtualAntispamSettings.enable_impersonation_check === "true"
       }
@@ -5812,10 +6454,10 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
         category: k.includes("threshold") ? "threshold" : "engine"
       })),
       detected_sa: {
-        required_score: 4.5,
+        required_score: 5.0,
         required_score_source: "/etc/spamassassin/local.cf",
         sa_tag_level_deflt: 2.0,
-        sa_tag2_level_deflt: 4.5,
+        sa_tag2_level_deflt: 5.0,
         sa_kill_level_deflt: 6.9
       }
     });
@@ -6077,9 +6719,9 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
     intScore = Number(intScore.toFixed(3));
     const finalScore = Number((sScore + intScore).toFixed(3));
 
-    const spamTh = parseFloat(virtualAntispamSettings.score_spam_threshold || "4.5");
-    const highTh = parseFloat(virtualAntispamSettings.score_high_risk_threshold || "8.0");
-    const critTh = parseFloat(virtualAntispamSettings.score_critical_threshold || "10.0");
+    const spamTh = parseFloat(virtualAntispamSettings.score_spam_threshold || "5.0");
+    const highTh = parseFloat(virtualAntispamSettings.score_high_risk_threshold || "10.0");
+    const critTh = parseFloat(virtualAntispamSettings.score_critical_threshold || "15.0");
 
     let classification = "CLEAN";
     let conf = "HIGH";
@@ -6175,8 +6817,8 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
   // POST /api/antispam/spamassassin/sync-diff
   app.post("/api/antispam/spamassassin/sync-diff", (req, res) => {
     const { proposed_vals } = req.body || {};
-    const oldRs = 4.5;
-    const newRs = parseFloat(proposed_vals?.required_score || "4.5");
+    const oldRs = 5.0;
+    const newRs = parseFloat(proposed_vals?.required_score || "5.0");
     const hasChanges = oldRs !== newRs;
 
     res.json({
@@ -6210,8 +6852,8 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       action: "UPDATE_SPAMASSASSIN_REQUIRED_SCORE",
       alvo: "/etc/spamassassin/local.cf",
       target: "/etc/spamassassin/local.cf",
-      valor_anterior: "4.5",
-      old_value: "4.5",
+      valor_anterior: "5.0",
+      old_value: "5.0",
       valor_novo: String(required_score),
       new_value: String(required_score),
       motivo: reason || "Ajuste de required_score do SpamAssassin",

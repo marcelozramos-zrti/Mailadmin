@@ -28,7 +28,8 @@ import {
   Copy,
   Sliders,
   CheckCheck,
-  AlertCircle
+  AlertCircle,
+  FileText
 } from 'lucide-react';
 import { LintResponse, VisualSpamRule, CustomRegexRule, RegexRuleTestResult } from '../types';
 
@@ -91,7 +92,7 @@ const PRESET_HEURISTIC_RULES: Array<{
     title: 'Remetente com Caracteres Ofuscados (ex: S.e.r.v.i.c.o)',
     name: 'LOCAL_REMETENTE_OFUSCADO',
     target: 'From',
-    pattern: '/[a-z][._\\-*&%][a-z][._\\-*&%][a-z]/i',
+    pattern: '/[a-z][._*&%-][a-z][._*&%-][a-z]/i',
     score: 5.0,
     describe: 'ZRTI - Remetente com caracteres ofuscados',
     category: 'obfuscation',
@@ -146,6 +147,66 @@ const PRESET_HEURISTIC_RULES: Array<{
     describe: 'ZRTI - Caracteres estranhos, zero-width ou homografos no assunto',
     category: 'obfuscation',
     description: 'Detecta caracteres invisíveis (zero-width), espaços especiais e mistura de alfabetos cirílico e latino para burlar filtros.'
+  },
+  {
+    title: '11. Remetente com LocalPart Alfanumérico Longo (>12 chars)',
+    name: 'LOCAL_REMETENTE_ALFANUMERICO',
+    target: 'From',
+    pattern: '/^[a-z0-9_.-]{12,}@/i',
+    score: 4.0,
+    describe: 'ZRTI - Remetente com parte local alfanumerica extensa tipica de botnet',
+    category: 'custom',
+    description: 'Identifica caixas postais geradas automaticamente por scripts de envio em massa com strings alfanuméricas longas.'
+  },
+  {
+    title: '12. Subdomínio Hexadecimal Aleatório (8 Caracteres)',
+    name: 'LOCAL_SUBDOMINIO_HEX_8',
+    target: 'From',
+    pattern: '/@[a-f0-9]{8}\\./i',
+    score: 5.0,
+    describe: 'ZRTI - Subdominio hexadecimal descartavel de 8 caracteres (Ex: 2f1ab419)',
+    category: 'custom',
+    description: 'Bloqueia remetentes que utilizam subdomínios hexadecimais rotativos de 8 caracteres criados para burlar filtros de reputação.'
+  },
+  {
+    title: '13. Remetente Enviado de Subdomínio de Múltiplos Níveis',
+    name: 'LOCAL_SUBDOMAIN_SENDER',
+    target: 'From',
+    pattern: '/@[a-z0-9-]+\\.[a-z0-9-]+\\.[a-z0-9-]+\\.[a-z0-9-]+/i',
+    score: 3.5,
+    describe: 'ZRTI - Remetente com multiplos niveis de subdominio',
+    category: 'custom',
+    description: 'Detecta múltiplos níveis de subdomínios aninhados frequentemente empregados em campanhas de evasão de filtro.'
+  },
+  {
+    title: '14. Domínio com Mistura Alfanumérica Suspeita',
+    name: 'LOCAL_DOMINIO_ALFANUMERICO',
+    target: 'From',
+    pattern: '/@([a-z0-9-]*[a-z]+[0-9]+[a-z0-9-]*|[a-z0-9-]*[0-9]+[a-z]+[a-z0-9-]*)\\./i',
+    score: 3.0,
+    describe: 'ZRTI - Dominio com intercalacao alfanumerica suspeita',
+    category: 'custom',
+    description: 'Identifica domínios que intercalam algarismos e letras no padrão de domínios descartáveis.'
+  },
+  {
+    title: '15. Hiperlinks e Protocolos no Corpo do E-mail',
+    name: 'LOCAL_URL_NO_CORPO',
+    target: 'body',
+    pattern: '/https?:\\/\\/[^\\s<>"\']+/i',
+    score: 2.0,
+    describe: 'ZRTI - Hiperlink detectado no corpo da mensagem',
+    category: 'custom',
+    description: 'Identifica presença de links no corpo da mensagem que induzem o usuário a clicar em páginas externas.'
+  },
+  {
+    title: '16. Termos Coercitivos / Phishing PROCON e Multas no Corpo',
+    name: 'LOCAL_CORPO_SUSPEITO',
+    target: 'body',
+    pattern: '/(processo\\s+administrativo|pend[eê]ncia\\s+urgente|evitar\\s+processo|a[cç][aã]o\\s+necess[aá]ria|bloqueio\\s+imediato|regularize|cpf\\/cnpj)/i',
+    score: 6.0,
+    describe: 'ZRTI - Phishing com termos de urgencia, PROCON ou coercao administrativa',
+    category: 'phishing',
+    description: 'Detecta ameaças psicológicas e falsas intimações de órgãos como PROCON ou Receita para pressionar a vítima.'
   }
 ];
 
@@ -207,10 +268,18 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
   const [inlineResult, setInlineResult] = useState<RegexRuleTestResult | null>(null);
 
   // Simulator state
-  const [simSubject, setSimSubject] = useState<string>('Regularização de Pendência Débito de Pedágio Rodoviário');
-  const [simFrom, setSimFrom] = useState<string>('Regularização e Pendências <contato@vidracariarubi.com.br>');
-  const [simReplyTo, setSimReplyTo] = useState<string>('notificacoes@vidracariarubi.com.br');
-  const [simBody, setSimBody] = useState<string>('Prezado cliente, consta uma pendência no sistema rodoviário. Clique no link para emitir o boleto atualizado.');
+  const [simSubject, setSimSubject] = useState<string>('PROCON: Notificação Urgente — Pendência Consumidor');
+  const [simFrom, setSimFrom] = useState<string>('Julia Pereira <juliapereira@2f1ab419.apriori.net.br>');
+  const [simReplyTo, setSimReplyTo] = useState<string>('notificacao@2f1ab419.apriori.net.br');
+  const [simBody, setSimBody] = useState<string>('Prezado cliente, informamos que consta uma pendência urgente do PROCON referente ao seu CPF/CNPJ. Ação necessária imediata para evitar processo administrativo. Acesse: https://2f1ab419.apriori.net.br/procon/notificacao');
+  const [simSpf, setSimSpf] = useState<string>('PASS');
+  const [simDkim, setSimDkim] = useState<string>('PASS');
+  const [simDmarc, setSimDmarc] = useState<string>('PASS');
+  const [simClientIp, setSimClientIp] = useState<string>('185.220.101.5');
+  const [simHelo, setSimHelo] = useState<string>('mail.2f1ab419.apriori.net.br');
+  const [simHeaders, setSimHeaders] = useState<string>('X-Spam-Check-By: VALIDITY_CERTIFIED, VALIDITY_SAFE\nMessage-ID: <20260909120000.2f1ab419@apriori.net.br>');
+  const [simSaBase, setSimSaBase] = useState<number>(0.0);
+  const [showAdvancedParams, setShowAdvancedParams] = useState<boolean>(true);
   const [simTesting, setSimTesting] = useState<boolean>(false);
   const [testResult, setTestResult] = useState<RegexRuleTestResult | null>(null);
 
@@ -218,6 +287,7 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
   const [content, setContent] = useState<string>('');
   const [loadingRaw, setLoadingRaw] = useState<boolean>(true);
   const [testingSyntax, setTestingSyntax] = useState<boolean>(false);
+  const [consolidating, setConsolidating] = useState<boolean>(false);
   const [savingRaw, setSavingRaw] = useState<boolean>(false);
   const [lintResult, setLintResult] = useState<LintResponse | null>(null);
 
@@ -546,14 +616,21 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
     setSimTesting(true);
     setTestResult(null);
     try {
-      const res = await fetch('/api/services/spamassassin/test-rule', {
+      const res = await fetch('/api/services/spamassassin/simulate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           subject: simSubject,
           from: simFrom,
           reply_to: simReplyTo,
-          body: simBody
+          body: simBody,
+          client_ip: simClientIp,
+          helo: simHelo,
+          spf_status: simSpf,
+          dkim_status: simDkim,
+          dmarc_status: simDmarc,
+          raw_headers: simHeaders,
+          sa_base_score: simSaBase
         })
       });
       const data = await res.json();
@@ -569,33 +646,96 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
     }
   };
 
+  // Consolidate and Deduplicate local.cf
+  const handleConsolidateLocalCf = async () => {
+    setConsolidating(true);
+    try {
+      const res = await fetch('/api/services/spamassassin/consolidate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (data.success) {
+        onShowAlert(data.message, 'success');
+        fetchRawRules();
+        fetchCustomRules();
+        fetchVisualRules();
+        if (onRefreshStatus) onRefreshStatus();
+      } else {
+        onShowAlert(data.message || 'Falha ao consolidar local.cf', 'danger');
+      }
+    } catch (err: any) {
+      onShowAlert('Erro ao consolidar regras: ' + err.message, 'danger');
+    } finally {
+      setConsolidating(false);
+    }
+  };
+
   // Load preset simulation scenarios
-  const loadScenario = (type: 'pedagio' | 'reclame_aqui' | 'ofuscado' | 'interrogacoes' | 'legitimo') => {
-    if (type === 'pedagio') {
+  const loadScenario = (type: 'procon' | 'pedagio' | 'reclame_aqui' | 'ofuscado' | 'interrogacoes' | 'legitimo') => {
+    if (type === 'procon') {
+      setSimSubject('PROCON: Notificação Urgente — Pendência Consumidor');
+      setSimFrom('Julia Pereira <juliapereira@2f1ab419.apriori.net.br>');
+      setSimReplyTo('notificacao@2f1ab419.apriori.net.br');
+      setSimBody('Prezado cliente, informamos que consta uma pendência urgente do PROCON referente ao seu CPF/CNPJ. Ação necessária imediata para evitar processo administrativo. Acesse: https://2f1ab419.apriori.net.br/procon/notificacao');
+      setSimSpf('PASS');
+      setSimDkim('PASS');
+      setSimDmarc('PASS');
+      setSimClientIp('185.220.101.5');
+      setSimHelo('mail.2f1ab419.apriori.net.br');
+      setSimHeaders('X-Spam-Check-By: VALIDITY_CERTIFIED, VALIDITY_SAFE\nMessage-ID: <20260909120000.2f1ab419@apriori.net.br>');
+      setSimSaBase(0.0);
+      setShowAdvancedParams(true);
+    } else if (type === 'pedagio') {
       setSimSubject('Notificação de Débito: Pendência em Praça de Pedágio Rodoviário');
       setSimFrom('Concessionária de Rodovias <cobranca@rodovia-aviso.com>');
       setSimReplyTo('financeiro@vidracariarubi.com.br');
       setSimBody('Identificamos uma evasão de pedágio em seu veículo. Regularize agora para evitar multa.');
+      setSimSpf('NONE');
+      setSimDkim('NONE');
+      setSimDmarc('NONE');
+      setSimHeaders('');
+      setSimSaBase(0.0);
     } else if (type === 'reclame_aqui') {
       setSimSubject('Aviso de Notificação Importante');
       setSimFrom('ReclameAqui Regularização e Pendências <noreply@site-invalido.biz>');
       setSimReplyTo('atendimento@vidracariarubi.com.br');
       setSimBody('Você possui uma nova reclamação pendente de resposta em nossa plataforma.');
+      setSimSpf('FAIL');
+      setSimDkim('NONE');
+      setSimDmarc('FAIL');
+      setSimHeaders('');
+      setSimSaBase(0.0);
     } else if (type === 'ofuscado') {
       setSimSubject('Atualização de Cadastro Bancário');
       setSimFrom('S.e.r.v.i.c.o B.a.n.c.o <security@banco-update.com>');
       setSimReplyTo('contato@banco-update.com');
       setSimBody('Seus dados expiraram. Atualize seu token.');
+      setSimSpf('PASS');
+      setSimDkim('NONE');
+      setSimDmarc('NONE');
+      setSimHeaders('');
+      setSimSaBase(0.0);
     } else if (type === 'interrogacoes') {
       setSimSubject('Oportunidade Imperdível ??? Veja aqui');
       setSimFrom('Super Ofertas <promo@descontos-relampago.net>');
       setSimReplyTo('promo@descontos-relampago.net');
       setSimBody('Confira os novos descontos da semana.');
+      setSimSpf('NONE');
+      setSimDkim('NONE');
+      setSimDmarc('NONE');
+      setSimHeaders('');
+      setSimSaBase(0.0);
     } else if (type === 'legitimo') {
       setSimSubject('Relatório Mensal de Atividades e Suporte ZRTI');
       setSimFrom('Suporte Técnico <suporte@zrti.com.br>');
       setSimReplyTo('suporte@zrti.com.br');
       setSimBody('Olá, segue em anexo o relatório mensal de desempenho dos servidores.');
+      setSimSpf('PASS');
+      setSimDkim('PASS');
+      setSimDmarc('PASS');
+      setSimHeaders('');
+      setSimSaBase(-1.0);
     }
     setTestResult(null);
   };
@@ -1418,6 +1558,15 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
+                  onClick={() => loadScenario('procon')}
+                  className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-rose-50 hover:bg-rose-100 hover:border-rose-400 text-rose-800 rounded-lg transition-colors border border-rose-300 font-bold shadow-xs"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Phishing PROCON (Caso Crítico ZRTI)</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => loadScenario('pedagio')}
                   className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-slate-100 hover:bg-rose-50 hover:border-rose-300 hover:text-rose-700 text-slate-700 rounded-lg transition-colors border border-slate-300 font-medium"
                 >
@@ -1504,6 +1653,20 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Score Base do SpamAssassin (sa_base_score):
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={simSaBase}
+                  onChange={(e) => setSimSaBase(parseFloat(e.target.value) || 0.0)}
+                  placeholder="0.0"
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-none font-mono"
+                />
+              </div>
+
               <div className="md:col-span-2">
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Corpo da Mensagem (Body):
@@ -1511,11 +1674,105 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
                 <textarea
                   value={simBody}
                   onChange={(e) => setSimBody(e.target.value)}
-                  rows={4}
+                  rows={3}
                   placeholder="Texto ou código HTML da mensagem..."
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-none font-sans"
                 />
               </div>
+            </div>
+
+            {/* Collapsible Advanced Parameters (Authentication & Network Headers) */}
+            <div className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50/70">
+              <button
+                type="button"
+                onClick={() => setShowAdvancedParams(!showAdvancedParams)}
+                className="w-full px-4 py-2.5 flex items-center justify-between text-left text-xs font-bold text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-indigo-600" />
+                  <span>Parâmetros de Autenticação Técnica & Rede (SPF, DKIM, DMARC, IP, HELO, Headers)</span>
+                </div>
+                <span className="text-[11px] text-indigo-600 font-semibold">
+                  {showAdvancedParams ? '▲ Recolher Parâmetros' : '▼ Expandir Parâmetros'}
+                </span>
+              </button>
+
+              {showAdvancedParams && (
+                <div className="p-4 border-t border-slate-200 bg-white grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Status SPF:</label>
+                    <select
+                      value={simSpf}
+                      onChange={(e) => setSimSpf(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 font-mono focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="PASS">PASS (Válido - Score 0.0, sem imunidade)</option>
+                      <option value="FAIL">FAIL (Falha de SPF - Score +4.5)</option>
+                      <option value="SOFTFAIL">SOFTFAIL (Neutro/Suspeito - Score +1.5)</option>
+                      <option value="NONE">NONE (Sem registro SPF)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Status DKIM:</label>
+                    <select
+                      value={simDkim}
+                      onChange={(e) => setSimDkim(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 font-mono focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="PASS">PASS (Válido - Score 0.0, sem imunidade)</option>
+                      <option value="FAIL">FAIL (Assinatura Inválida - Score +3.5)</option>
+                      <option value="NONE">NONE (Não assinado)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Status DMARC:</label>
+                    <select
+                      value={simDmarc}
+                      onChange={(e) => setSimDmarc(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 font-mono focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="PASS">PASS (Conforme - Score 0.0, sem imunidade)</option>
+                      <option value="FAIL">FAIL (Rejeição DMARC - Score +5.0)</option>
+                      <option value="NONE">NONE (Sem política DMARC)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">IP Remetente (client_ip):</label>
+                    <input
+                      type="text"
+                      value={simClientIp}
+                      onChange={(e) => setSimClientIp(e.target.value)}
+                      placeholder="185.220.101.5"
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">HELO / EHLO Declarado:</label>
+                    <input
+                      type="text"
+                      value={simHelo}
+                      onChange={(e) => setSimHelo(e.target.value)}
+                      placeholder="mail.2f1ab419.apriori.net.br"
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Cabeçalhos RAW Adicionais:</label>
+                    <textarea
+                      rows={2}
+                      value={simHeaders}
+                      onChange={(e) => setSimHeaders(e.target.value)}
+                      placeholder="X-Spam-Check-By: VALIDITY_CERTIFIED, VALIDITY_SAFE"
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-800"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Test Button */}
@@ -1527,49 +1784,167 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
                 className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-lg transition-colors shadow-xs disabled:opacity-50"
               >
                 <Play className={`w-4 h-4 ${simTesting ? 'animate-spin' : ''}`} />
-                <span>{simTesting ? 'Processando Regras...' : 'Executar Teste de E-mail'}</span>
+                <span>{simTesting ? 'Processando Regras...' : 'Executar Avaliação ZRTI'}</span>
               </button>
             </div>
 
             {/* Result Box */}
             {testResult && (
-              <div className="mt-6 pt-6 border-t border-slate-200">
+              <div className="mt-6 pt-6 border-t border-slate-200 space-y-6">
+                
+                {/* Main Verdict Card */}
                 <div className={`p-5 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-                  testResult.is_spam || testResult.total_score >= 5.0
+                  testResult.decision === 'REJECT' || testResult.total_score >= 15.0
                     ? 'bg-rose-50 border-rose-300 text-rose-900'
+                    : testResult.total_score >= 5.0 || testResult.is_spam
+                    ? 'bg-amber-50 border-amber-300 text-amber-900'
                     : 'bg-emerald-50 border-emerald-300 text-emerald-900'
                 }`}>
                   <div className="flex items-start gap-3">
-                    {testResult.is_spam || testResult.total_score >= 5.0 ? (
-                      <ShieldAlert className="w-7 h-7 text-rose-600 shrink-0 mt-0.5" />
+                    {testResult.decision === 'REJECT' || testResult.total_score >= 15.0 ? (
+                      <ShieldAlert className="w-8 h-8 text-rose-600 shrink-0 mt-0.5" />
+                    ) : testResult.total_score >= 5.0 || testResult.is_spam ? (
+                      <AlertTriangle className="w-8 h-8 text-amber-600 shrink-0 mt-0.5" />
                     ) : (
-                      <ShieldCheck className="w-7 h-7 text-emerald-600 shrink-0 mt-0.5" />
+                      <ShieldCheck className="w-8 h-8 text-emerald-600 shrink-0 mt-0.5" />
                     )}
                     <div>
-                      <h4 className="font-extrabold text-base">
-                        {testResult.is_spam || testResult.total_score >= 5.0 
-                          ? 'CLASSIFICADO COMO SPAM (BLOQUEADO / QUARENTENA)' 
-                          : 'CLASSIFICADO COMO HAM (E-MAIL LEGÍTIMO / LIBERADO)'}
-                      </h4>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="font-black text-base uppercase">
+                          {testResult.decision === 'REJECT'
+                            ? 'DECISÃO: REJEITAR E DESCARTAR (REJECT)'
+                            : testResult.total_score >= 5.0 || testResult.is_spam
+                            ? 'DECISÃO: QUARENTENA / TAG SPAM'
+                            : 'DECISÃO: LIBERADO / HAM (PASS)'}
+                        </h4>
+                        <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full font-bold uppercase ${
+                          testResult.decision === 'REJECT'
+                            ? 'bg-rose-200 text-rose-800'
+                            : testResult.total_score >= 5.0
+                            ? 'bg-amber-200 text-amber-800'
+                            : 'bg-emerald-200 text-emerald-800'
+                        }`}>
+                          {testResult.decision || (testResult.total_score >= 5.0 ? 'SPAM' : 'HAM')}
+                        </span>
+                      </div>
                       <p className="text-xs mt-1 opacity-90">
-                        {testResult.is_spam || testResult.total_score >= 5.0 
-                          ? 'Esta mensagem atingiu ou superou o limite de corte de 5.0 pontos configurado no SpamAssassin.'
-                          : 'Esta mensagem pontuou abaixo de 5.0 pontos e seria entregue normalmente na caixa de entrada.'}
+                        {testResult.breakdown_text || (testResult.total_score >= 5.0
+                          ? 'Esta mensagem superou o limite de corte de 5.0 pontos configurado no SpamAssassin/Amavis.'
+                          : 'Esta mensagem pontuou abaixo de 5.0 pontos e seria entregue normalmente na caixa de entrada.')}
                       </p>
                     </div>
                   </div>
 
-                  <div className="bg-white/80 p-3 rounded-lg border border-slate-200 text-center shrink-0 min-w-32">
+                  <div className="bg-white/90 p-3 rounded-lg border border-slate-200 text-center shrink-0 min-w-36">
                     <span className="text-[11px] text-slate-500 font-bold block uppercase tracking-wider">
-                      Score Total
+                      Score Total ZRTI
                     </span>
-                    <span className={`text-2xl font-mono font-black ${
+                    <span className={`text-3xl font-mono font-black ${
                       testResult.total_score >= 5.0 ? 'text-rose-600' : 'text-emerald-600'
                     }`}>
                       +{testResult.total_score.toFixed(1)}
                     </span>
+                    <span className="text-[10px] text-slate-500 block mt-0.5 font-mono">
+                      Threshold: 5.0 pts
+                    </span>
                   </div>
                 </div>
+
+                {/* 4-Score Breakdown Cards (ZRTI Intelligence Engine) */}
+                <div>
+                  <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                    Decomposição dos 4 Componentes de Score:
+                  </h5>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
+                      <span className="text-[11px] font-bold text-slate-500 block uppercase">
+                        1. SA Base Score
+                      </span>
+                      <div className="text-xl font-mono font-bold text-slate-800 mt-1">
+                        {((testResult.score_breakdown?.sa_base_score ?? 0.0) >= 0 ? '+' : '')}
+                        {(testResult.score_breakdown?.sa_base_score ?? 0.0).toFixed(1)} pts
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        Heurística nativa do SpamAssassin
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-500 block uppercase">
+                          2. Autenticação
+                        </span>
+                        <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded font-mono">
+                          SPF/DKIM/DMARC
+                        </span>
+                      </div>
+                      <div className="text-xl font-mono font-bold text-slate-800 mt-1">
+                        {((testResult.score_breakdown?.auth_score ?? 0.0) >= 0 ? '+' : '')}
+                        {(testResult.score_breakdown?.auth_score ?? 0.0).toFixed(1)} pts
+                      </div>
+                      <p className="text-[11px] text-emerald-700 font-medium mt-1">
+                        Conformidade técnica não imuniza (0.0)
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-500 block uppercase">
+                          3. Reputação Externa
+                        </span>
+                        <span className="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded font-mono">
+                          VALIDITY=0.0
+                        </span>
+                      </div>
+                      <div className="text-xl font-mono font-bold text-slate-800 mt-1">
+                        {((testResult.score_breakdown?.reputation_score ?? 0.0) >= 0 ? '+' : '')}
+                        {(testResult.score_breakdown?.reputation_score ?? 0.0).toFixed(1)} pts
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        VALIDITY_CERTIFIED/SAFE zerados
+                      </p>
+                    </div>
+
+                    <div className="bg-amber-50/60 border border-amber-200 rounded-xl p-3.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-amber-800 block uppercase">
+                          4. Inteligência Local ZRTI
+                        </span>
+                        <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded font-mono font-bold">
+                          Motor ZRTI
+                        </span>
+                      </div>
+                      <div className="text-xl font-mono font-bold text-amber-900 mt-1">
+                        {((testResult.score_breakdown?.local_intelligence_score ?? testResult.total_score) >= 0 ? '+' : '')}
+                        {(testResult.score_breakdown?.local_intelligence_score ?? testResult.total_score).toFixed(1)} pts
+                      </div>
+                      <p className="text-[11px] text-amber-800 mt-1">
+                        Subdomínios, Heurística & local.cf
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Mandated X-ZRTI-* Headers Injection Preview */}
+                {testResult.headers && (
+                  <div className="bg-slate-900 rounded-xl p-4 border border-slate-800">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <Code2 className="w-4 h-4" />
+                        Cabeçalhos Mandatórios Injetados pelo Motor (X-ZRTI-*):
+                      </span>
+                      <span className="text-[11px] text-slate-400 font-mono">MTA / Postfix Envelope</span>
+                    </div>
+                    <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 font-mono text-xs text-emerald-400 space-y-1 overflow-x-auto">
+                      {Object.entries(testResult.headers).map(([hdrKey, hdrVal]) => (
+                        <div key={hdrKey} className="flex gap-2">
+                          <span className="text-cyan-300 font-bold select-all shrink-0">{hdrKey}:</span>
+                          <span className="text-emerald-300 select-all break-all">{hdrVal}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Triggered Rules Breakdown */}
                 <div className="mt-4">
@@ -1585,24 +1960,70 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
                               {rule.name}
                             </span>
                             <span className="text-xs text-slate-600 block mt-0.5">
-                              {rule.describe} • Alvo: <strong>{rule.target}</strong>
+                              {rule.describe} {rule.target ? <>• Alvo: <strong>{rule.target}</strong></> : null}
                             </span>
-                            <code className="text-[11px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 font-mono mt-1 inline-block">
-                              {rule.pattern}
-                            </code>
+                            {rule.pattern && (
+                              <code className="text-[11px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 font-mono mt-1 inline-block">
+                                {rule.pattern}
+                              </code>
+                            )}
                           </div>
-                          <span className="bg-rose-100 text-rose-800 border border-rose-300 text-xs font-mono font-extrabold px-2.5 py-1 rounded-full shrink-0">
-                            +{rule.score.toFixed(1)} pts
+                          <span className={`text-xs font-mono font-extrabold px-2.5 py-1 rounded-full shrink-0 border ${
+                            rule.score > 0
+                              ? 'bg-rose-100 text-rose-800 border-rose-300'
+                              : rule.score < 0
+                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                              : 'bg-slate-100 text-slate-700 border-slate-300'
+                          }`}>
+                            {rule.score >= 0 ? '+' : ''}{rule.score.toFixed(1)} pts
                           </span>
                         </div>
                       ))}
                     </div>
                   ) : (
                     <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-center text-xs text-slate-500">
-                      Nenhuma regra personalizada foi acionada para este conteúdo.
+                      Nenhuma regra foi acionada para este conteúdo.
                     </div>
                   )}
                 </div>
+
+                {/* Audit Records Table */}
+                {testResult.audit_records && testResult.audit_records.length > 0 && (
+                  <div>
+                    <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                      Trilha de Auditoria do Processamento ({testResult.audit_records.length} eventos):
+                    </h5>
+                    <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
+                          <tr>
+                            <th className="py-2 px-3">Regra (ID)</th>
+                            <th className="py-2 px-3">Campo Analisado</th>
+                            <th className="py-2 px-3">Evidência Identificada</th>
+                            <th className="py-2 px-3 text-right">Score</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 font-mono">
+                          {testResult.audit_records.map((rec, rIdx) => (
+                            <tr key={rIdx} className="hover:bg-slate-50">
+                              <td className="py-2 px-3 font-bold text-slate-800">{rec.rule_id}</td>
+                              <td className="py-2 px-3 text-slate-600">{rec.field_analyzed || 'envelope'}</td>
+                              <td className="py-2 px-3 text-slate-700 max-w-md truncate font-sans text-xs" title={rec.matched_value}>
+                                {rec.matched_value}
+                              </td>
+                              <td className={`py-2 px-3 text-right font-bold ${
+                                rec.score_applied > 0 ? 'text-rose-600' : rec.score_applied < 0 ? 'text-emerald-600' : 'text-slate-500'
+                              }`}>
+                                {rec.score_applied >= 0 ? '+' : ''}{rec.score_applied.toFixed(1)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
 
               </div>
             )}
@@ -1648,7 +2069,7 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
               </button>
 
               <button
-                onClick={() => appendSnippet('header   LOCAL_REMETENTE_OFUSCADO From =~ /[a-z][._\\-*&%][a-z][._\\-*&%][a-z]/i\nscore    LOCAL_REMETENTE_OFUSCADO 5.0\ndescribe LOCAL_REMETENTE_OFUSCADO ZRTI - Remetente com caracteres ofuscados')}
+                onClick={() => appendSnippet('header   LOCAL_REMETENTE_OFUSCADO From =~ /[a-z][._*&%-][a-z][._*&%-][a-z]/i\nscore    LOCAL_REMETENTE_OFUSCADO 5.0\ndescribe LOCAL_REMETENTE_OFUSCADO ZRTI - Remetente com caracteres ofuscados')}
                 className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-white border border-slate-300 hover:bg-purple-50 hover:border-purple-300 text-slate-700 hover:text-purple-700 rounded-lg transition-colors font-medium shadow-xs"
               >
                 <PlusCircle className="w-3.5 h-3.5 text-purple-600" />
@@ -1716,7 +2137,18 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
                 Ao salvar, o serviço <code className="text-amber-400 font-mono">spamassassin</code> é reiniciado automaticamente.
               </span>
 
-              <div className="flex items-center gap-3 w-full sm:w-auto">
+              <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={handleConsolidateLocalCf}
+                  disabled={consolidating || loadingRaw}
+                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-2 bg-indigo-900 hover:bg-indigo-800 text-indigo-100 text-sm font-medium rounded-lg transition-colors border border-indigo-700 shadow-xs"
+                  title="Deduplica regras, consolida listas de acesso e limpa definições obsoletas no local.cf"
+                >
+                  <Sparkles className={`w-4 h-4 ${consolidating ? 'animate-spin text-amber-300' : 'text-amber-400'}`} />
+                  <span>{consolidating ? 'Consolidando...' : 'Deduplicar e Consolidar'}</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={handleTestSyntax}

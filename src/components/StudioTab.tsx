@@ -251,10 +251,14 @@ export function StudioTab({ onShowAlert }: StudioTabProps) {
                   }}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 >
-                  {scripts.map(s => (
-                    <option key={s.filename} value={s.filename}>
-                      {s.type === 'python' ? '🐍' : '📜'} {s.filename} — {s.title}
-                    </option>
+                  {Array.from(new Set(scripts.map(s => s.category || 'Geral'))).map(cat => (
+                    <optgroup key={cat} label={`📂 ${cat}`}>
+                      {scripts.filter(s => (s.category || 'Geral') === cat).map(s => (
+                        <option key={s.filename} value={s.filename}>
+                          {s.type === 'python' ? '🐍' : '📜'} {s.filename} — {s.title}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
               </div>
@@ -265,7 +269,7 @@ export function StudioTab({ onShowAlert }: StudioTabProps) {
                   Atalhos Rápidos Oficiais:
                 </label>
                 <div className="flex flex-wrap gap-1.5">
-                  {scripts.slice(0, 5).map(s => (
+                  {scripts.slice(0, 8).map(s => (
                     <button
                       key={s.filename}
                       onClick={() => selectScript(s)}

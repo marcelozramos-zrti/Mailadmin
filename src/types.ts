@@ -173,7 +173,35 @@ export interface ServerServiceDetail {
 export interface RegexRuleTestResult {
   matched: boolean;
   total_score: number;
+  final_score?: number;
   is_spam: boolean;
+  is_blacklisted?: boolean;
+  is_whitelisted?: boolean;
+  decision?: string;
+  verdict_status?: string;
+  verdict_title?: string;
+  verdict_action?: string;
+  score_breakdown?: {
+    sa_base_score: number;
+    auth_score: number;
+    reputation_score: number;
+    local_intelligence_score: number;
+    final_score: number;
+    formula?: string;
+  };
+  headers?: Record<string, string>;
+  audit_records?: Array<{
+    rule_id: string;
+    name: string;
+    field_analyzed: string;
+    matched_value: string;
+    condition: string;
+    score_applied: number;
+    rule_source: string;
+    rule_version: string;
+    timestamp: string;
+    match_result: boolean;
+  }>;
   rules_triggered: {
     name: string;
     target: string;
@@ -181,6 +209,8 @@ export interface RegexRuleTestResult {
     score: number;
     describe: string;
     matched_value?: string;
+    type?: string;
+    category_label?: string;
   }[];
   breakdown_text: string;
 }

@@ -92,7 +92,7 @@ score    LOCAL_ASSUNTO_QUEBRADO 5.0
 describe LOCAL_ASSUNTO_QUEBRADO ZRTI - Assunto com erro de codificacao (??)
 
 # 9. Remetente com Caracteres Ofuscados (ex: S.e.r.v.i.c.o)
-header   LOCAL_REMETENTE_OFUSCADO From =~ /[a-z][._\\-*&%][a-z][._\\-*&%][a-z]/i
+header   LOCAL_REMETENTE_OFUSCADO From =~ /[a-z][._*&%-][a-z][._*&%-][a-z]/i
 score    LOCAL_REMETENTE_OFUSCADO 5.0
 describe LOCAL_REMETENTE_OFUSCADO ZRTI - Remetente com caracteres ofuscados
 
