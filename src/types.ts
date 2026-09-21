@@ -139,6 +139,104 @@ export interface CustomRegexRule {
   updated_at?: string;
 }
 
+// =========================================================================
+// REGRAS AVANÇADAS / COMPOSTAS DE INTELIGÊNCIA ANTISPAM (ZRTI)
+// =========================================================================
+
+export type AdvancedRuleCategory = 'origin' | 'headers' | 'content' | 'auth' | 'reputation';
+
+export type AdvancedRuleField = 
+  | 'origin'          // Externa, Interna, Autenticada, Não autenticada
+  | 'client_ip'       // IP do Cliente
+  | 'from'            // Header From
+  | 'envelope_from'   // Return-Path
+  | 'to'              // Destinatário
+  | 'reply_to'        // Responder Para
+  | 'subject'         // Assunto
+  | 'message_id'      // Identificador da mensagem
+  | 'received'        // Cabeçalhos Received
+  | 'custom_header'   // Header personalizado
+  | 'body'            // Conteúdo do corpo
+  | 'uri'             // URLs e links
+  | 'attachments'     // Anexos (nome/extensão)
+  | 'content_type'    // MIME Content-Type
+  | 'spf'             // SPF (PASS, FAIL, SOFTFAIL, NONE)
+  | 'dkim'            // DKIM (PASS, FAIL, NONE)
+  | 'dmarc'           // DMARC (PASS, FAIL, NONE)
+  | 'smtp_auth'       // SMTP AUTH (yes/no)
+  | 'dnsbl'           // Reputação DNSBL
+  | 'uribl'           // Reputação URIBL
+  | 'bayes'           // Bayes Spam Probability
+  | 'sa_score';       // Score SpamAssassin
+
+export type AdvancedRuleOperator = 
+  | 'contains'
+  | 'not_contains'
+  | 'equals'
+  | 'not_equals'
+  | 'starts_with'
+  | 'ends_with'
+  | 'regex'
+  | 'not_regex'
+  | 'exists'
+  | 'not_exists'
+  | 'gt'
+  | 'lt'
+  | 'gte'
+  | 'lte';
+
+export interface AdvancedRuleCondition {
+  id: string;
+  field: AdvancedRuleField;
+  custom_header_name?: string;
+  operator: AdvancedRuleOperator;
+  value: string;
+  negate?: boolean; // NOT / NÃO
+}
+
+export type AdvancedRuleActionType = 'add_score' | 'sub_score' | 'no_op';
+
+export interface AdvancedRuleAction {
+  type: AdvancedRuleActionType;
+  value: number; // ex: 5.0, 3.5, -2.0
+}
+
+export interface AdvancedAntispamRule {
+  id: string;
+  code: string; // ex: LOCAL_REMETENTE_SUSPEITO
+  name: string;
+  description: string;
+  type: 'advanced';
+  logic: 'AND' | 'OR';
+  conditions: AdvancedRuleCondition[];
+  action: AdvancedRuleAction;
+  is_active: boolean;
+  hits_count?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdvancedRuleConditionEvaluation {
+  id: string;
+  field: string;
+  operator: string;
+  expected_value: string;
+  actual_value: string;
+  negate: boolean;
+  passed: boolean;
+  detail: string;
+}
+
+export interface AdvancedRuleTestResult {
+  rule_code: string;
+  rule_name: string;
+  triggered: boolean;
+  score_produced: number;
+  logic: 'AND' | 'OR';
+  conditions_evaluated: AdvancedRuleConditionEvaluation[];
+  summary: string;
+}
+
 export interface SslCertificateInfo {
   domain: string;
   valid: boolean;

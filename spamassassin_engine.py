@@ -621,9 +621,47 @@ def consolidate_and_clean_rules(cf_content: str) -> Tuple[str, int]:
     has_validity_certified = False
     has_validity_safe = False
 
-    # Primeira passagem de trás para frente ou com rastreamento para manter a definição mais recente
-    # Vamos processar linha a linha guardando a ocorrência única de cada regra
-    for line in lines:
+    # Mapear última ocorrência de cada diretiva, score, describe e access list
+    last_access_idx = {}
+    last_header_idx = {}
+    last_score_idx = {}
+    last_desc_idx = {}
+
+    for i in range(len(lines) - 1, -1, -1):
+        raw = lines[i].strip()
+        if not raw or raw.startswith("#"):
+            continue
+
+        parsed_list = parse_single_line(raw)
+        if parsed_list:
+            for parsed in parsed_list:
+                key = f"{parsed['action']}:{parsed['canonical_pattern']}"
+                if key not in last_access_idx:
+                    last_access_idx[key] = i
+            continue
+
+        m_def = re.match(r'^(header|body|uri|rawbody|mimeheader)\s+([A-Za-z0-9_]+)\s+', raw, re.IGNORECASE)
+        if m_def:
+            rule_name = m_def.group(2).upper()
+            if rule_name not in last_header_idx:
+                last_header_idx[rule_name] = i
+            continue
+
+        m_score = re.match(r'^score\s+([A-Za-z0-9_]+)\s+([0-9\.\-]+)', raw, re.IGNORECASE)
+        if m_score:
+            rule_name = m_score.group(1).upper()
+            if rule_name not in last_score_idx:
+                last_score_idx[rule_name] = i
+            continue
+
+        m_desc = re.match(r'^describe\s+([A-Za-z0-9_]+)\s+', raw, re.IGNORECASE)
+        if m_desc:
+            rule_name = m_desc.group(1).upper()
+            if rule_name not in last_desc_idx:
+                last_desc_idx[rule_name] = i
+            continue
+
+    for i, line in enumerate(lines):
         raw = line.strip()
         if not raw:
             cleaned_lines.append(line)
@@ -638,22 +676,19 @@ def consolidate_and_clean_rules(cf_content: str) -> Tuple[str, int]:
         if parsed_list:
             for parsed in parsed_list:
                 key = f"{parsed['action']}:{parsed['canonical_pattern']}"
-                if key in seen_access_keys:
+                if last_access_idx.get(key) != i:
                     deduplicated_count += 1
                     continue
-                seen_access_keys.add(key)
                 cleaned_lines.append(f"{parsed['action']} {parsed['value']}")
             continue
 
         # 2. Diretivas Heurísticas: header, body, uri, mimeheader
         m_def = re.match(r'^(header|body|uri|rawbody|mimeheader)\s+([A-Za-z0-9_]+)\s+', raw, re.IGNORECASE)
         if m_def:
-            directive = m_def.group(1).lower()
             rule_name = m_def.group(2).upper()
-            if rule_name in seen_headers:
+            if last_header_idx.get(rule_name) != i:
                 deduplicated_count += 1
                 continue
-            seen_headers.add(rule_name)
             cleaned_lines.append(line)
             continue
 
@@ -663,19 +698,22 @@ def consolidate_and_clean_rules(cf_content: str) -> Tuple[str, int]:
             rule_name = m_score.group(1).upper()
             if rule_name == "VALIDITY_CERTIFIED":
                 has_validity_certified = True
+                if last_score_idx.get(rule_name) != i:
+                    deduplicated_count += 1
+                    continue
                 cleaned_lines.append("score VALIDITY_CERTIFIED 0.0")
-                seen_scores.add(rule_name)
                 continue
             elif rule_name == "VALIDITY_SAFE":
                 has_validity_safe = True
+                if last_score_idx.get(rule_name) != i:
+                    deduplicated_count += 1
+                    continue
                 cleaned_lines.append("score VALIDITY_SAFE 0.0")
-                seen_scores.add(rule_name)
                 continue
 
-            if rule_name in seen_scores:
+            if last_score_idx.get(rule_name) != i:
                 deduplicated_count += 1
                 continue
-            seen_scores.add(rule_name)
             cleaned_lines.append(line)
             continue
 
@@ -683,10 +721,9 @@ def consolidate_and_clean_rules(cf_content: str) -> Tuple[str, int]:
         m_desc = re.match(r'^describe\s+([A-Za-z0-9_]+)\s+', raw, re.IGNORECASE)
         if m_desc:
             rule_name = m_desc.group(1).upper()
-            if rule_name in seen_describes:
+            if last_desc_idx.get(rule_name) != i:
                 deduplicated_count += 1
                 continue
-            seen_describes.add(rule_name)
             cleaned_lines.append(line)
             continue
 

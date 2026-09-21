@@ -1,0 +1,105 @@
+[
+  {
+    "id": "rule_adv_1",
+    "code": "LOCAL_ADV_EXT_DOMINIO_ALFANUMERICO",
+    "name": "Remetente externo com domínio alfanumérico suspeito",
+    "description": "Aplica pontuação para domínio com composição alfanumérica suspeita apenas se a mensagem tiver origem externa",
+    "type": "advanced",
+    "logic": "AND",
+    "conditions": [
+      {
+        "id": "c1",
+        "field": "origin",
+        "operator": "equals",
+        "value": "external",
+        "negate": false
+      },
+      {
+        "id": "c2",
+        "field": "from",
+        "operator": "regex",
+        "value": "@([a-z0-9-]*[0-9][a-z0-9-]*[a-z]|[a-z0-9-]*[a-z][a-z0-9-]*[0-9])[a-z0-9-]*\\.",
+        "negate": false
+      }
+    ],
+    "action": {
+      "type": "add_score",
+      "value": 3
+    },
+    "is_active": true,
+    "hits_count": 1,
+    "created_at": "2026-09-09 12:00:00",
+    "updated_at": "2026-09-09 12:00:00"
+  },
+  {
+    "id": "rule_adv_2",
+    "code": "LOCAL_ADV_EXT_SUBDOMINIO",
+    "name": "Remetente externo com envio originado de subdomínio",
+    "description": "Aplica pontuação de subdomínio apenas a mensagens com origem externa (não geradas internamente)",
+    "type": "advanced",
+    "logic": "AND",
+    "conditions": [
+      {
+        "id": "c1",
+        "field": "origin",
+        "operator": "equals",
+        "value": "external",
+        "negate": false
+      },
+      {
+        "id": "c2",
+        "field": "from",
+        "operator": "regex",
+        "value": "@(?:[a-z0-9_.-]+\\.[a-z0-9-]+\\.(?:com|net|org|gov|edu|mil|jus|art|co|ind|inf|adm)\\.[a-z]{2}|[a-z0-9_.-]+\\.[a-z0-9-]+\\.[a-z]{3,})(?:>|\\s|$)",
+        "negate": false
+      }
+    ],
+    "action": {
+      "type": "add_score",
+      "value": 3.5
+    },
+    "is_active": true,
+    "hits_count": 2,
+    "created_at": "2026-09-09 12:00:00",
+    "updated_at": "2026-09-09 12:00:00"
+  },
+  {
+    "id": "rule_adv_3",
+    "code": "LOCAL_ADV_REMETENTE_EXTERNO_SUSPEITO",
+    "name": "Remetente externo suspeito com pendência no assunto",
+    "description": "Detecta mensagens de remetentes externos com padrão alfanumérico e termo de urgência/pendência no assunto",
+    "type": "advanced",
+    "logic": "AND",
+    "conditions": [
+      {
+        "id": "c1",
+        "field": "origin",
+        "operator": "equals",
+        "value": "external",
+        "negate": false
+      },
+      {
+        "id": "c2",
+        "field": "from",
+        "operator": "regex",
+        "value": "@[a-z0-9-]*[a-z][a-z0-9-]*[0-9][a-z0-9-]*(\\.[a-z0-9-]+)+",
+        "negate": false
+      },
+      {
+        "id": "c3",
+        "field": "subject",
+        "operator": "contains",
+        "value": "pendência",
+        "negate": false
+      }
+    ],
+    "action": {
+      "type": "add_score",
+      "value": 5
+    },
+    "is_active": true,
+    "hits_count": 0,
+    "created_at": "2026-09-09 12:00:00",
+    "updated_at": "2026-09-09 12:00:00"
+  }
+]

@@ -3,7 +3,7 @@ import path from "path";
 import fs from "fs";
 import os from "os";
 import crypto from "node:crypto";
-import { exec } from "child_process";
+import { exec, spawnSync } from "child_process";
 import { createServer as createViteServer } from "vite";
 import { DatabaseSync } from "node:sqlite";
 
@@ -43,6 +43,21 @@ async function startServer() {
           message TEXT,
           created_at TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS antispam_advanced_rules (
+          id TEXT PRIMARY KEY,
+          code TEXT UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT,
+          type TEXT DEFAULT 'advanced',
+          logic TEXT DEFAULT 'AND',
+          conditions_json TEXT NOT NULL,
+          action_json TEXT NOT NULL,
+          is_active INTEGER DEFAULT 1,
+          hits_count INTEGER DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
       `);
       return db;
     } catch (e: any) {
@@ -75,6 +90,21 @@ async function startServer() {
             message TEXT,
             created_at TEXT
           );
+
+          CREATE TABLE IF NOT EXISTS antispam_advanced_rules (
+            id TEXT PRIMARY KEY,
+            code TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            type TEXT DEFAULT 'advanced',
+            logic TEXT DEFAULT 'AND',
+            conditions_json TEXT NOT NULL,
+            action_json TEXT NOT NULL,
+            is_active INTEGER DEFAULT 1,
+            hits_count INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
         `);
         return freshDb;
       } catch (fallbackErr: any) {
@@ -102,6 +132,20 @@ async function startServer() {
               status TEXT DEFAULT 'Sent',
               message TEXT,
               created_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS antispam_advanced_rules (
+              id TEXT PRIMARY KEY,
+              code TEXT UNIQUE NOT NULL,
+              name TEXT NOT NULL,
+              description TEXT,
+              type TEXT DEFAULT 'advanced',
+              logic TEXT DEFAULT 'AND',
+              conditions_json TEXT NOT NULL,
+              action_json TEXT NOT NULL,
+              is_active INTEGER DEFAULT 1,
+              hits_count INTEGER DEFAULT 0,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
             );
           `);
           return memDb;
@@ -480,6 +524,11 @@ header   LOCAL_GOLPE_PEDAGIO Subject =~ /ped.gios?|vi.ria|rodovi.rio/i
 score    LOCAL_GOLPE_PEDAGIO 15.0
 describe LOCAL_GOLPE_PEDAGIO ZRTI - Phishing de Notificacao de Pedagio / Rodovia
 
+# 1.1 Golpe no Assunto Consolidado
+header   LOCAL_GOLPE_ASSUNTO Subject =~ /ped\.gios?|vi\.ria|rodovi\.rio|comprovante.*pix|fatura.*vencida|docusign.*assine|procon|notifica[cç][aã]o urgente|defesa.*consumidor|d[eé]bito pendente/i
+score    LOCAL_GOLPE_ASSUNTO 15.0
+describe LOCAL_GOLPE_ASSUNTO ZRTI - Phishing ou Notificacao Fraudulenta no Assunto
+
 # 2. Pega nomes falsos no Remetente (From) ignorando acentos
 header   LOCAL_GOLPE_REMETENTE From =~ /Regulariza..o|Pend.ncias|Cobran.a|ReclameAqui/i
 score    LOCAL_GOLPE_REMETENTE 15.0
@@ -500,33 +549,43 @@ header   LOCAL_GOLPE_DOCUSIGN Subject =~ /docusign.*assine|documento.*pendente.*
 score    LOCAL_GOLPE_DOCUSIGN 15.0
 describe LOCAL_GOLPE_DOCUSIGN ZRTI - Phishing de Falsa Assinatura DocuSign / Contrato
 
+# 6. Bloqueio Estrito de Remetentes Maliciosos Conhecidos
+header   LOCAL_BLOQUEIO_REMETENTE From =~ /@(spammerdomain\.net|sugardns\.net|residuos3\.com|neocomunicar1\.com|uraprods\.com)/i
+score    LOCAL_BLOQUEIO_REMETENTE 15.0
+describe LOCAL_BLOQUEIO_REMETENTE ZRTI - Bloqueio estrito de remetente malicioso
+
 # ==========================================================
 # INTELIGÊNCIA SPAM ZRTI: LINKS NO E-MAIL E ENCURTADORES
 # ==========================================================
-# 6. Links Encurtados e Redirecionadores Suspeitos no Corpo
+# 7. Links Encurtados e Redirecionadores Suspeitos no Corpo
 uri      LOCAL_LINK_SUSPEITO /(bit\\.ly|tinyurl|is\\.gd|cutt\\.ly|t\\.co|wa\\.me|goo\\.gl)\\/[a-zA-Z0-9]+/i
 score    LOCAL_LINK_SUSPEITO 12.0
 describe LOCAL_LINK_SUSPEITO ZRTI - Link Encurtador ou Redirecionamento Suspeito no Corpo
 
-# 7. Links com Endereco IP Direto no E-mail
+# 8. Links com Endereco IP Direto no E-mail
 uri      LOCAL_LINK_IP_DIRETO /https?:\\/\\/\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}/i
 score    LOCAL_LINK_IP_DIRETO 14.0
 describe LOCAL_LINK_IP_DIRETO ZRTI - Link com Endereco IP Direto no E-mail
 
+# 9. URL suspeita no corpo da mensagem (Score Autoridade ZRTI = 2.0)
+uri      LOCAL_URL_NO_CORPO /https?:\\/\\/[a-z0-9.-]+\\/(?:r|track|click|link|notificacao|procon)[a-z0-9_?&=%-]*/i
+score    LOCAL_URL_NO_CORPO 2.0
+describe LOCAL_URL_NO_CORPO ZRTI - URL suspeita identificada no corpo do e-mail
+
 # ==========================================================
 # INTELIGÊNCIA SPAM ZRTI: OFUSCAÇÃO E CARACTERES ESTRANHOS
 # ==========================================================
-# 8. Multiplas interrogacoes no Assunto (Falha de charset)
+# 10. Multiplas interrogacoes no Assunto (Falha de charset)
 header   LOCAL_ASSUNTO_QUEBRADO Subject =~ /\\?{2,}/
 score    LOCAL_ASSUNTO_QUEBRADO 5.0
 describe LOCAL_ASSUNTO_QUEBRADO ZRTI - Assunto com erro de codificacao (??)
 
-# 9. Remetente com Caracteres Ofuscados (ex: S.e.r.v.i.c.o)
+# 11. Remetente com Caracteres Ofuscados (ex: S.e.r.v.i.c.o)
 header   LOCAL_REMETENTE_OFUSCADO From =~ /[a-z][._*&%-][a-z][._*&%-][a-z]/i
 score    LOCAL_REMETENTE_OFUSCADO 5.0
 describe LOCAL_REMETENTE_OFUSCADO ZRTI - Remetente com caracteres ofuscados
 
-# 10. Caracteres Invisiveis, Zero-Width e Homografos
+# 12. Caracteres Invisiveis, Zero-Width e Homografos
 header   LOCAL_CARACTERES_ESTRANHOS Subject =~ /[\\u200B-\\u200D\\uFEFF]|[\\u0400-\\u04FF].*[\\u0041-\\u007A]/
 score    LOCAL_CARACTERES_ESTRANHOS 10.0
 describe LOCAL_CARACTERES_ESTRANHOS ZRTI - Caracteres estranhos, zero-width ou homografos no assunto
@@ -534,40 +593,68 @@ describe LOCAL_CARACTERES_ESTRANHOS ZRTI - Caracteres estranhos, zero-width ou h
 # ==========================================================
 # INTELIGÊNCIA SPAM ZRTI: SUBDOMÍNIOS, ALFANUMÉRICO E CORPO
 # ==========================================================
-# 11. Remetente com padrão alfanumérico suspeito
+# 13. Remetente com padrão alfanumérico suspeito
 header   LOCAL_REMETENTE_ALFANUMERICO From =~ /[a-z][a-z0-9.*%+-]*[0-9][a-z0-9.*%+-]*@/i
 score    LOCAL_REMETENTE_ALFANUMERICO 3.0
 describe LOCAL_REMETENTE_ALFANUMERICO ZRTI - Remetente com padrao alfanumerico suspeito
 
-# 12. Subdomínio com identificador hexadecimal de 8 caracteres
+# 14. Subdomínio com identificador hexadecimal de 8 caracteres
 header   LOCAL_SUBDOMINIO_HEX_8 From =~ /@[a-f0-9]{8}\\.[a-z0-9-]+\\.[a-z]{2,}(?:\\.[a-z]{2,})?(?:>|\\s|$)/i
 score    LOCAL_SUBDOMINIO_HEX_8 5.0
 describe LOCAL_SUBDOMINIO_HEX_8 ZRTI - Subdominio com identificador hexadecimal de 8 caracteres
 
-# 13. Envio originado de subdomínio (Tratamento estruturado ccTLD e TLD genérico)
+# 15. Subdomínio .com suspeito de múltiplos níveis
+header   LOCAL_SUBDOMINIO_COM_SUSPEITO From =~ /@[a-z0-9-]+\\.[a-z0-9-]+\\.com(?:\\.[a-z]{2})?(?:>|\\s|$)/i
+score    LOCAL_SUBDOMINIO_COM_SUSPEITO 5.0
+describe LOCAL_SUBDOMINIO_COM_SUSPEITO ZRTI - Subdominio .com suspeito de multiplos niveis
+
+# 16. Envio originado de subdomínio (Tratamento estruturado ccTLD e TLD genérico)
 header   LOCAL_SUBDOMAIN_SENDER From =~ /@[a-z0-9_.-]+\\.[a-z0-9-]+\\.(?:com|net|org|gov|edu|mil|jus|art|co|ind|inf|adm)\\.[a-z]{2}(?:>|\\s|$)|@[a-z0-9_.-]+\\.[a-z0-9-]+\\.[a-z]{3,}(?:>|\\s|$)/i
 score    LOCAL_SUBDOMAIN_SENDER 3.5
 describe LOCAL_SUBDOMAIN_SENDER ZRTI - Envio originado de subdominio
 
-# 14. Domínio ou subdomínio com composição alfanumérica
+# 17. Domínio ou subdomínio com composição alfanumérica
 header   LOCAL_DOMINIO_ALFANUMERICO From =~ /@(?:[a-z0-9-]*[0-9][a-z0-9-]*[a-z]|[a-z][a-z0-9-]*[0-9])[a-z0-9-]*\\.[a-z0-9-.]+/i
 score    LOCAL_DOMINIO_ALFANUMERICO 3.0
 describe LOCAL_DOMINIO_ALFANUMERICO ZRTI - Dominio ou subdominio com composicao alfanumerica
 
-# 15. URL suspeita no corpo da mensagem (Avaliada como URI - Score Autoridade ZRTI = 2.0)
-uri      LOCAL_URL_NO_CORPO /https?:\\/\\/[a-z0-9.-]+\\/(?:r|track|click|link|notificacao|procon)[a-z0-9_?&=%-]*/i
-score    LOCAL_URL_NO_CORPO 2.0
-describe LOCAL_URL_NO_CORPO ZRTI - URL suspeita identificada no corpo do e-mail
-
-# 16. Termos e gatilhos coercitivos suspeitos no corpo da mensagem (Score Autoridade ZRTI = 5.0)
+# 18. Termos e gatilhos coercitivos suspeitos no corpo da mensagem (Score Autoridade ZRTI = 5.0 - UNIDADE ÚNICA)
 body     LOCAL_CORPO_SUSPEITO /(?:a..o\\s+necess.ria|urgente|evitar\\s+processo|regularize\\s+agora|evas.o\\s+de\\s+ped.gio|processo\\s+administrativo|bloqueio\\s+imediato)/i
 score    LOCAL_CORPO_SUSPEITO 5.0
 describe LOCAL_CORPO_SUSPEITO ZRTI - Termos e gatilhos coercitivos suspeitos no corpo da mensagem
 
-# 17. Phishing e Fraude Simulação de Órgãos Reguladores (PROCON - Score Autoridade ZRTI = 6.0)
+# 19. Phishing e Fraude Simulação de Órgãos Reguladores (PROCON - Score Autoridade ZRTI = 6.0)
 header   LOCAL_GOLPE_PROCON Subject =~ /(procon|notifica[cç][aã]o urgente|defesa.*consumidor|d[eé]bito pendente)/i
 score    LOCAL_GOLPE_PROCON 6.0
-describe LOCAL_GOLPE_PROCON ZRTI - Phishing Simulacao de Orgaos Reguladores / PROCON`;
+describe LOCAL_GOLPE_PROCON ZRTI - Phishing Simulacao de Orgaos Reguladores / PROCON
+
+# ==========================================================
+# INTELIGÊNCIA SPAM ZRTI: BLOQUEIO ESPECÍFICO DE DOMÍNIOS
+# ==========================================================
+# 20. Bloqueio de domínios com coupons
+header   LOCAL_BLOQUEIO_DOMAIN_COUPONS From =~ /@.*coupons?[^@\\s]*\\.[a-z]{2,}/i
+score    LOCAL_BLOQUEIO_DOMAIN_COUPONS 15.0
+describe LOCAL_BLOQUEIO_DOMAIN_COUPONS ZRTI - Bloqueio de dominio coupons
+
+# 21. Bloqueio de domínio wpo.com
+header   LOCAL_BLOQUEIO_DOMAIN__WPO_COM From =~ /@.*wpo\\.com(?:\\.[a-z]{2})?$/i
+score    LOCAL_BLOQUEIO_DOMAIN__WPO_COM 15.0
+describe LOCAL_BLOQUEIO_DOMAIN__WPO_COM ZRTI - Bloqueio de dominio wpo.com
+
+# 22. Bloqueio de domínio atrushx (PRESERVAÇÃO ESTRITA DE REGEX COM QUANTIFICADOR *)
+header   LOCAL_BLOQUEIO_DOMAIN_ATRUSHX__COM From =~ /@atrushx[^@\\s]*\\.com$/i
+score    LOCAL_BLOQUEIO_DOMAIN_ATRUSHX__COM 15.0
+describe LOCAL_BLOQUEIO_DOMAIN_ATRUSHX__COM Bloqueio de domínio atrushx
+
+# 23. Bloqueio de domínio keyllabatista.adv.br
+header   LOCAL_BLOQUEIO_DOMAIN_KEYLLABATISTA_ADV_BR From =~ /@.*keyllabatista\\.adv\\.br$/i
+score    LOCAL_BLOQUEIO_DOMAIN_KEYLLABATISTA_ADV_BR 15.0
+describe LOCAL_BLOQUEIO_DOMAIN_KEYLLABATISTA_ADV_BR ZRTI - Bloqueio de dominio keyllabatista.adv.br
+
+# 24. Bloqueio de domínio sbs
+header   LOCAL_BLOQUEIO_DOMAIN_SBS From =~ /@.*sbs[^@\\s]*\\.[a-z]{2,}/i
+score    LOCAL_BLOQUEIO_DOMAIN_SBS 15.0
+describe LOCAL_BLOQUEIO_DOMAIN_SBS ZRTI - Bloqueio de dominio sbs`;
 
   let virtualMainCf = `# /etc/postfix/main.cf - Debian 12 Production Config
 # Gerenciado via MailAdmin Suite Web
@@ -3108,26 +3195,81 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
   ];
   let ACTIVE_SPAMASSASSIN_CF_PATH = POSSIBLE_SPAMASSASSIN_CF_PATHS.find(p => fs.existsSync(p)) || "/etc/spamassassin/local.cf";
 
-  // Função de deduplicação e consolidação de local.cf
+  // Função de deduplicação e consolidação de local.cf com preservação estrita da última definição
   function deduplicateAndConsolidateLocalCf(cfContent: string): { cleanedContent: string; duplicatesRemoved: number } {
     const lines = cfContent.split("\n");
-    const seenAccess = new Set<string>();
-    const seenDirectives = new Set<string>();
-    const seenScores = new Set<string>();
-    const seenDescribes = new Set<string>();
+    // Mapear última ocorrência de cada diretiva/score/describe/access para garantir 1:1 e manter alterações mais recentes
+    const lastDirectiveIndex = new Map<string, number>();
+    const lastScoreIndex = new Map<string, number>();
+    const lastDescribeIndex = new Map<string, number>();
+    const lastAccessIndex = new Map<string, number>();
+
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (!line || line.startsWith("#")) continue;
+
+      const accessMatch = line.match(/^(blacklist_from|whitelist_from|spam_from)\s+(.+)$/i);
+      if (accessMatch) {
+        const key = `${accessMatch[1].toLowerCase()}:${accessMatch[2].trim().toLowerCase()}`;
+        if (!lastAccessIndex.has(key)) {
+          lastAccessIndex.set(key, i);
+        }
+        continue;
+      }
+
+      const dirMatch = line.match(/^(header|body|uri|mimeheader|rawbody)\s+([A-Za-z0-9_]+)\s+/i);
+      if (dirMatch) {
+        const ruleName = dirMatch[2].toUpperCase();
+        if (!lastDirectiveIndex.has(ruleName)) {
+          lastDirectiveIndex.set(ruleName, i);
+        }
+        continue;
+      }
+
+      const scoreMatch = line.match(/^score\s+([A-Za-z0-9_]+)\s+([0-9\.\-]+)/i);
+      if (scoreMatch) {
+        const ruleName = scoreMatch[1].toUpperCase();
+        if (!lastScoreIndex.has(ruleName)) {
+          lastScoreIndex.set(ruleName, i);
+        }
+        continue;
+      }
+
+      const descMatch = line.match(/^describe\s+([A-Za-z0-9_]+)\s+/i);
+      if (descMatch) {
+        const ruleName = descMatch[1].toUpperCase();
+        if (!lastDescribeIndex.has(ruleName)) {
+          lastDescribeIndex.set(ruleName, i);
+        }
+        continue;
+      }
+    }
+
     const cleanedLines: string[] = [];
     let duplicatesRemoved = 0;
-
     let hasValidityCertified = false;
     let hasValiditySafe = false;
 
-    for (const rawLine of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const rawLine = lines[i];
       const line = rawLine.trim();
+
       if (!line) {
         cleanedLines.push(rawLine);
         continue;
       }
+
       if (line.startsWith("#")) {
+        // Se for comentário marcando uma regra que foi redefinida mais abaixo, remove para evitar lixo
+        const commentRuleMatch = line.match(/#\s*(?:Regra Customizada Heurística|\d+\.|\b)\s*([A-Za-z0-9_]+)/i);
+        if (commentRuleMatch) {
+          const rName = commentRuleMatch[1].toUpperCase();
+          const nextDirIdx = lastDirectiveIndex.get(rName);
+          if (nextDirIdx !== undefined && Math.abs(nextDirIdx - i) > 4) {
+            duplicatesRemoved++;
+            continue;
+          }
+        }
         cleanedLines.push(rawLine);
         continue;
       }
@@ -3135,15 +3277,12 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       // 1. Listas de acesso (blacklist_from, whitelist_from, spam_from)
       const accessMatch = line.match(/^(blacklist_from|whitelist_from|spam_from)\s+(.+)$/i);
       if (accessMatch) {
-        const action = accessMatch[1].toLowerCase();
-        const value = accessMatch[2].trim().toLowerCase();
-        const key = `${action}:${value}`;
-        if (seenAccess.has(key)) {
+        const key = `${accessMatch[1].toLowerCase()}:${accessMatch[2].trim().toLowerCase()}`;
+        if (lastAccessIndex.get(key) !== i) {
           duplicatesRemoved++;
           continue;
         }
-        seenAccess.add(key);
-        cleanedLines.push(`${action} ${value}`);
+        cleanedLines.push(`${accessMatch[1].toLowerCase()} ${accessMatch[2].trim().toLowerCase()}`);
         continue;
       }
 
@@ -3151,11 +3290,10 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       const dirMatch = line.match(/^(header|body|uri|mimeheader|rawbody)\s+([A-Za-z0-9_]+)\s+/i);
       if (dirMatch) {
         const ruleName = dirMatch[2].toUpperCase();
-        if (seenDirectives.has(ruleName)) {
+        if (lastDirectiveIndex.get(ruleName) !== i) {
           duplicatesRemoved++;
           continue;
         }
-        seenDirectives.add(ruleName);
         cleanedLines.push(rawLine);
         continue;
       }
@@ -3166,29 +3304,26 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
         const ruleName = scoreMatch[1].toUpperCase();
         if (ruleName === "VALIDITY_CERTIFIED") {
           hasValidityCertified = true;
-          if (seenScores.has(ruleName)) {
+          if (lastScoreIndex.get(ruleName) !== i) {
             duplicatesRemoved++;
             continue;
           }
-          seenScores.add(ruleName);
           cleanedLines.push("score VALIDITY_CERTIFIED 0.0");
           continue;
         } else if (ruleName === "VALIDITY_SAFE") {
           hasValiditySafe = true;
-          if (seenScores.has(ruleName)) {
+          if (lastScoreIndex.get(ruleName) !== i) {
             duplicatesRemoved++;
             continue;
           }
-          seenScores.add(ruleName);
           cleanedLines.push("score VALIDITY_SAFE 0.0");
           continue;
         }
 
-        if (seenScores.has(ruleName)) {
+        if (lastScoreIndex.get(ruleName) !== i) {
           duplicatesRemoved++;
           continue;
         }
-        seenScores.add(ruleName);
         cleanedLines.push(rawLine);
         continue;
       }
@@ -3197,11 +3332,10 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       const descMatch = line.match(/^describe\s+([A-Za-z0-9_]+)\s+/i);
       if (descMatch) {
         const ruleName = descMatch[1].toUpperCase();
-        if (seenDescribes.has(ruleName)) {
+        if (lastDescribeIndex.get(ruleName) !== i) {
           duplicatesRemoved++;
           continue;
         }
-        seenDescribes.add(ruleName);
         cleanedLines.push(rawLine);
         continue;
       }
@@ -3221,6 +3355,107 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       cleanedContent: cleanedLines.join("\n"),
       duplicatesRemoved
     };
+  }
+
+  // Validador Rigoroso de Sintaxe do SpamAssassin (Linha a Linha + lint do binário)
+  function validateSpamAssassinConfig(cfContent: string): { valid: boolean; error?: string; output?: string } {
+    const lines = cfContent.split("\n");
+
+    for (let idx = 0; idx < lines.length; idx++) {
+      const lineNum = idx + 1;
+      const rawLine = lines[idx];
+      const trimmed = rawLine.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+
+      // 1. Header directive: header NAME Target =~ /pattern/i
+      const headerMatch = trimmed.match(/^header\s+([A-Za-z0-9_]+)\s+([A-Za-z0-9_\-]+)\s*(?:=~)?\s*(.+)$/i);
+      if (headerMatch) {
+        const [, ruleName, , patternPart] = headerMatch;
+        const pat = patternPart.trim();
+        if (pat.startsWith("/") && pat.lastIndexOf("/") > 0) {
+          const lastSlash = pat.lastIndexOf("/");
+          const regexBody = pat.substring(1, lastSlash);
+          const flags = pat.substring(lastSlash + 1);
+          try {
+            new RegExp(regexBody, flags);
+          } catch (reErr: any) {
+            return {
+              valid: false,
+              error: `Erro de sintaxe no Regex da regra '${ruleName}' na linha ${lineNum}: ${reErr.message} (Padrão: ${pat})`
+            };
+          }
+        }
+        continue;
+      }
+
+      // 2. Body / Rawbody directive: body NAME /pattern/i ou body NAME =~ /pattern/i
+      const bodyMatch = trimmed.match(/^(?:body|rawbody)\s+([A-Za-z0-9_]+)\s*(?:=~)?\s*(.+)$/i);
+      if (bodyMatch) {
+        const [, ruleName, patternPart] = bodyMatch;
+        const pat = patternPart.trim();
+        if (pat.startsWith("/") && pat.lastIndexOf("/") > 0) {
+          const lastSlash = pat.lastIndexOf("/");
+          const regexBody = pat.substring(1, lastSlash);
+          const flags = pat.substring(lastSlash + 1);
+          try {
+            new RegExp(regexBody, flags);
+          } catch (reErr: any) {
+            return {
+              valid: false,
+              error: `Erro de sintaxe no Regex de corpo da regra '${ruleName}' na linha ${lineNum}: ${reErr.message} (Padrão: ${pat})`
+            };
+          }
+        }
+        continue;
+      }
+
+      // 3. URI directive: uri NAME /pattern/i
+      const uriMatch = trimmed.match(/^uri\s+([A-Za-z0-9_]+)\s*(?:=~)?\s*(.+)$/i);
+      if (uriMatch) {
+        const [, ruleName, patternPart] = uriMatch;
+        const pat = patternPart.trim();
+        if (pat.startsWith("/") && pat.lastIndexOf("/") > 0) {
+          const lastSlash = pat.lastIndexOf("/");
+          const regexBody = pat.substring(1, lastSlash);
+          const flags = pat.substring(lastSlash + 1);
+          try {
+            new RegExp(regexBody, flags);
+          } catch (reErr: any) {
+            return {
+              valid: false,
+              error: `Erro de sintaxe no Regex de URI da regra '${ruleName}' na linha ${lineNum}: ${reErr.message} (Padrão: ${pat})`
+            };
+          }
+        }
+        continue;
+      }
+
+      // 4. Score directive
+      const scoreMatch = trimmed.match(/^score\s+([A-Za-z0-9_]+)\s+([0-9\.\-]+)/i);
+      if (scoreMatch) {
+        const val = parseFloat(scoreMatch[2]);
+        if (isNaN(val)) {
+          return { valid: false, error: `Score numérico inválido na linha ${lineNum}: ${scoreMatch[2]}` };
+        }
+        continue;
+      }
+    }
+
+    // Se o utilitário spamassassin estiver instalado, executa spamassassin --lint
+    try {
+      const lintCheck = spawnSync("spamassassin", ["--lint"], { encoding: "utf-8", timeout: 8000 });
+      if (!lintCheck.error && lintCheck.status !== null && lintCheck.status !== 0) {
+        const errOut = (lintCheck.stderr || lintCheck.stdout || `Código ${lintCheck.status}`).trim();
+        return {
+          valid: false,
+          error: `Falha na verificação de integridade do SpamAssassin (spamassassin --lint): ${errOut}`
+        };
+      }
+    } catch {
+      // Ignorar fallback caso o binário não esteja instalado no container
+    }
+
+    return { valid: true };
   }
 
   // Helper to load local.cf from real filesystem if present, otherwise use virtualLocalCf
@@ -3243,8 +3478,19 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
   }
 
   // Helper to save local.cf to virtual and real filesystem (with amavis reload) if in production
-  function saveSpamAssassinConfigContent(newContent: string): boolean {
-    const { cleanedContent } = deduplicateAndConsolidateLocalCf(newContent);
+  function saveSpamAssassinConfigContent(newContent: string): { success: boolean; message: string; duplicatesRemoved?: number } {
+    // 1. Validação estrita de sintaxe antes de aplicar qualquer modificação
+    const validation = validateSpamAssassinConfig(newContent);
+    if (!validation.valid) {
+      console.error("[SpamAssassin Guard] Alteração rejeitada por sintaxe inválida:", validation.error);
+      return {
+        success: false,
+        message: validation.error || "Conteúdo com sintaxe inválida para o SpamAssassin."
+      };
+    }
+
+    const { cleanedContent, duplicatesRemoved } = deduplicateAndConsolidateLocalCf(newContent);
+    const previousContent = virtualLocalCf;
     virtualLocalCf = cleanedContent;
     let written = false;
 
@@ -3252,6 +3498,13 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       try {
         const dir = path.dirname(p);
         if (fs.existsSync(dir)) {
+          // Backup prévio
+          try {
+            if (fs.existsSync(p)) {
+              fs.writeFileSync(`${p}.bak.zrti`, fs.readFileSync(p, "utf-8"), "utf-8");
+            }
+          } catch {}
+
           fs.writeFileSync(p, cleanedContent, "utf-8");
           ACTIVE_SPAMASSASSIN_CF_PATH = p;
           written = true;
@@ -3261,12 +3514,32 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       }
     }
 
+    // Se arquivo físico foi escrito, validar via spamassassin --lint pós-escrita e fazer rollback se falhar
     if (written) {
+      try {
+        const postLint = spawnSync("spamassassin", ["--lint"], { encoding: "utf-8", timeout: 8000 });
+        if (!postLint.error && postLint.status !== null && postLint.status !== 0) {
+          console.error("[SpamAssassin Guard] Falha no spamassassin --lint pós-escrita. Revertendo configuração...");
+          virtualLocalCf = previousContent;
+          try {
+            fs.writeFileSync(ACTIVE_SPAMASSASSIN_CF_PATH, previousContent, "utf-8");
+          } catch {}
+          return {
+            success: false,
+            message: `Falha na verificação de integridade (spamassassin --lint): ${(postLint.stderr || postLint.stdout || "").trim()}`
+          };
+        }
+      } catch {}
+
       // Reload SpamAssassin and Amavis in background if systemd is available
       exec("sudo systemctl reload amavis spamassassin || sudo systemctl restart amavis", () => {});
-      return true;
     }
-    return false;
+
+    return {
+      success: true,
+      message: `Configuração do local.cf gravada e validada com sucesso! (${duplicatesRemoved} duplicatas removidas)`,
+      duplicatesRemoved
+    };
   }
 
   app.get("/api/services/spamassassin/rules", (req, res) => {
@@ -3276,16 +3549,22 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
 
   app.post("/api/services/spamassassin/rules", (req, res) => {
     const { content } = req.body || {};
-    saveSpamAssassinConfigContent(content || "");
+    const saveRes = saveSpamAssassinConfigContent(content || "");
+    if (!saveRes.success) {
+      return res.status(400).json(saveRes);
+    }
     addAuditLog("SPAM_RULES_RAW_UPDATE", ACTIVE_SPAMASSASSIN_CF_PATH, { length: (content || "").length }, "suspicious", req);
-    res.json({ success: true, message: "Regras salvas no local.cf e Amavis reiniciado!", active_path: ACTIVE_SPAMASSASSIN_CF_PATH });
+    res.json({ success: true, message: saveRes.message, active_path: ACTIVE_SPAMASSASSIN_CF_PATH });
   });
 
   // POST endpoint para deduplicação manual de local.cf
   app.post("/api/services/spamassassin/deduplicate", (req, res) => {
     const current = getSpamAssassinConfigContent();
     const { cleanedContent, duplicatesRemoved } = deduplicateAndConsolidateLocalCf(current);
-    saveSpamAssassinConfigContent(cleanedContent);
+    const saveRes = saveSpamAssassinConfigContent(cleanedContent);
+    if (!saveRes.success) {
+      return res.status(400).json(saveRes);
+    }
     addAuditLog("SPAM_RULES_DEDUPLICATE", ACTIVE_SPAMASSASSIN_CF_PATH, { duplicatesRemoved }, "normal", req);
     res.json({
       success: true,
@@ -3293,6 +3572,119 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       message: duplicatesRemoved > 0 
         ? `Consolidação concluída! ${duplicatesRemoved} regra(s) duplicada(s) ou redundante(s) foram removidas com sucesso de ${ACTIVE_SPAMASSASSIN_CF_PATH}.`
         : `O arquivo ${ACTIVE_SPAMASSASSIN_CF_PATH} já está perfeitamente otimizado e sem regras duplicadas.`
+    });
+  });
+
+  // GET endpoint para validar local.cf com spamassassin --lint
+  app.get("/api/services/spamassassin/lint", (req, res) => {
+    const current = getSpamAssassinConfigContent();
+    const val = validateSpamAssassinConfig(current);
+    res.json({
+      success: val.valid,
+      valid: val.valid,
+      error: val.error || null,
+      message: val.valid ? "Sintaxe do local.cf validada com sucesso (0 erros)!" : val.error
+    });
+  });
+
+  // GET endpoint para Bateria de Testes de Regressão Automatizados
+  app.get("/api/services/spamassassin/regression-tests", (req, res) => {
+    const testResults: any[] = [];
+    let allPassed = true;
+
+    const runTestCase = (id: string, description: string, pattern: string, sample: string, shouldMatch: boolean) => {
+      let flags = "i";
+      let regexStr = pattern.trim();
+      if (regexStr.startsWith("/") && regexStr.lastIndexOf("/") > 0) {
+        flags = regexStr.substring(regexStr.lastIndexOf("/") + 1);
+        regexStr = regexStr.substring(1, regexStr.lastIndexOf("/"));
+      }
+
+      try {
+        const re = new RegExp(regexStr, flags);
+        const matched = re.test(sample);
+        const passed = matched === shouldMatch;
+        if (!passed) allPassed = false;
+        testResults.push({
+          id,
+          description,
+          pattern,
+          sample,
+          expected_match: shouldMatch,
+          actual_match: matched,
+          passed
+        });
+      } catch (err: any) {
+        allPassed = false;
+        testResults.push({
+          id,
+          description,
+          pattern,
+          sample,
+          expected_match: shouldMatch,
+          actual_match: false,
+          passed: false,
+          error: err.message
+        });
+      }
+    };
+
+    // 1. Regex simples
+    runTestCase("REG_01", "Regex simples de palavra", "/palavra/i", "Esta palavra deve casar", true);
+    runTestCase("REG_02", "Regex simples negativa", "/palavra/i", "Este texto nao contem", false);
+
+    // 2. Quantificador *
+    runTestCase("REG_03", "Quantificador zero ou mais (*)", "/teste.*fim/i", "teste com qualquer conteudo no meio fim", true);
+
+    // 3. Quantificador +
+    runTestCase("REG_04", "Quantificador um ou mais (+)", "/[0-9]+/i", "Numero 12345", true);
+
+    // 4. Quantificador ?
+    runTestCase("REG_05", "Quantificador opcional (?)", "/ped.gios?/i", "notificacao de pedagio", true);
+    runTestCase("REG_06", "Quantificador opcional (?) plural", "/ped.gios?/i", "notificacao de pedagios", true);
+
+    // 5. Classes de caracteres [^@\s]
+    runTestCase("REG_07", "Classe negada de espaco e arroba", "/@[a-z0-9_.-]+\\.[a-z]{2,}/i", "envio@empresa.com.br", true);
+
+    // 6. Âncoras ^ e $
+    runTestCase("REG_08", "Âncora de final ($)", "/\\.com$/i", "contato@empresa.com", true);
+    runTestCase("REG_09", "Âncora de final ($) nao correspondente", "/\\.com$/i", "contato@empresa.com.br", false);
+
+    // 7. Alternância |
+    runTestCase("REG_10", "Alternância (|)", "/(procon|reclameaqui|cobranca)/i", "Falsa notificacao do Procon urgente", true);
+
+    // 8. Grupo de não-captura (?:...)
+    runTestCase("REG_11", "Grupo não-captura", "/(?:aviso|urgente)\\s+notificacao/i", "urgente notificacao de processo", true);
+
+    // 9. Caracteres escapados explicitamente (\., \-, \_)
+    runTestCase("REG_12", "Ponto escapado literal", "/dominio\\.com\\.br/i", "contato@dominio.com.br", true);
+    runTestCase("REG_13", "Ponto escapado nao casa outros chars", "/dominio\\.com/i", "contato@dominioccom", false);
+
+    // 10. CASO REAL ATRUSHX (Cenário exato do incidente)
+    runTestCase(
+      "REG_ATRUSHX_REAL",
+      "Caso Real ATRUSHX: /@atrushx[^@\\s]*\\.com$/i matching registro-brione-rc@atrushx10.com",
+      "/@atrushx[^@\\s]*\\.com$/i",
+      "registro-brione-rc@atrushx10.com",
+      true
+    );
+
+    // 11. Caso ATRUSHX com subdomínios ou variações
+    runTestCase(
+      "REG_ATRUSHX_VAR",
+      "Caso Real ATRUSHX com variacao alfanumerica direta",
+      "/@atrushx[^@\\s]*\\.com$/i",
+      "financeiro@atrushx.com",
+      true
+    );
+
+    res.json({
+      success: allPassed,
+      all_passed: allPassed,
+      total_tests: testResults.length,
+      passed_count: testResults.filter(t => t.passed).length,
+      failed_count: testResults.filter(t => !t.passed).length,
+      tests: testResults
     });
   });
 
@@ -4372,21 +4764,24 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
 
     let ruleBlock = "";
     if (isBody) {
-      ruleBlock = `\n# Regra Customizada Heurística ${cleanName}\nbody     ${cleanName} =~ ${cleanPattern}\nscore    ${cleanName} ${cleanScore}\ndescribe ${cleanName} ${cleanDesc}\n`;
+      ruleBlock = `\n# Regra Customizada Heurística ${cleanName}\nbody     ${cleanName} ${cleanPattern}\nscore    ${cleanName} ${cleanScore}\ndescribe ${cleanName} ${cleanDesc}\n`;
     } else if (isUri) {
-      ruleBlock = `\n# Regra Customizada Heurística ${cleanName}\nuri      ${cleanName} =~ ${cleanPattern}\nscore    ${cleanName} ${cleanScore}\ndescribe ${cleanName} ${cleanDesc}\n`;
+      ruleBlock = `\n# Regra Customizada Heurística ${cleanName}\nuri      ${cleanName} ${cleanPattern}\nscore    ${cleanName} ${cleanScore}\ndescribe ${cleanName} ${cleanDesc}\n`;
     } else {
       ruleBlock = `\n# Regra Customizada Heurística ${cleanName}\nheader   ${cleanName} ${cleanTarget} =~ ${cleanPattern}\nscore    ${cleanName} ${cleanScore}\ndescribe ${cleanName} ${cleanDesc}\n`;
     }
 
     const consolidated = newLines.join("\n") + ruleBlock;
-    saveSpamAssassinConfigContent(consolidated);
+    const saveResult = saveSpamAssassinConfigContent(consolidated);
+    if (!saveResult.success) {
+      return res.status(400).json(saveResult);
+    }
 
     addAuditLog("SPAM_CUSTOM_RULE_SAVE", cleanName, { target: cleanTarget, pattern: cleanPattern, score: cleanScore, describe: cleanDesc }, "normal", req);
 
     res.json({
       success: true,
-      message: `Regra customizada '${cleanName}' gravada com unicidade garantida no local.cf! SpamAssassin/Amavis sincronizados.`
+      message: `Regra customizada '${cleanName}' validada e gravada com unicidade garantida no local.cf! SpamAssassin/Amavis sincronizados.`
     });
   };
 
@@ -4418,6 +4813,665 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
     res.json({
       success: true,
       message: `Regra customizada '${cleanName}' removida com sucesso do local.cf.`
+    });
+  });
+
+  // =========================================================================
+  // MOTOR DE INTELIGÊNCIA ANTISPAM — REGRAS AVANÇADAS / COMPOSTAS (ZRTI)
+  // =========================================================================
+
+  const ADVANCED_RULES_JSON_PATH = path.join(process.cwd(), "data", "antispam_advanced_rules.json");
+
+  function loadAdvancedRulesFromStorage(): any[] {
+    try {
+      if (sqliteDb) {
+        const rows = sqliteDb.prepare("SELECT * FROM antispam_advanced_rules ORDER BY created_at DESC").all() as any[];
+        if (rows && rows.length > 0) {
+          return rows.map(r => ({
+            id: r.id,
+            code: r.code,
+            name: r.name,
+            description: r.description || '',
+            type: 'advanced',
+            logic: r.logic || 'AND',
+            conditions: JSON.parse(r.conditions_json || '[]'),
+            action: JSON.parse(r.action_json || '{"type":"add_score","value":5.0}'),
+            is_active: r.is_active === 1 || r.is_active === true,
+            hits_count: r.hits_count || 0,
+            created_at: r.created_at,
+            updated_at: r.updated_at
+          }));
+        }
+      }
+
+      if (fs.existsSync(ADVANCED_RULES_JSON_PATH)) {
+        const raw = fs.readFileSync(ADVANCED_RULES_JSON_PATH, "utf-8");
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          if (sqliteDb) {
+            for (const r of parsed) {
+              try {
+                sqliteDb.prepare(`
+                  INSERT OR REPLACE INTO antispam_advanced_rules (id, code, name, description, type, logic, conditions_json, action_json, is_active, hits_count, created_at, updated_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `).run(
+                  r.id, r.code, r.name, r.description || '', 'advanced', r.logic || 'AND',
+                  JSON.stringify(r.conditions || []), JSON.stringify(r.action || { type: 'add_score', value: 5.0 }),
+                  r.is_active !== false ? 1 : 0, r.hits_count || 0, r.created_at || new Date().toISOString(), r.updated_at || new Date().toISOString()
+                );
+              } catch (e) {
+                console.error("Erro ao sincronizar regra avançada no SQLite:", e);
+              }
+            }
+          }
+          return parsed;
+        }
+      }
+    } catch (e: any) {
+      console.warn("Aviso ao carregar regras avançadas:", e?.message || e);
+    }
+    return [];
+  }
+
+  let virtualAdvancedRules: any[] = loadAdvancedRulesFromStorage();
+
+  function persistAdvancedRulesToStorage(rules: any[]) {
+    try {
+      const dataDir = path.join(process.cwd(), "data");
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+      fs.writeFileSync(ADVANCED_RULES_JSON_PATH, JSON.stringify(rules, null, 2), "utf-8");
+
+      if (sqliteDb) {
+        sqliteDb.exec("DELETE FROM antispam_advanced_rules");
+        const ins = sqliteDb.prepare(`
+          INSERT INTO antispam_advanced_rules (id, code, name, description, type, logic, conditions_json, action_json, is_active, hits_count, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const r of rules) {
+          ins.run(
+            r.id, r.code, r.name, r.description || '', 'advanced', r.logic || 'AND',
+            JSON.stringify(r.conditions || []), JSON.stringify(r.action || { type: 'add_score', value: 5.0 }),
+            r.is_active !== false ? 1 : 0, r.hits_count || 0, r.created_at || new Date().toISOString(), r.updated_at || new Date().toISOString()
+          );
+        }
+      }
+    } catch (err: any) {
+      console.error("Erro ao persistir regras avançadas:", err?.message || err);
+    }
+  }
+
+  // Avaliador de Condição Individual
+  function evaluateSingleCondition(condition: any, context: any): { passed: boolean; actual: string; detail: string } {
+    const field = (condition.field || '').toLowerCase();
+    const operator = (condition.operator || 'contains').toLowerCase();
+    const expected = (condition.value || '').trim();
+    const negate = !!condition.negate;
+
+    let actual = '';
+
+    if (field === 'origin') {
+      actual = (context.origin || 'external').toLowerCase();
+    } else if (field === 'client_ip') {
+      actual = (context.client_ip || '').toLowerCase();
+    } else if (field === 'from') {
+      actual = (context.from || '').toLowerCase();
+    } else if (field === 'from_domain') {
+      const fAddr = (context.from || '').includes('<') ? (context.from.match(/<([^>]+)>/)?.[1] || context.from) : context.from;
+      actual = (fAddr.includes('@') ? fAddr.split('@')[1] : fAddr).toLowerCase().trim();
+    } else if (field === 'envelope_from') {
+      actual = (context.envelope_from || context.from || '').toLowerCase();
+    } else if (field === 'to') {
+      actual = (context.to || '').toLowerCase();
+    } else if (field === 'reply_to') {
+      actual = (context.reply_to || '').toLowerCase();
+    } else if (field === 'subject') {
+      actual = (context.subject || '').toLowerCase();
+    } else if (field === 'message_id') {
+      actual = (context.message_id || context.headers?.['message-id'] || '').toLowerCase();
+    } else if (field === 'received') {
+      actual = (context.received || context.headers?.['received'] || '').toLowerCase();
+    } else if (field === 'custom_header') {
+      const hname = (condition.custom_header_name || '').toLowerCase();
+      actual = (context.headers?.[hname] || '').toLowerCase();
+    } else if (field === 'body') {
+      actual = (context.body || '').toLowerCase();
+    } else if (field === 'uri') {
+      const urls = Array.isArray(context.uri) ? context.uri : extractUrls(context.body || '');
+      actual = urls.join(' ').toLowerCase();
+    } else if (field === 'attachments') {
+      actual = (context.attachments || '').toLowerCase();
+    } else if (field === 'content_type') {
+      actual = (context.content_type || context.headers?.['content-type'] || '').toLowerCase();
+    } else if (field === 'spf') {
+      actual = (context.spf || 'none').toUpperCase();
+    } else if (field === 'dkim') {
+      actual = (context.dkim || 'none').toUpperCase();
+    } else if (field === 'dmarc') {
+      actual = (context.dmarc || 'none').toUpperCase();
+    } else if (field === 'smtp_auth') {
+      actual = context.smtp_auth ? 'yes' : 'no';
+    } else if (field === 'dnsbl') {
+      actual = (context.dnsbl || '').toLowerCase();
+    } else if (field === 'uribl') {
+      actual = (context.uribl || '').toLowerCase();
+    } else if (field === 'bayes') {
+      actual = String(context.bayes ?? 0);
+    } else if (field === 'sa_score') {
+      actual = String(context.sa_score ?? 0);
+    } else {
+      actual = String(context[field] || '').toLowerCase();
+    }
+
+    let match = false;
+    const expLower = expected.toLowerCase();
+
+    switch (operator) {
+      case 'contains':
+        match = actual.includes(expLower);
+        break;
+      case 'not_contains':
+        match = !actual.includes(expLower);
+        break;
+      case 'equals':
+        match = actual.trim() === expLower.trim();
+        break;
+      case 'not_equals':
+        match = actual.trim() !== expLower.trim();
+        break;
+      case 'starts_with':
+        match = actual.startsWith(expLower);
+        break;
+      case 'ends_with':
+        match = actual.endsWith(expLower);
+        break;
+      case 'regex':
+      case 'regex_match':
+        try {
+          let cleanPat = expected;
+          let flags = 'i';
+          if (cleanPat.startsWith('/') && cleanPat.lastIndexOf('/') > 0) {
+            const lastIdx = cleanPat.lastIndexOf('/');
+            flags = cleanPat.substring(lastIdx + 1) || 'i';
+            cleanPat = cleanPat.substring(1, lastIdx);
+          }
+          const re = new RegExp(cleanPat, flags);
+          match = re.test(actual);
+        } catch {
+          match = false;
+        }
+        break;
+      case 'not_regex':
+      case 'regex_not_match':
+        try {
+          let cleanPat = expected;
+          let flags = 'i';
+          if (cleanPat.startsWith('/') && cleanPat.lastIndexOf('/') > 0) {
+            const lastIdx = cleanPat.lastIndexOf('/');
+            flags = cleanPat.substring(lastIdx + 1) || 'i';
+            cleanPat = cleanPat.substring(1, lastIdx);
+          }
+          const re = new RegExp(cleanPat, flags);
+          match = !re.test(actual);
+        } catch {
+          match = false;
+        }
+        break;
+      case 'domain_has_hex':
+        match = /@.*[a-f0-9]{6,}/i.test(actual) || /[a-f0-9]{6,}/i.test(actual);
+        break;
+      case 'exists':
+        match = actual.trim().length > 0;
+        break;
+      case 'not_exists':
+        match = actual.trim().length === 0;
+        break;
+      case 'gt':
+        match = parseFloat(actual) > parseFloat(expected);
+        break;
+      case 'lt':
+        match = parseFloat(actual) < parseFloat(expected);
+        break;
+      case 'gte':
+        match = parseFloat(actual) >= parseFloat(expected);
+        break;
+      case 'lte':
+        match = parseFloat(actual) <= parseFloat(expected);
+        break;
+      default:
+        match = actual.includes(expLower);
+    }
+
+    const finalPassed = negate ? !match : match;
+    const detail = finalPassed 
+      ? `✓ Correspondência (${negate ? 'NÃO ' : ''}${operator} '${expected}')`
+      : `✗ Não correspondeu (${negate ? 'NÃO ' : ''}${operator} '${expected}', valor atual: '${actual.substring(0, 40)}')`;
+
+    return {
+      passed: finalPassed,
+      actual: actual.substring(0, 80),
+      detail
+    };
+  }
+
+  // Avaliador de Regra Avançada Completa
+  function evaluateAdvancedRule(rule: any, context: any) {
+    const conditions = Array.isArray(rule.conditions) ? rule.conditions : [];
+    const logic = (rule.logic || 'AND').toUpperCase();
+
+    const evaluations = conditions.map((cond: any) => {
+      const evalResult = evaluateSingleCondition(cond, context);
+      return {
+        id: cond.id,
+        field: cond.field,
+        operator: cond.operator,
+        expected_value: cond.value,
+        actual_value: evalResult.actual,
+        negate: !!cond.negate,
+        passed: evalResult.passed,
+        matched: evalResult.passed,
+        detail: evalResult.detail
+      };
+    });
+
+    let triggered = false;
+    if (conditions.length === 0) {
+      triggered = false;
+    } else if (logic === 'OR') {
+      triggered = evaluations.some(e => e.passed);
+    } else {
+      // Default: AND
+      triggered = evaluations.every(e => e.passed);
+    }
+
+    let scoreProduced = 0.0;
+    if (triggered) {
+      const actType = rule.action?.type || 'add_score';
+      const actVal = Math.abs(parseFloat(rule.action?.value) || 0.0);
+      if (actType === 'add_score') {
+        scoreProduced = actVal;
+      } else if (actType === 'sub_score') {
+        scoreProduced = -actVal;
+      } else {
+        scoreProduced = 0.0; // no_op
+      }
+    }
+
+    return {
+      rule_code: rule.code,
+      rule_name: rule.name,
+      triggered,
+      score_produced: scoreProduced,
+      logic,
+      conditions_evaluated: evaluations,
+      summary: triggered 
+        ? `Regra ${rule.code} acionada! Score produzido: ${scoreProduced > 0 ? '+' : ''}${scoreProduced.toFixed(1)} pts`
+        : `Regra ${rule.code} NÃO acionada.`
+    };
+  }
+
+  // Validador de Regra Avançada
+  function validateAdvancedRuleData(data: any, existingRules: any[]): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+    if (!data.name || !String(data.name).trim()) {
+      errors.push("Nome da regra é obrigatório.");
+    }
+
+    if (!data.code || !String(data.code).trim()) {
+      errors.push("Código da regra é obrigatório.");
+    } else {
+      const cleanCode = String(data.code).trim().toUpperCase();
+      if (!/^[A-Z0-9_]{3,60}$/.test(cleanCode)) {
+        errors.push("Código da regra deve conter apenas letras maiúsculas, números e underlines (3 a 60 caracteres). Ex: LOCAL_REMETENTE_SUSPEITO.");
+      }
+      const duplicate = existingRules.find(r => r.code === cleanCode && r.id !== data.id);
+      if (duplicate) {
+        errors.push(`Código '${cleanCode}' já está em uso pela regra '${duplicate.name}'.`);
+      }
+    }
+
+    if (!Array.isArray(data.conditions) || data.conditions.length === 0) {
+      errors.push("A regra deve conter pelo menos uma condição.");
+    } else {
+      data.conditions.forEach((c: any, idx: number) => {
+        if (!c.field) {
+          errors.push(`Condição #${idx + 1}: campo não informado.`);
+        }
+        if (!c.operator) {
+          errors.push(`Condição #${idx + 1}: operador não informado.`);
+        }
+        if (c.operator !== 'exists' && c.operator !== 'not_exists' && (!c.value || !String(c.value).trim())) {
+          errors.push(`Condição #${idx + 1}: valor esperado não informado.`);
+        }
+        if (c.operator === 'regex' || c.operator === 'not_regex') {
+          try {
+            let pat = c.value.trim();
+            let flags = 'i';
+            if (pat.startsWith('/') && pat.lastIndexOf('/') > 0) {
+              const lastIdx = pat.lastIndexOf('/');
+              flags = pat.substring(lastIdx + 1) || 'i';
+              pat = pat.substring(1, lastIdx);
+            }
+            new RegExp(pat, flags);
+          } catch (reErr: any) {
+            errors.push(`Condição #${idx + 1}: Expressão regular inválida (${reErr.message}).`);
+          }
+        }
+      });
+    }
+
+    if (!data.action || !data.action.type) {
+      errors.push("Ação da regra é obrigatória.");
+    } else {
+      if (!['add_score', 'sub_score', 'no_op'].includes(data.action.type)) {
+        errors.push("Tipo de ação inválido.");
+      }
+      if (data.action.type !== 'no_op') {
+        const val = parseFloat(data.action.value);
+        if (isNaN(val)) {
+          errors.push("Pontuação (Score) deve ser um número válido.");
+        }
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+
+  // GET Regras Avançadas
+  app.get("/api/antispam/advanced-rules", (req, res) => {
+    const rules = virtualAdvancedRules;
+    const activeCount = rules.filter(r => r.is_active).length;
+    const simpleRules = parseCustomSpamRules(virtualLocalCf);
+
+    res.json({
+      success: true,
+      rules,
+      counts: {
+        total: rules.length,
+        active: activeCount,
+        simple_rules: simpleRules.length,
+        advanced_rules: rules.length,
+        simple_active: simpleRules.length,
+        advanced_active: activeCount
+      }
+    });
+  });
+
+  // POST Salvar / Editar Regra Avançada
+  app.post("/api/antispam/advanced-rules", (req, res) => {
+    const body = req.body || {};
+    const validation = validateAdvancedRuleData(body, virtualAdvancedRules);
+
+    if (!validation.valid) {
+      return res.status(400).json({
+        success: false,
+        message: validation.errors.join(" "),
+        errors: validation.errors
+      });
+    }
+
+    const cleanCode = body.code.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+    const existingIndex = virtualAdvancedRules.findIndex(r => r.id === body.id || r.code === cleanCode);
+    const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
+
+    const ruleObj = {
+      id: body.id || `rule_adv_${Date.now()}`,
+      code: cleanCode,
+      name: body.name.trim(),
+      description: (body.description || '').trim(),
+      type: 'advanced',
+      logic: body.logic === 'OR' ? 'OR' : 'AND',
+      conditions: body.conditions.map((c: any, i: number) => ({
+        id: c.id || `c_${i + 1}`,
+        field: c.field,
+        custom_header_name: c.custom_header_name || '',
+        operator: c.operator,
+        value: c.value,
+        negate: !!c.negate
+      })),
+      action: {
+        type: body.action.type,
+        value: body.action.type === 'no_op' ? 0 : parseFloat(body.action.value) || 5.0
+      },
+      is_active: body.is_active !== false,
+      hits_count: existingIndex >= 0 ? (virtualAdvancedRules[existingIndex].hits_count || 0) : 0,
+      created_at: existingIndex >= 0 ? virtualAdvancedRules[existingIndex].created_at : nowStr,
+      updated_at: nowStr
+    };
+
+    if (existingIndex >= 0) {
+      virtualAdvancedRules[existingIndex] = ruleObj;
+      addAuditLog("ADVANCED_RULE_UPDATE", cleanCode, { rule_id: ruleObj.id, name: ruleObj.name, score: ruleObj.action.value }, "normal", req);
+      virtualAntispamAudit.unshift({
+        id: virtualAntispamAudit.length + 1,
+        usuario: "admin",
+        user: "admin",
+        acao: "ADVANCED_RULE_UPDATE",
+        action: "ADVANCED_RULE_UPDATE",
+        alvo: cleanCode,
+        target: cleanCode,
+        valor_anterior: "",
+        old_value: "",
+        valor_novo: JSON.stringify({ score: ruleObj.action.value, logic: ruleObj.logic, conditions: ruleObj.conditions.length }),
+        new_value: JSON.stringify({ score: ruleObj.action.value, logic: ruleObj.logic, conditions: ruleObj.conditions.length }),
+        motivo: `Atualização da regra avançada '${cleanCode}'`,
+        reason: `Atualização da regra avançada '${cleanCode}'`,
+        ip_origem: "127.0.0.1",
+        ip: "127.0.0.1",
+        data_hora: nowStr,
+        timestamp: nowStr
+      });
+    } else {
+      virtualAdvancedRules.unshift(ruleObj);
+      addAuditLog("ADVANCED_RULE_CREATE", cleanCode, { rule_id: ruleObj.id, name: ruleObj.name, score: ruleObj.action.value }, "normal", req);
+      virtualAntispamAudit.unshift({
+        id: virtualAntispamAudit.length + 1,
+        usuario: "admin",
+        user: "admin",
+        acao: "ADVANCED_RULE_CREATE",
+        action: "ADVANCED_RULE_CREATE",
+        alvo: cleanCode,
+        target: cleanCode,
+        valor_anterior: "",
+        old_value: "",
+        valor_novo: JSON.stringify({ score: ruleObj.action.value, logic: ruleObj.logic, conditions: ruleObj.conditions.length }),
+        new_value: JSON.stringify({ score: ruleObj.action.value, logic: ruleObj.logic, conditions: ruleObj.conditions.length }),
+        motivo: `Criação da regra avançada '${cleanCode}'`,
+        reason: `Criação da regra avançada '${cleanCode}'`,
+        ip_origem: "127.0.0.1",
+        ip: "127.0.0.1",
+        data_hora: nowStr,
+        timestamp: nowStr
+      });
+    }
+
+    persistAdvancedRulesToStorage(virtualAdvancedRules);
+
+    res.json({
+      success: true,
+      message: `Regra avançada '${cleanCode}' salva com sucesso!`,
+      rule: ruleObj
+    });
+  });
+
+  // POST Ativar / Desativar Regra Avançada
+  app.post("/api/antispam/advanced-rules/toggle", (req, res) => {
+    const { id, is_active } = req.body || {};
+    const rule = virtualAdvancedRules.find(r => r.id === id);
+
+    if (!rule) {
+      return res.status(404).json({ success: false, message: "Regra avançada não encontrada." });
+    }
+
+    rule.is_active = is_active !== false && is_active !== 0;
+    rule.updated_at = new Date().toISOString().replace('T', ' ').substring(0, 19);
+
+    persistAdvancedRulesToStorage(virtualAdvancedRules);
+
+    addAuditLog(
+      rule.is_active ? "ADVANCED_RULE_ACTIVATE" : "ADVANCED_RULE_DEACTIVATE",
+      rule.code,
+      { is_active: rule.is_active },
+      "normal",
+      req
+    );
+
+    virtualAntispamAudit.unshift({
+      id: virtualAntispamAudit.length + 1,
+      usuario: "admin",
+      user: "admin",
+      acao: rule.is_active ? "ADVANCED_RULE_ACTIVATE" : "ADVANCED_RULE_DEACTIVATE",
+      action: rule.is_active ? "ADVANCED_RULE_ACTIVATE" : "ADVANCED_RULE_DEACTIVATE",
+      alvo: rule.code,
+      target: rule.code,
+      valor_anterior: String(!rule.is_active),
+      old_value: String(!rule.is_active),
+      valor_novo: String(rule.is_active),
+      new_value: String(rule.is_active),
+      motivo: `Regra avançada '${rule.code}' ${rule.is_active ? 'ativada' : 'desativada'}`,
+      reason: `Regra avançada '${rule.code}' ${rule.is_active ? 'ativada' : 'desativada'}`,
+      ip_origem: "127.0.0.1",
+      ip: "127.0.0.1",
+      data_hora: rule.updated_at,
+      timestamp: rule.updated_at
+    });
+
+    res.json({
+      success: true,
+      message: `Regra '${rule.code}' ${rule.is_active ? 'ativada' : 'desativada'} com sucesso!`,
+      is_active: rule.is_active
+    });
+  });
+
+  // POST Excluir Regra Avançada
+  app.post("/api/antispam/advanced-rules/delete", (req, res) => {
+    const { id } = req.body || {};
+    const ruleIndex = virtualAdvancedRules.findIndex(r => r.id === id);
+
+    if (ruleIndex === -1) {
+      return res.status(404).json({ success: false, message: "Regra avançada não encontrada." });
+    }
+
+    const removed = virtualAdvancedRules.splice(ruleIndex, 1)[0];
+    persistAdvancedRulesToStorage(virtualAdvancedRules);
+
+    addAuditLog("ADVANCED_RULE_DELETE", removed.code, { id: removed.id, name: removed.name }, "normal", req);
+
+    virtualAntispamAudit.unshift({
+      id: virtualAntispamAudit.length + 1,
+      usuario: "admin",
+      user: "admin",
+      acao: "ADVANCED_RULE_DELETE",
+      action: "ADVANCED_RULE_DELETE",
+      alvo: removed.code,
+      target: removed.code,
+      valor_anterior: removed.name,
+      old_value: removed.name,
+      valor_novo: "DELETED",
+      new_value: "DELETED",
+      motivo: `Exclusão da regra avançada '${removed.code}'`,
+      reason: `Exclusão da regra avançada '${removed.code}'`,
+      ip_origem: "127.0.0.1",
+      ip: "127.0.0.1",
+      data_hora: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19)
+    });
+
+    res.json({
+      success: true,
+      message: `Regra avançada '${removed.code}' excluída com sucesso.`
+    });
+  });
+
+  // POST Testar Regex Diretamente
+  app.post("/api/antispam/advanced-rules/test-regex", (req, res) => {
+    const { pattern, test_value } = req.body || {};
+
+    if (!pattern || !String(pattern).trim()) {
+      return res.status(400).json({ success: false, message: "Padrão Regex é obrigatório." });
+    }
+
+    try {
+      let cleanPat = String(pattern).trim();
+      let flags = "i";
+      if (cleanPat.startsWith("/") && cleanPat.lastIndexOf("/") > 0) {
+        const lastIdx = cleanPat.lastIndexOf("/");
+        flags = cleanPat.substring(lastIdx + 1) || "i";
+        cleanPat = cleanPat.substring(1, lastIdx);
+      }
+      const re = new RegExp(cleanPat, flags);
+      const testValStr = String(test_value || "");
+      const matchResult = re.test(testValStr);
+      let matchSlice: string | null = null;
+      if (matchResult) {
+        const m = testValStr.match(re);
+        matchSlice = m ? m[0] : testValStr;
+      }
+
+      res.json({
+        success: true,
+        valid: true,
+        matched: matchResult,
+        match_slice: matchSlice,
+        status: matchResult ? "MATCH" : "NÃO MATCH"
+      });
+    } catch (err: any) {
+      res.status(400).json({
+        success: false,
+        valid: false,
+        matched: false,
+        error: `Regex inválida: ${err.message}`
+      });
+    }
+  });
+
+  // POST Testar Regra Avançada Completa (Simulação Interativa)
+  app.post("/api/antispam/advanced-rules/test", (req, res) => {
+    const { rule, sample_data } = req.body || {};
+
+    if (!rule) {
+      return res.status(400).json({ success: false, message: "Dados da regra não informados para teste." });
+    }
+
+    const testContext = {
+      origin: sample_data?.origin || "external",
+      client_ip: sample_data?.client_ip || "185.220.101.5",
+      from: sample_data?.from || '"PROCON — Central de Reclamações" <juliapereira@2f1ab419.apriori.net.br>',
+      to: sample_data?.to || "usuario@empresa.com.br",
+      subject: sample_data?.subject || "PROCON: Notificação Urgente — Pendência Consumidor",
+      body: sample_data?.body || "Notificação urgente de pendência no PROCON. Acesse: https://2f1ab419.apriori.net.br/procon/notificacao",
+      uri: sample_data?.uri || ["https://2f1ab419.apriori.net.br/procon/notificacao"],
+      spf: sample_data?.spf || "NONE",
+      dkim: sample_data?.dkim || "NONE",
+      dmarc: sample_data?.dmarc || "NONE",
+      smtp_auth: !!sample_data?.smtp_auth,
+      dnsbl: sample_data?.dnsbl || "",
+      bayes: sample_data?.bayes || 0,
+      sa_score: sample_data?.sa_score || 0
+    };
+
+    const evaluation = evaluateAdvancedRule(rule, testContext);
+
+    addAuditLog(
+      "ADVANCED_RULE_TEST",
+      rule.code || "REGRA_TESTE",
+      {
+        rule_name: rule.name,
+        triggered: evaluation.triggered,
+        score_produced: evaluation.score_produced,
+        conditions_count: evaluation.conditions_evaluated.length
+      },
+      "normal",
+      req
+    );
+
+    res.json({
+      success: true,
+      evaluation
     });
   });
 
@@ -4464,11 +5518,12 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
     const testHeaders = String(raw_headers || "").trim();
     const testClientIp = String(client_ip || "192.168.1.10").trim();
     const testHelo = String(helo || "").trim();
+    const testTo = String(req.body?.to || "").trim();
 
     const triggered: Array<{
       rule: string;
       name: string;
-      type: 'blacklist' | 'whitelist' | 'spam_list' | 'heuristic' | 'auth' | 'reputation';
+      type: 'blacklist' | 'whitelist' | 'spam_list' | 'heuristic' | 'auth' | 'reputation' | 'advanced';
       category_label: string;
       target: string;
       pattern: string;
@@ -4745,6 +5800,85 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       }
     }
 
+    // 2.1 EVALUATE REGRAS AVANÇADAS / COMPOSTAS (INTELIGÊNCIA ANTISPAM ZRTI)
+    let messageOrigin = (req.body.origin || req.body.message_origin || "").toLowerCase();
+    if (!messageOrigin) {
+      const cip = String(testClientIp || "").trim();
+      if (!cip || cip === "127.0.0.1" || cip === "::1" || cip === "localhost" || cip.startsWith("192.168.") || cip.startsWith("10.") || /^172\.(1[6-9]|2[0-9]|3[01])\./.test(cip)) {
+        messageOrigin = "internal";
+      } else {
+        messageOrigin = "external";
+      }
+    }
+
+    const advContext = {
+      origin: messageOrigin,
+      client_ip: testClientIp || "185.220.101.5",
+      from: testFrom,
+      envelope_from: testFrom,
+      to: testTo,
+      reply_to: testReplyTo,
+      subject: testSubj,
+      body: testBody,
+      uri: extractedBodyUrls,
+      headers: {
+        "subject": testSubj,
+        "from": testFrom,
+        "to": testTo,
+        "reply-to": testReplyTo,
+        "message-id": testHeaders.match(/Message-ID:\s*([^\r\n]+)/i)?.[1] || "",
+        "received": testHeaders.match(/Received:\s*([^\r\n]+)/i)?.[1] || ""
+      },
+      spf: String(spf_status || "NONE").toUpperCase(),
+      dkim: String(dkim_status || "NONE").toUpperCase(),
+      dmarc: String(dmarc_status || "NONE").toUpperCase(),
+      smtp_auth: req.body.smtp_auth === true || req.body.authenticated === true,
+      dnsbl: String(req.body?.dnsbl_status || req.body?.dnsbl || ""),
+      bayes: typeof req.body?.bayes === "number" ? req.body.bayes : 0.0,
+      sa_score: typeof reqSaBase === "number" ? reqSaBase : 0.0
+    };
+
+    for (const advRule of virtualAdvancedRules) {
+      if (!advRule.is_active) continue;
+
+      try {
+        const evalRes = evaluateAdvancedRule(advRule, advContext);
+        if (evalRes.triggered) {
+          const appliedScore = evalRes.score_produced;
+          localIntelligenceScore += appliedScore;
+          advRule.hits_count = (advRule.hits_count || 0) + 1;
+
+          triggered.push({
+            rule: advRule.code,
+            name: advRule.code,
+            type: "advanced",
+            category_label: "🧠 Inteligência AntiSPAM (Regra Avançada)",
+            target: `Composta (${advRule.conditions.map((c: any) => c.field).join(" + ")})`,
+            pattern: `${advRule.logic} (${advRule.conditions.length} condições)`,
+            score: appliedScore,
+            points: appliedScore,
+            describe: `${advRule.name}: ${advRule.description || "Regra avançada composta disparada"}`,
+            matched_value: evalRes.conditions_evaluated.map((c: any) => `${c.field}: ${c.detail}`).join(" | ")
+          });
+
+          auditRecords.push({
+            rule_id: advRule.code,
+            name: advRule.name,
+            field_analyzed: `Regra Composta (${advRule.conditions.map((c: any) => c.field).join(", ")})`,
+            matched_value: `Condições correspondidas via ${advRule.logic}`,
+            condition: `${advRule.logic} [${advRule.conditions.map((c: any) => `${c.field} ${c.operator} ${c.value}`).join("; ")}]`,
+            score_applied: appliedScore,
+            rule_source: "advanced_rules",
+            rule_version: "2026.09.09-adv1",
+            timestamp: currentTimestamp,
+            match_result: true
+          });
+        }
+      } catch (advErr) {
+        console.error("Erro ao avaliar regra avançada:", advRule.code, advErr);
+      }
+    }
+
     // 3. SEPARAÇÃO ESTRITA DOS 4 COMPONENTES DE SCORE
     // A. Score SpamAssassin Base (Bayes, Pyzor, Razor, etc.)
     const saBaseScore = typeof reqSaBase === "number" ? reqSaBase : 0.0;
@@ -4975,6 +6109,9 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       verdict_action: verdictAction,
       rules_matched: triggered,
       rules_triggered: triggered,
+      tests: triggered.map(t => t.name),
+      tests_list: triggered.map(t => t.name),
+      sa_tests: triggered.map(t => ({ rule: t.name, score: t.score, describe: t.describe })),
       blacklist_matches: blacklistMatches,
       whitelist_matches: whitelistMatches,
       heuristic_matches: heuristicMatches,
@@ -4989,81 +6126,48 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
   app.post("/api/services/spamassassin/test-rule", handleSpamSimulate);
 
   app.post("/api/services/spamassassin/lint", (req, res) => {
-    res.json({ success: true, message: "Sintaxe OK! O arquivo de regras local.cf é válido." });
+    const current = getSpamAssassinConfigContent();
+    const val = validateSpamAssassinConfig(current);
+    if (!val.valid) {
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        error: val.error,
+        message: `Falha na validação de sintaxe do local.cf: ${val.error}`
+      });
+    }
+    res.json({
+      success: true,
+      valid: true,
+      message: "Sintaxe OK! O arquivo de regras local.cf é 100% válido e compatível com SpamAssassin."
+    });
   });
 
   // POST Consolidate & Deduplicate local.cf
   app.post("/api/services/spamassassin/consolidate", (req, res) => {
     try {
       const currentCf = getSpamAssassinConfigContent();
-      const lines = currentCf.split("\n");
-      const linesBefore = lines.length;
+      const linesBefore = currentCf.split("\n").length;
+      const { cleanedContent, duplicatesRemoved } = deduplicateAndConsolidateLocalCf(currentCf);
+      const saveRes = saveSpamAssassinConfigContent(cleanedContent);
 
-      const seenAccess = new Set<string>();
-      const seenDirectives = new Map<string, string>();
-      const otherLines: string[] = [];
-
-      let accessRemoved = 0;
-      let rulesDeduplicated = 0;
-
-      for (const rawLine of lines) {
-        const trimmed = rawLine.trim();
-        if (!trimmed || trimmed.startsWith("#")) {
-          otherLines.push(rawLine);
-          continue;
-        }
-
-        const accessMatch = trimmed.match(/^(whitelist_from|blacklist_from|spam_from)\s+(\S+)/i);
-        if (accessMatch) {
-          const key = `${accessMatch[1].toLowerCase()} ${accessMatch[2].toLowerCase()}`;
-          if (seenAccess.has(key)) {
-            accessRemoved++;
-            continue;
-          }
-          seenAccess.add(key);
-          otherLines.push(trimmed);
-          continue;
-        }
-
-        const ruleMatch = trimmed.match(/^(header|body|uri|rawbody|score|describe)\s+([A-Za-z0-9_]+)\b(.*)$/i);
-        if (ruleMatch) {
-          const type = ruleMatch[1].toLowerCase();
-          const name = ruleMatch[2].toUpperCase();
-          const key = `${type} ${name}`;
-          if (seenDirectives.has(key)) {
-            rulesDeduplicated++;
-          }
-          seenDirectives.set(key, trimmed);
-          continue;
-        }
-
-        otherLines.push(rawLine);
+      if (!saveRes.success) {
+        return res.status(400).json(saveRes);
       }
 
-      // Recompõe arquivo limpo
-      const consolidatedContent = [
-        ...otherLines,
-        "",
-        "# === REGRAS HEURÍSTICAS E DIRETIVAS CONSOLIDADAS (ZRTI ENGINE) ===",
-        ...Array.from(seenDirectives.values())
-      ].join("\n").replace(/\n{3,}/g, "\n\n");
-
-      saveSpamAssassinConfigContent(consolidatedContent);
-      const linesAfter = consolidatedContent.split("\n").length;
+      const linesAfter = cleanedContent.split("\n").length;
 
       addAuditLog("SPAM_LOCAL_CF_CONSOLIDATE", "local.cf", {
-        access_removed: accessRemoved,
-        rules_deduplicated: rulesDeduplicated,
+        duplicates_removed: duplicatesRemoved,
         lines_before: linesBefore,
         lines_after: linesAfter
       }, "normal", req);
 
       res.json({
         success: true,
-        message: `local.cf consolidado com sucesso! ${rulesDeduplicated} diretiva(s) repetida(s) e ${accessRemoved} item(ns) de lista deduplicados.`,
+        message: `local.cf consolidado com sucesso! ${duplicatesRemoved} diretiva(s) repetida(s) deduplicada(s).`,
         stats: {
-          access_list_removed: accessRemoved,
-          rules_deduplicated: rulesDeduplicated,
+          duplicates_removed: duplicatesRemoved,
           lines_before: linesBefore,
           lines_after: linesAfter
         }
@@ -6625,7 +7729,14 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
 
   // POST /api/antispam/simulate
   app.post("/api/antispam/simulate", (req, res) => {
-    const { raw_eml, sender_from, from, envelope_from, envelope_to, to, client_ip, ip, helo, sa_score, spamassassin_score, spf_status, dkim_status, dmarc_status, message_id, queue_id } = req.body || {};
+    const bodyObj = req.body || {};
+    const params = bodyObj.params || bodyObj;
+    const {
+      raw_eml, sender_from, from, envelope_from, envelope_to, to,
+      client_ip, ip, helo, sa_score, spamassassin_score,
+      spf_status, dkim_status, dmarc_status, message_id, queue_id,
+      origin, smtp_auth, subject, body, reply_to
+    } = params;
 
     let sFrom = sender_from || from || "";
     let eFrom = envelope_from || sFrom;
@@ -6638,20 +7749,33 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
     let dmarc = (dmarc_status || "FAIL").toUpperCase();
     let msgId = message_id || `<${Date.now()}.sim@mailadmin.internal>`;
     let qId = queue_id || `4Y${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    let sOrigin = origin || "external";
+    let sSmtpAuth = smtp_auth === true || smtp_auth === "true" || smtp_auth === 1;
+    let sSubject = subject || "";
+    let sBody = body || "";
+    let sReplyTo = reply_to || "";
 
-    if (raw_eml) {
-      const fromMatch = raw_eml.match(/^From:\s*(.+)$/im);
-      if (fromMatch) sFrom = fromMatch[1].trim();
-      const toMatch = raw_eml.match(/^To:\s*(.+)$/im);
-      if (toMatch) eTo = toMatch[1].trim();
-      const msgIdMatch = raw_eml.match(/^Message-ID:\s*(.+)$/im);
+    const rawEmlText = raw_eml || bodyObj.raw_eml || "";
+    if (rawEmlText) {
+      const fromMatch = rawEmlText.match(/^From:\s*(.+)$/im);
+      if (fromMatch && !sFrom) sFrom = fromMatch[1].trim();
+      const toMatch = rawEmlText.match(/^To:\s*(.+)$/im);
+      if (toMatch && !eTo) eTo = toMatch[1].trim();
+      const subMatch = rawEmlText.match(/^Subject:\s*(.+)$/im);
+      if (subMatch && !sSubject) sSubject = subMatch[1].trim();
+      const repMatch = rawEmlText.match(/^Reply-To:\s*(.+)$/im);
+      if (repMatch && !sReplyTo) sReplyTo = repMatch[1].trim();
+      const msgIdMatch = rawEmlText.match(/^Message-ID:\s*(.+)$/im);
       if (msgIdMatch) msgId = msgIdMatch[1].trim();
-      if (raw_eml.toLowerCase().includes("spf=pass")) spf = "PASS";
-      else if (raw_eml.toLowerCase().includes("spf=fail")) spf = "FAIL";
-      if (raw_eml.toLowerCase().includes("dkim=pass")) dkim = "PASS";
-      else if (raw_eml.toLowerCase().includes("dkim=fail")) dkim = "FAIL";
-      if (raw_eml.toLowerCase().includes("dmarc=pass")) dmarc = "PASS";
-      else if (raw_eml.toLowerCase().includes("dmarc=fail")) dmarc = "FAIL";
+      if (rawEmlText.toLowerCase().includes("spf=pass")) spf = "PASS";
+      else if (rawEmlText.toLowerCase().includes("spf=fail")) spf = "FAIL";
+      if (rawEmlText.toLowerCase().includes("dkim=pass")) dkim = "PASS";
+      else if (rawEmlText.toLowerCase().includes("dkim=fail")) dkim = "FAIL";
+      if (rawEmlText.toLowerCase().includes("dmarc=pass")) dmarc = "PASS";
+      else if (rawEmlText.toLowerCase().includes("dmarc=fail")) dmarc = "FAIL";
+      if (!sBody && rawEmlText.includes("\n\n")) {
+        sBody = rawEmlText.split("\n\n").slice(1).join("\n\n");
+      }
     }
 
     if (!sFrom) sFrom = "notificacao@caixa.gov.br";
@@ -6683,7 +7807,7 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
       triggeredRules.push({
         rule_code: code,
         rule_name: name,
-        category: code.startsWith("SPF") || code.startsWith("DKIM") || code.startsWith("DMARC") ? "authentication" : (code.startsWith("PTR") || code.startsWith("HELO") || code.startsWith("IP") ? "rdns" : "impersonation"),
+        category: code.startsWith("LOCAL_ADV") ? "advanced" : (code.startsWith("SPF") || code.startsWith("DKIM") || code.startsWith("DMARC") ? "authentication" : (code.startsWith("PTR") || code.startsWith("HELO") || code.startsWith("IP") ? "rdns" : "impersonation")),
         score_applied: score,
         severity: sev,
         evidence
@@ -6714,6 +7838,47 @@ function getDynamic7DaysMailStats(): DailyMailMetric[] {
 
     if (isImpersonation) {
       addTrigger("MARCA_CONHECIDA_DMARC_FAIL", "Impersonation Crítico de Marca / Banco", 5.0, "CRITICAL", `Uso não autorizado de '${matchedBrand}' (@${fromDomain}) com falha DMARC/SPF.`);
+    }
+
+    // Avaliação de Regras Avançadas (Compostas) ativas
+    try {
+      const advContext = {
+        from: sFrom,
+        envelope_from: eFrom,
+        to: eTo,
+        subject: sSubject,
+        body: sBody,
+        reply_to: sReplyTo,
+        client_ip: cIp,
+        origin: sOrigin,
+        smtp_auth: sSmtpAuth,
+        spf: spf,
+        dkim: dkim,
+        dmarc: dmarc,
+        dnsbl: isDynamicIp ? 'LISTED' : 'CLEAN',
+        sa_score: sScore,
+        bayes: 0.5
+      };
+
+      for (const rule of virtualAdvancedRules) {
+        if (rule.is_active === false) continue;
+        const evalRes = evaluateAdvancedRule(rule, advContext);
+        if (evalRes.triggered) {
+          const passedConds = (evalRes.conditions_evaluated || [])
+            .filter((e: any) => e.passed)
+            .map((e: any) => `${e.field} ${e.operator} "${e.expected_value}"`)
+            .join(", ");
+          addTrigger(
+            rule.code,
+            `⚡ Regra Composta: ${rule.name}`,
+            evalRes.score_produced,
+            evalRes.score_produced >= 10 ? "CRITICAL" : evalRes.score_produced >= 5 ? "HIGH" : "MEDIUM",
+            `Critérios atendidos (${rule.logic}): ${passedConds || 'Todas as condições atendidas'}`
+          );
+        }
+      }
+    } catch (err: any) {
+      console.warn("Erro ao avaliar regras avançadas na simulação:", err.message);
     }
 
     intScore = Number(intScore.toFixed(3));

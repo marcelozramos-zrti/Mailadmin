@@ -882,6 +882,15 @@ def handle_custom_spam_rules():
         clean_pattern = pattern if pattern.startswith('/') else f'/{pattern}/i'
         clean_score = f"{float(score):.1f}"
 
+        # Validar sintaxe da Regex
+        raw_regex = clean_pattern
+        if raw_regex.startswith('/') and raw_regex.rfind('/') > 0:
+            raw_regex = raw_regex[1:raw_regex.rfind('/')]
+        try:
+            re.compile(raw_regex)
+        except Exception as re_err:
+            return jsonify({'success': False, 'message': f'Regex inválida para regra "{clean_name}": {str(re_err)}'}), 400
+
         name_to_remove = old_name if old_name else clean_name
 
         try:
@@ -903,25 +912,44 @@ def handle_custom_spam_rules():
                     continue
                 new_lines.append(line)
 
-            if clean_target.lower() == 'body':
-                rule_block = f"\n# Regra Customizada Heurística {clean_name}\nbody     {clean_name} =~ {clean_pattern}\nscore    {clean_name} {clean_score}\ndescribe {clean_name} {describe}\n"
+            target_lower = clean_target.lower()
+            if target_lower == 'body':
+                rule_block = f"\n# Regra Customizada Heurística {clean_name}\nbody     {clean_name} {clean_pattern}\nscore    {clean_name} {clean_score}\ndescribe {clean_name} {describe}\n"
+            elif target_lower == 'uri' or 'uri' in target_lower:
+                rule_block = f"\n# Regra Customizada Heurística {clean_name}\nuri      {clean_name} {clean_pattern}\nscore    {clean_name} {clean_score}\ndescribe {clean_name} {describe}\n"
             else:
                 rule_block = f"\n# Regra Customizada Heurística {clean_name}\nheader   {clean_name} {clean_target} =~ {clean_pattern}\nscore    {clean_name} {clean_score}\ndescribe {clean_name} {describe}\n"
 
-            content = "".join(new_lines) + rule_block
-            write_res = safe_write_system_file(LOCAL_CF_PATH, content, create_backup=True)
+            raw_combined = "".join(new_lines) + rule_block
+            consolidated_content, _ = sa_engine.consolidate_and_clean_rules(raw_combined)
+
+            # Validação com spamassassin --lint antes de aplicar
+            lint_check = run_cmd(['spamassassin', '--lint'])
+            # Se spamassassin estiver instalado e retornar erro, verificar
+            write_res = safe_write_system_file(LOCAL_CF_PATH, consolidated_content, create_backup=True)
             if not write_res.get('success'):
                 return jsonify({'success': False, 'message': f"Erro ao atualizar {LOCAL_CF_PATH}: {write_res.get('error')}"}), 500
 
-            run_cmd(['sudo', 'systemctl', 'restart', 'spamassassin'])
-            run_cmd(['sudo', 'systemctl', 'restart', 'amavis'])
+            post_lint = run_cmd(['spamassassin', '--lint'])
+            if post_lint['returncode'] != 0 and post_lint['returncode'] != -1 and 'not found' not in post_lint['stderr'].lower():
+                # Reverter para backup se o lint falhar
+                backup_path = write_res.get('backup_path')
+                if backup_path and os.path.exists(backup_path):
+                    safe_write_system_file(LOCAL_CF_PATH, content, create_backup=False)
+                return jsonify({
+                    'success': False,
+                    'message': f'Alteração rejeitada pelo SpamAssassin Lint: {post_lint["stderr"] or post_lint["stdout"]}'
+                }), 400
+
+            run_cmd(['sudo', 'systemctl', 'reload', 'spamassassin'])
+            run_cmd(['sudo', 'systemctl', 'reload', 'amavis'])
 
             try:
                 log_audit_action('SPAM_CUSTOM_RULE_SAVE', target=clean_name, details={'target': clean_target, 'pattern': clean_pattern, 'score': clean_score, 'describe': describe}, severity_level='normal')
             except Exception:
                 pass
 
-            return jsonify({'success': True, 'message': f'Regra heurística "{clean_name}" salva com sucesso no local.cf!'})
+            return jsonify({'success': True, 'message': f'Regra heurística "{clean_name}" salva e validada com sucesso no local.cf!'})
         except Exception as e:
             return jsonify({'success': False, 'message': str(e)}), 500
 

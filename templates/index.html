@@ -3579,10 +3579,23 @@
         const raw = (friendlyKeywordsEl.value || '').trim();
         if (!raw) return;
 
+        // Se o usuário digitou uma expressão Regex pura (ex: /.../i), preservar exatamente como digitada
+        if (raw.startsWith('/') && raw.lastIndexOf('/') > 0) {
+            patternInput.value = raw;
+            return;
+        }
+
         const terms = raw.split(',')
             .map(t => t.trim())
             .filter(Boolean)
-            .map(t => t.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*'));
+            .map(t => {
+                // Se o termo já possui sintaxe de Regex explícita (classes [], quantificadores +, *, ?, âncoras ^, $, grupos ()), preservar como código Regex
+                if (/[\[\]\(\)\{\}\^\$\+\?\\]/.test(t) || t.includes('.*') || t.includes('[^')) {
+                    return t;
+                }
+                // Apenas se for palavra simples ou wildcard glob estilo (*), trata * como .* e ponto como \.
+                return t.replace(/\./g, '\\.').replace(/\*/g, '.*');
+            });
 
         if (terms.length > 0) {
             patternInput.value = `/${terms.join('|')}/i`;
@@ -6280,6 +6293,9 @@ exit 0
         // 5. Carregar Regras Heurísticas Locais
         loadCustomHeuristicRules();
 
+        // 5.1 Carregar Regras Avançadas & Compostas (Policy Engine)
+        loadAdvancedSpamRules();
+
         // 6. Carregar Raw local.cf
         try {
             const rawData = await fetchJson('/api/services/spamassassin/rules');
@@ -6665,6 +6681,9 @@ exit 0
         const dkim = document.getElementById('forensic-dkim')?.value || 'NONE';
         const dmarc = document.getElementById('forensic-dmarc')?.value || 'NONE';
         const saScore = parseFloat(document.getElementById('forensic-sa-score')?.value || 0.0);
+        const origin = document.getElementById('forensic-origin')?.value || 'external';
+        const smtpAuth = document.getElementById('forensic-smtp-auth')?.value === 'true';
+        const subject = document.getElementById('forensic-subject')?.value.trim() || '';
 
         const payload = {
             raw_eml: rawEml,
@@ -6676,12 +6695,15 @@ exit 0
                 spf_status: spf,
                 dkim_status: dkim,
                 dmarc_status: dmarc,
-                sa_score: saScore
+                sa_score: saScore,
+                origin: origin,
+                smtp_auth: smtpAuth,
+                subject: subject
             }
         };
 
         try {
-            showAlert('Executando auditoria forense completa...', 'info');
+            showAlert('Executando auditoria forense completa e avaliando regras compostas...', 'info');
             const res = await fetchJson('/api/antispam/simulate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -6691,13 +6713,27 @@ exit 0
             if (res && res.success) {
                 lastForensicAuditResult = res;
                 renderForensicAuditResults(res);
-                showAlert('Auditoria forense concluída com sucesso!', 'success');
+                showAlert('Auditoria forense concluída com sucesso! Regras aplicadas e score calculado.', 'success');
             } else {
                 showAlert(res.error || 'Erro ao executar auditoria.', 'danger');
             }
         } catch (e) {
             showAlert('Erro: ' + e.message, 'danger');
         }
+    }
+
+    function reprocessLastForensicAudit() {
+        const btn = document.getElementById('btn-reprocess-forensic');
+        if (btn) {
+            btn.classList.add('disabled');
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Reprocessando...';
+        }
+        runComprehensiveForensicAudit().finally(() => {
+            if (btn) {
+                btn.classList.remove('disabled');
+                btn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i> Reprocessar Última Interação';
+            }
+        });
     }
 
     function renderForensicAuditResults(res) {
@@ -6881,8 +6917,673 @@ exit 0
         updateRuleCalibrationScore(found.id, newScore);
     }
 
+    // =========================================================================
+    // MÓDULO INTELIGÊNCIA ANTISPAM — REGRAS AVANÇADAS / COMPOSTAS (POLICY ENGINE)
+    // =========================================================================
+    let currentAdvancedRules = [];
+    let currentAdvFilter = 'all';
+    let lastAdvancedRuleTestParams = null;
+
+    function openNewAntiSpamRuleSelectorModal() {
+        const modal = new bootstrap.Modal(document.getElementById('ruleTypeSelectModal'));
+        modal.show();
+    }
+
+    function bootstrapNewAdvancedRuleFromSelector() {
+        const selModalEl = document.getElementById('ruleTypeSelectModal');
+        const selModal = bootstrap.Modal.getInstance(selModalEl);
+        if (selModal) selModal.hide();
+        openNewAdvancedSpamRuleModal();
+    }
+
+    function bootstrapNewSimpleRegexRuleFromSelector() {
+        const selModalEl = document.getElementById('ruleTypeSelectModal');
+        const selModal = bootstrap.Modal.getInstance(selModalEl);
+        if (selModal) selModal.hide();
+        openNewCustomSpamRuleModal();
+    }
+
+    function openNewAdvancedSpamRuleModal() {
+        document.getElementById('form-advanced-spam-rule').reset();
+        document.getElementById('adv-rule-id').value = '';
+        document.getElementById('adv-rule-modal-title').innerText = 'Construtor de Regra Avançada AntiSPAM';
+        document.getElementById('adv-rule-code').removeAttribute('readonly');
+        document.getElementById('adv-rule-code').value = 'LOCAL_ADV_REGRA_' + Math.floor(1000 + Math.random() * 9000);
+        document.getElementById('adv-rule-score').value = '15.0';
+        document.getElementById('adv-rule-enabled').checked = true;
+        
+        // Limpar e adicionar 2 condições iniciais de exemplo
+        const container = document.getElementById('adv-conditions-container');
+        container.innerHTML = '';
+        addAdvancedConditionRow({ field: 'origin', operator: 'equals', value: 'external' });
+        addAdvancedConditionRow({ field: 'subject', operator: 'regex_match', value: '/urgente|bloqueio|fatura/i' });
+
+        const modal = new bootstrap.Modal(document.getElementById('advancedRuleModal'));
+        modal.show();
+    }
+
+    function addAdvancedConditionRow(data) {
+        const container = document.getElementById('adv-conditions-container');
+        const rowId = 'cond_row_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+        const tr = document.createElement('tr');
+        tr.id = rowId;
+
+        const field = data?.field || 'subject';
+        const operator = data?.operator || 'regex_match';
+        const value = data?.value !== undefined ? data.value : '';
+
+        tr.innerHTML = `
+            <td>
+                <select class="form-select form-select-sm font-monospace cond-field-select" onchange="handleAdvFieldChange('${rowId}', this.value)">
+                    <option value="origin" ${field === 'origin' ? 'selected' : ''}>[Origem] Conexão Externa / Interna</option>
+                    <option value="smtp_auth" ${field === 'smtp_auth' ? 'selected' : ''}>[SMTP Auth] Autenticado SASL?</option>
+                    <option value="from" ${field === 'from' ? 'selected' : ''}>[Header From] Remetente do Cabeçalho</option>
+                    <option value="envelope_from" ${field === 'envelope_from' ? 'selected' : ''}>[Envelope-From] Return-Path (MTA)</option>
+                    <option value="subject" ${field === 'subject' ? 'selected' : ''}>[Subject] Assunto da Mensagem</option>
+                    <option value="body" ${field === 'body' ? 'selected' : ''}>[Body] Texto do Corpo da Mensagem</option>
+                    <option value="helo" ${field === 'helo' ? 'selected' : ''}>[HELO/EHLO] Hostname da Conexão</option>
+                    <option value="client_ip" ${field === 'client_ip' ? 'selected' : ''}>[Client IP] Endereço IP Conectado</option>
+                </select>
+            </td>
+            <td>
+                <select class="form-select form-select-sm cond-op-select">
+                    <option value="equals" ${operator === 'equals' ? 'selected' : ''}>Igual a (=)</option>
+                    <option value="not_equals" ${operator === 'not_equals' ? 'selected' : ''}>Diferente de (!=)</option>
+                    <option value="regex_match" ${operator === 'regex_match' ? 'selected' : ''}>Corresponde ao Regex (Match)</option>
+                    <option value="regex_not_match" ${operator === 'regex_not_match' ? 'selected' : ''}>Não corresponde ao Regex</option>
+                    <option value="contains" ${operator === 'contains' ? 'selected' : ''}>Contém Substring</option>
+                    <option value="domain_has_hex" ${operator === 'domain_has_hex' ? 'selected' : ''}>Domínio com Hash Alfanumérico</option>
+                </select>
+            </td>
+            <td class="cond-val-cell">
+                <input type="text" class="form-control form-control-sm font-monospace cond-val-input" value="${escapeHtml(String(value))}" placeholder="ex: /termo/i ou external">
+            </td>
+            <td class="text-center">
+                <button type="button" class="btn btn-outline-danger btn-xs py-1 px-2" onclick="document.getElementById('${rowId}').remove()" title="Remover Condição">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </td>
+        `;
+
+        container.appendChild(tr);
+        handleAdvFieldChange(rowId, field, value);
+    }
+
+    function handleAdvFieldChange(rowId, field, currentVal) {
+        const tr = document.getElementById(rowId);
+        if (!tr) return;
+        const valCell = tr.querySelector('.cond-val-cell');
+        const opSelect = tr.querySelector('.cond-op-select');
+        if (!valCell || !opSelect) return;
+
+        if (field === 'origin') {
+            opSelect.innerHTML = `
+                <option value="equals" selected>Igual a (=)</option>
+                <option value="not_equals">Diferente de (!=)</option>
+            `;
+            valCell.innerHTML = `
+                <select class="form-select form-select-sm font-monospace cond-val-input">
+                    <option value="external" ${currentVal === 'external' ? 'selected' : ''}>external (Tráfego Externo / Internet)</option>
+                    <option value="internal" ${currentVal === 'internal' ? 'selected' : ''}>internal (Tráfego Interno / Local)</option>
+                </select>
+            `;
+        } else if (field === 'smtp_auth') {
+            opSelect.innerHTML = `
+                <option value="equals" selected>Igual a (=)</option>
+            `;
+            valCell.innerHTML = `
+                <select class="form-select form-select-sm font-monospace cond-val-input">
+                    <option value="false" ${currentVal === 'false' || currentVal === false ? 'selected' : ''}>false (Conexão Anônima / Não Autenticada)</option>
+                    <option value="true" ${currentVal === 'true' || currentVal === true ? 'selected' : ''}>true (Conexão Autenticada SASL)</option>
+                </select>
+            `;
+        } else {
+            opSelect.innerHTML = `
+                <option value="regex_match" selected>Corresponde ao Regex (Match)</option>
+                <option value="regex_not_match">Não corresponde ao Regex</option>
+                <option value="contains">Contém Substring</option>
+                <option value="equals">Igual exato</option>
+                <option value="domain_has_hex">Domínio com Hash Alfanumérico</option>
+            `;
+            valCell.innerHTML = `
+                <input type="text" class="form-control form-control-sm font-monospace cond-val-input" value="${escapeHtml(String(currentVal || ''))}" placeholder="ex: /regex/i ou termo">
+            `;
+        }
+    }
+
+    function loadAdvancedSpamRules() {
+        const tbody = document.getElementById('advanced-rules-table-body');
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-muted font-monospace small"><div class="spinner-border spinner-border-sm text-primary me-2"></div>Carregando catálogo de regras avançadas...</td></tr>`;
+        }
+
+        return fetchJson('/api/antispam/advanced-rules')
+            .then(res => {
+                if (res && res.success && Array.isArray(res.rules)) {
+                    currentAdvancedRules = res.rules;
+                    renderAdvancedSpamRulesTable();
+                    renderDedicatedAdvancedRulesMirror();
+
+                    // Atualizar badges de contadores
+                    const count = currentAdvancedRules.length;
+                    const badgeTab = document.getElementById('badge-advanced-rules-count');
+                    if (badgeTab) badgeTab.innerText = count;
+                    const subBadge = document.getElementById('sub-badge-advanced-count');
+                    if (subBadge) subBadge.innerText = count;
+                } else {
+                    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-danger small">Falha ao carregar regras avançadas.</td></tr>`;
+                }
+            })
+            .catch(err => {
+                if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-danger small">Erro: ${escapeHtml(err.message)}</td></tr>`;
+            });
+    }
+
+    function switchIntelSubView(view) {
+        const secAdv = document.getElementById('section-advanced-rules');
+        const secSimple = document.getElementById('section-heuristic-rules');
+        const btnAll = document.getElementById('sub-nav-all');
+        const btnAdv = document.getElementById('sub-nav-adv');
+        const btnSimple = document.getElementById('sub-nav-simple');
+
+        if (btnAll) btnAll.className = 'nav-link btn-sm px-3 fw-semibold d-flex align-items-center gap-2 ' + (view === 'all' ? 'active' : '');
+        if (btnAdv) btnAdv.className = 'nav-link btn-sm px-3 fw-semibold d-flex align-items-center gap-2 ' + (view === 'adv' ? 'active' : '');
+        if (btnSimple) btnSimple.className = 'nav-link btn-sm px-3 fw-semibold d-flex align-items-center gap-2 ' + (view === 'simple' ? 'active' : '');
+
+        if (view === 'all') {
+            if (secAdv) secAdv.classList.remove('d-none');
+            if (secSimple) secSimple.classList.remove('d-none');
+        } else if (view === 'adv') {
+            if (secAdv) secAdv.classList.remove('d-none');
+            if (secSimple) secSimple.classList.add('d-none');
+        } else if (view === 'simple') {
+            if (secAdv) secAdv.classList.add('d-none');
+            if (secSimple) secSimple.classList.remove('d-none');
+        }
+    }
+
+    function filterAdvancedRules(type) {
+        currentAdvFilter = type;
+        const btnIds = ['all', 'active', 'and', 'or'];
+        btnIds.forEach(b => {
+            const btn = document.getElementById(`btn-adv-filter-${b}`);
+            if (btn) {
+                if (b === type) {
+                    btn.className = 'btn btn-sm btn-dark';
+                } else {
+                    btn.className = 'btn btn-sm btn-outline-secondary';
+                }
+            }
+        });
+        renderAdvancedSpamRulesTable();
+    }
+
+    function renderAdvancedSpamRulesTable() {
+        const tbody = document.getElementById('advanced-rules-table-body');
+        if (!tbody) return;
+
+        const searchInput = document.getElementById('search-advanced-rules-input');
+        const query = (searchInput?.value || '').trim().toLowerCase();
+
+        let filtered = currentAdvancedRules.filter(r => {
+            if (currentAdvFilter === 'active' && !r.is_active) return false;
+            if (currentAdvFilter === 'and' && r.logic !== 'AND') return false;
+            if (currentAdvFilter === 'or' && r.logic !== 'OR') return false;
+            if (query) {
+                const matchCode = (r.code || '').toLowerCase().includes(query);
+                const matchName = (r.name || '').toLowerCase().includes(query);
+                const matchDesc = (r.description || '').toLowerCase().includes(query);
+                const matchCond = (r.conditions || []).some(c => (c.value || '').toLowerCase().includes(query));
+                if (!matchCode && !matchName && !matchDesc && !matchCond) return false;
+            }
+            return true;
+        });
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-muted small">Nenhuma regra avançada encontrada para os filtros atuais.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = filtered.map(r => {
+            const isAnd = r.logic === 'AND';
+            const logicBadge = isAnd 
+                ? `<span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace"><i class="bi bi-layers me-1"></i>AND (Todas)</span>`
+                : `<span class="badge bg-warning-subtle text-dark border border-warning-subtle font-monospace"><i class="bi bi-bezier2 me-1"></i>OR (Qualquer)</span>`;
+
+            const conditionsList = (r.conditions || []).map(c => {
+                let opLabel = c.operator;
+                if (c.operator === 'equals') opLabel = '=';
+                if (c.operator === 'not_equals') opLabel = '!=';
+                if (c.operator === 'regex_match') opLabel = 'match';
+                return `<div class="font-monospace small mb-1" style="font-size: 0.78rem;">
+                    <span class="badge bg-secondary-subtle text-dark font-monospace">${escapeHtml(c.field)}</span> 
+                    <span class="text-muted">${escapeHtml(opLabel)}</span> 
+                    <code class="text-dark bg-light px-1 rounded">${escapeHtml(String(c.value))}</code>
+                </div>`;
+            }).join('');
+
+            const score = r.action?.value || 0;
+            const scoreBadge = score >= 10
+                ? `<span class="badge bg-danger text-white font-monospace fs-7">+${score.toFixed(1)}</span>`
+                : `<span class="badge bg-warning text-dark font-monospace fs-7">+${score.toFixed(1)}</span>`;
+
+            return `
+                <tr>
+                    <td>
+                        <strong class="text-dark font-monospace d-block small">${escapeHtml(r.code)}</strong>
+                        <span class="text-muted" style="font-size: 11px;">${escapeHtml(r.description || '')}</span>
+                    </td>
+                    <td>
+                        <span class="fw-semibold text-dark small">${escapeHtml(r.name)}</span>
+                    </td>
+                    <td>${logicBadge}</td>
+                    <td>${conditionsList}</td>
+                    <td class="text-center">${scoreBadge}</td>
+                    <td class="text-center">
+                        <div class="form-check form-switch d-inline-block">
+                            <input class="form-check-input" type="checkbox" role="switch" ${r.is_active ? 'checked' : ''} onchange="toggleAdvancedRuleActive('${r.id}', this.checked)">
+                        </div>
+                    </td>
+                    <td class="text-center">
+                        <div class="btn-group btn-group-sm">
+                            <button type="button" class="btn btn-outline-primary btn-xs py-1" onclick="openTestAdvancedRuleModal('${r.id}')" title="Testar & Simular Regra">
+                                <i class="bi bi-play-fill"></i> Testar
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-xs py-1" onclick="openEditAdvancedSpamRuleModal('${r.id}')" title="Editar Regra">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            <button type="button" class="btn btn-outline-danger btn-xs py-1" onclick="deleteAdvancedSpamRule('${r.id}', '${escapeHtml(r.code)}')" title="Excluir Regra">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function renderDedicatedAdvancedRulesMirror() {
+        const mirror = document.getElementById('dedicated-advanced-rules-mirror');
+        if (!mirror) return;
+        const source = document.getElementById('section-advanced-rules');
+        if (source) {
+            mirror.innerHTML = source.innerHTML;
+        }
+    }
+
+    function openEditAdvancedSpamRuleModal(ruleId) {
+        const rule = currentAdvancedRules.find(r => r.id === ruleId);
+        if (!rule) {
+            showAlert('Regra não encontrada.', 'warning');
+            return;
+        }
+
+        document.getElementById('form-advanced-spam-rule').reset();
+        document.getElementById('adv-rule-id').value = rule.id;
+        document.getElementById('adv-rule-modal-title').innerText = 'Editar Regra Avançada AntiSPAM';
+        document.getElementById('adv-rule-code').value = rule.code;
+        document.getElementById('adv-rule-code').setAttribute('readonly', 'true');
+        document.getElementById('adv-rule-name').value = rule.name;
+        document.getElementById('adv-rule-description').value = rule.description || '';
+        document.getElementById('adv-rule-logic').value = rule.logic || 'AND';
+        document.getElementById('adv-rule-action-type').value = rule.action?.type || 'add_score';
+        document.getElementById('adv-rule-score').value = (rule.action?.value || 15.0).toFixed(1);
+        document.getElementById('adv-rule-enabled').checked = rule.is_active !== false;
+
+        const container = document.getElementById('adv-conditions-container');
+        container.innerHTML = '';
+        if (Array.isArray(rule.conditions) && rule.conditions.length > 0) {
+            rule.conditions.forEach(c => addAdvancedConditionRow(c));
+        } else {
+            addAdvancedConditionRow();
+        }
+
+        const modal = new bootstrap.Modal(document.getElementById('advancedRuleModal'));
+        modal.show();
+    }
+
+    function saveAdvancedSpamRule(e) {
+        e.preventDefault();
+        const id = document.getElementById('adv-rule-id').value.trim();
+        const code = document.getElementById('adv-rule-code').value.trim();
+        const name = document.getElementById('adv-rule-name').value.trim();
+        const description = document.getElementById('adv-rule-description').value.trim();
+        const logic = document.getElementById('adv-rule-logic').value;
+        const actionType = document.getElementById('adv-rule-action-type').value;
+        const score = parseFloat(document.getElementById('adv-rule-score').value) || 15.0;
+        const is_active = document.getElementById('adv-rule-enabled').checked;
+
+        const conditionRows = document.querySelectorAll('#adv-conditions-container tr');
+        if (conditionRows.length === 0) {
+            showAlert('A regra deve ter pelo menos uma condição configurada.', 'warning');
+            return;
+        }
+
+        const conditions = [];
+        conditionRows.forEach(tr => {
+            const field = tr.querySelector('.cond-field-select')?.value || 'subject';
+            const operator = tr.querySelector('.cond-op-select')?.value || 'regex_match';
+            const value = tr.querySelector('.cond-val-input')?.value || '';
+            conditions.push({ field, operator, value });
+        });
+
+        const payload = {
+            id: id || undefined,
+            code,
+            name,
+            description,
+            logic,
+            conditions,
+            action: {
+                type: actionType,
+                value: score
+            },
+            is_active
+        };
+
+        fetchJson('/api/antispam/advanced-rules', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(res => {
+            if (res && res.success) {
+                showAlert(`Regra avançada '${code}' salva com sucesso!`, 'success');
+                const modalEl = document.getElementById('advancedRuleModal');
+                const modal = bootstrap.Modal.getInstance(modalEl);
+                if (modal) modal.hide();
+                loadAdvancedSpamRules();
+            } else {
+                showAlert(res.message || res.error || 'Erro ao salvar regra avançada.', 'danger');
+            }
+        }).catch(err => showAlert('Erro: ' + err.message, 'danger'));
+    }
+
+    function toggleAdvancedRuleActive(ruleId, active) {
+        fetchJson('/api/antispam/advanced-rules/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: ruleId, is_active: active })
+        }).then(res => {
+            if (res && res.success) {
+                showAlert(`Status da regra atualizado com sucesso!`, 'success');
+                loadAdvancedSpamRules();
+            } else {
+                showAlert(res.error || 'Erro ao alternar status da regra.', 'danger');
+                loadAdvancedSpamRules();
+            }
+        }).catch(err => showAlert('Erro: ' + err.message, 'danger'));
+    }
+
+    function deleteAdvancedSpamRule(ruleId, ruleCode) {
+        if (!confirm(`Deseja realmente remover a regra avançada '${ruleCode}'?`)) return;
+
+        fetchJson('/api/antispam/advanced-rules/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: ruleId })
+        }).then(res => {
+            if (res && res.success) {
+                showAlert(`Regra '${ruleCode}' excluída com sucesso!`, 'success');
+                loadAdvancedSpamRules();
+            } else {
+                showAlert(res.error || 'Erro ao excluir regra.', 'danger');
+            }
+        }).catch(err => showAlert('Erro: ' + err.message, 'danger'));
+    }
+
+    function applyAdvancedRulePreset(presetKey) {
+        openNewAdvancedSpamRuleModal();
+        const container = document.getElementById('adv-conditions-container');
+        container.innerHTML = '';
+
+        if (presetKey === 'hex_domain') {
+            document.getElementById('adv-rule-code').value = 'LOCAL_ADV_EXT_HEX_DOMAIN';
+            document.getElementById('adv-rule-name').value = 'Domínio com Hash Alfanumérico em Origem Externa';
+            document.getElementById('adv-rule-description').value = 'Dispara quando conexão é externa e remetente possui hash alfanumérico no domínio.';
+            document.getElementById('adv-rule-logic').value = 'AND';
+            document.getElementById('adv-rule-score').value = '15.0';
+            addAdvancedConditionRow({ field: 'origin', operator: 'equals', value: 'external' });
+            addAdvancedConditionRow({ field: 'from', operator: 'domain_has_hex', value: 'true' });
+        } else if (presetKey === 'bank_impersonate') {
+            document.getElementById('adv-rule-code').value = 'LOCAL_ADV_EXT_PHISHING_BANCO';
+            document.getElementById('adv-rule-name').value = 'Phishing Bancário Forjado sem Autenticação';
+            document.getElementById('adv-rule-description').value = 'Conexão externa sem autenticação com assunto simulando bancos.';
+            document.getElementById('adv-rule-logic').value = 'AND';
+            document.getElementById('adv-rule-score').value = '18.0';
+            addAdvancedConditionRow({ field: 'origin', operator: 'equals', value: 'external' });
+            addAdvancedConditionRow({ field: 'smtp_auth', operator: 'equals', value: 'false' });
+            addAdvancedConditionRow({ field: 'subject', operator: 'regex_match', value: '/banco.*ita.|bradesco|santander|caixa|nubank|bloqueio.*cart.o/i' });
+        } else if (presetKey === 'dynamic_domain') {
+            document.getElementById('adv-rule-code').value = 'LOCAL_ADV_DYNAMIC_DNS';
+            document.getElementById('adv-rule-name').value = 'Subdomínio Dinâmico ou Suspeito';
+            document.getElementById('adv-rule-description').value = 'Dispara em menção a domínios dinâmicos (.duckdns, .ngrok, .xyz) em conexões não-autenticadas.';
+            document.getElementById('adv-rule-logic').value = 'OR';
+            document.getElementById('adv-rule-score').value = '12.0';
+            addAdvancedConditionRow({ field: 'from', operator: 'regex_match', value: '/\\.(duckdns\\.org|ngrok-free\\.app|xyz|top)$/i' });
+            addAdvancedConditionRow({ field: 'body', operator: 'regex_match', value: '/https?:\\/\\/[^\\s]+\\.(duckdns|ngrok|xyz)/i' });
+        }
+    }
+
+    function openTestAdvancedRuleModal(ruleId) {
+        let rule = currentAdvancedRules.find(r => r.id === ruleId);
+        if (!rule && currentAdvancedRules.length > 0) {
+            rule = currentAdvancedRules[0];
+        }
+        if (!rule) {
+            showAlert('Regra não encontrada para teste.', 'warning');
+            return;
+        }
+
+        document.getElementById('test-rule-id').value = rule.id;
+        document.getElementById('test-rule-code-label').innerText = rule.code;
+        document.getElementById('test-rule-logic-label').innerText = 'Lógica: ' + (rule.logic || 'AND');
+
+        // Carregar dados da última interação/auditoria se disponível
+        loadLastInteractionIntoTest(false);
+
+        const modal = new bootstrap.Modal(document.getElementById('advancedRuleTestModal'));
+        modal.show();
+
+        // Executar automaticamente o teste para que os resultados APAREÇAM IMEDIATAMENTE
+        setTimeout(() => {
+            runAdvancedRuleTest();
+        }, 250);
+    }
+
+    function loadLastInteractionIntoTest(autoRun = true) {
+        let interaction = window.lastForensicAuditResult;
+        if (!interaction) {
+            try {
+                const saved = localStorage.getItem('mailadmin_last_sim_data');
+                if (saved) interaction = JSON.parse(saved);
+            } catch (e) {}
+        }
+        
+        // Se ainda não houver interação gravada, lê dos campos da aba de auditoria forense
+        const simFrom = document.getElementById('forensic-from')?.value;
+        const simOrigin = document.getElementById('forensic-origin')?.value;
+        const simAuth = document.getElementById('forensic-smtp-auth')?.value;
+        const simSub = document.getElementById('forensic-subject')?.value;
+
+        const fromVal = interaction?.sender_from || simFrom || 'Notificação <contato@a8f7c9e1.com.br>';
+        const originVal = interaction?.origin || simOrigin || 'external';
+        const authVal = interaction?.smtp_auth !== undefined ? String(interaction.smtp_auth) : (simAuth !== undefined ? simAuth : 'false');
+        const subVal = interaction?.subject || simSub || 'Aviso urgente de bloqueio de conta';
+        const bodyVal = interaction?.body || 'Identificamos irregularidades de acesso em sua conta institucional.';
+
+        const senderEl = document.getElementById('test-param-sender-from');
+        const originEl = document.getElementById('test-param-origin');
+        const authEl = document.getElementById('test-param-smtp-auth');
+        const subEl = document.getElementById('test-param-subject');
+        const bodyEl = document.getElementById('test-param-body');
+
+        if (senderEl) senderEl.value = fromVal;
+        if (originEl) originEl.value = originVal;
+        if (authEl) authEl.value = authVal;
+        if (subEl) subEl.value = subVal;
+        if (bodyEl && !bodyEl.value) bodyEl.value = bodyVal;
+
+        if (autoRun) {
+            showAlert('Dados da última interação carregados com sucesso!', 'info');
+            runAdvancedRuleTest();
+        }
+    }
+
+    function testCurrentRuleDraftWithLastInteraction() {
+        const code = document.getElementById('adv-rule-code').value.trim() || 'LOCAL_ADV_RASCUNHO';
+        const name = document.getElementById('adv-rule-name').value.trim() || 'Rascunho de Regra';
+        const logic = document.getElementById('adv-rule-logic').value || 'AND';
+        const score = parseFloat(document.getElementById('adv-rule-score').value) || 15.0;
+        
+        const conditionRows = document.querySelectorAll('#adv-conditions-container tr');
+        const conditions = [];
+        conditionRows.forEach(tr => {
+            const field = tr.querySelector('.cond-field-select')?.value || 'subject';
+            const operator = tr.querySelector('.cond-op-select')?.value || 'regex_match';
+            const value = tr.querySelector('.cond-val-input')?.value || '';
+            conditions.push({ field, operator, value });
+        });
+
+        if (conditions.length === 0) {
+            showAlert('Adicione pelo menos uma condição para testar a regra.', 'warning');
+            return;
+        }
+
+        const draftRule = {
+            id: 'draft_' + Date.now(),
+            code,
+            name,
+            logic,
+            conditions,
+            action: { type: 'add_score', value: score },
+            is_active: true
+        };
+
+        const existingIdx = currentAdvancedRules.findIndex(r => r.code === draftRule.code);
+        if (existingIdx >= 0) {
+            currentAdvancedRules[existingIdx] = draftRule;
+        } else {
+            currentAdvancedRules.push(draftRule);
+        }
+
+        openTestAdvancedRuleModal(draftRule.id);
+    }
+
+    function clearAdvancedRuleTestInputs() {
+        document.getElementById('test-param-sender-from').value = '';
+        document.getElementById('test-param-subject').value = '';
+        document.getElementById('test-param-body').value = '';
+        document.getElementById('adv-test-results-panel').classList.add('d-none');
+    }
+
+    function runAdvancedRuleTest() {
+        const ruleId = document.getElementById('test-rule-id').value;
+        const rule = currentAdvancedRules.find(r => r.id === ruleId);
+        if (!rule) {
+            showAlert('Regra não localizada.', 'danger');
+            return;
+        }
+
+        const sample_data = {
+            from: document.getElementById('test-param-sender-from').value.trim(),
+            origin: document.getElementById('test-param-origin').value,
+            smtp_auth: document.getElementById('test-param-smtp-auth').value === 'true',
+            subject: document.getElementById('test-param-subject').value.trim(),
+            body: document.getElementById('test-param-body').value.trim(),
+            client_ip: '185.220.101.5'
+        };
+
+        lastAdvancedRuleTestParams = { ruleId, sample_data };
+
+        const panel = document.getElementById('adv-test-results-panel');
+        panel.classList.remove('d-none');
+        document.getElementById('adv-test-verdict-badge').innerHTML = `<span class="spinner-border spinner-border-sm text-primary"></span> Analisando...`;
+        document.getElementById('adv-test-conditions-tbody').innerHTML = `<tr><td colspan="5" class="text-center py-2 text-muted">Avaliando condições no motor de inferência...</td></tr>`;
+        document.getElementById('adv-test-summary-text').innerText = '';
+
+        fetchJson('/api/antispam/advanced-rules/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rule, sample_data })
+        }).then(res => {
+            if (res && res.success && res.evaluation) {
+                const ev = res.evaluation;
+                const badge = ev.triggered
+                    ? `<span class="badge bg-danger text-white fs-6 py-1 px-2"><i class="bi bi-shield-x me-1"></i> REGRA DISPARADA (+${(ev.score_produced || 0).toFixed(1)} pts)</span>`
+                    : `<span class="badge bg-success text-white fs-6 py-1 px-2"><i class="bi bi-shield-check me-1"></i> REGRA NÃO DISPARADA (Passou)</span>`;
+                
+                document.getElementById('adv-test-verdict-badge').innerHTML = badge;
+
+                const tbody = document.getElementById('adv-test-conditions-tbody');
+                tbody.innerHTML = (ev.conditions_evaluated || []).map(c => {
+                    const isPassed = c.matched !== undefined ? c.matched : c.passed;
+                    const resultBadge = isPassed
+                        ? `<span class="badge bg-success"><i class="bi bi-check-lg me-1"></i>Sim (Bateu)</span>`
+                        : `<span class="badge bg-secondary">Não</span>`;
+                    return `
+                        <tr>
+                            <td class="font-monospace fw-semibold">${escapeHtml(c.field)}</td>
+                            <td>${escapeHtml(c.operator)}</td>
+                            <td class="font-monospace">${escapeHtml(String(c.expected_value))}</td>
+                            <td class="font-monospace text-muted">${escapeHtml(String(c.actual_value || ''))}</td>
+                            <td class="text-center">${resultBadge}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+                const satisfiedCount = ev.conditions_evaluated.filter(c => (c.matched !== undefined ? c.matched : c.passed)).length;
+                document.getElementById('adv-test-summary-text').innerText = 
+                    `Lógica aplicada: ${rule.logic}. Condições satisfeitas: ${satisfiedCount} de ${ev.conditions_evaluated.length}. Score resultante: +${(ev.score_produced || 0).toFixed(1)}.`;
+            } else {
+                document.getElementById('adv-test-verdict-badge').innerHTML = `<span class="badge bg-danger">Erro na Simulação</span>`;
+                document.getElementById('adv-test-summary-text').innerText = res.message || 'Falha ao processar simulação da regra.';
+            }
+        }).catch(err => {
+            document.getElementById('adv-test-verdict-badge').innerHTML = `<span class="badge bg-danger">Erro</span>`;
+            document.getElementById('adv-test-summary-text').innerText = 'Erro: ' + err.message;
+        });
+    }
+
+    function reprocessAdvancedRuleTest() {
+        const btn = document.getElementById('btn-reprocess-rule-test');
+        if (btn) {
+            btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Reprocessando...`;
+            btn.disabled = true;
+        }
+
+        runAdvancedRuleTest();
+
+        setTimeout(() => {
+            if (btn) {
+                btn.innerHTML = `<i class="bi bi-arrow-clockwise me-1"></i> Reprocessar Teste Novamente`;
+                btn.disabled = false;
+            }
+        }, 600);
+    }
 
     // Global window function bindings
+    window.openNewAntiSpamRuleSelectorModal = openNewAntiSpamRuleSelectorModal;
+    window.bootstrapNewAdvancedRuleFromSelector = bootstrapNewAdvancedRuleFromSelector;
+    window.bootstrapNewSimpleRegexRuleFromSelector = bootstrapNewSimpleRegexRuleFromSelector;
+    window.openNewAdvancedSpamRuleModal = openNewAdvancedSpamRuleModal;
+    window.openEditAdvancedSpamRuleModal = openEditAdvancedSpamRuleModal;
+    window.loadAdvancedSpamRules = loadAdvancedSpamRules;
+    window.renderAdvancedSpamRulesTable = renderAdvancedSpamRulesTable;
+    window.renderDedicatedAdvancedRulesMirror = renderDedicatedAdvancedRulesMirror;
+    window.filterAdvancedRules = filterAdvancedRules;
+    window.addAdvancedConditionRow = addAdvancedConditionRow;
+    window.handleAdvFieldChange = handleAdvFieldChange;
+    window.saveAdvancedSpamRule = saveAdvancedSpamRule;
+    window.toggleAdvancedRuleActive = toggleAdvancedRuleActive;
+    window.deleteAdvancedSpamRule = deleteAdvancedSpamRule;
+    window.applyAdvancedRulePreset = applyAdvancedRulePreset;
+    window.openTestAdvancedRuleModal = openTestAdvancedRuleModal;
+    window.clearAdvancedRuleTestInputs = clearAdvancedRuleTestInputs;
+    window.loadLastInteractionIntoTest = loadLastInteractionIntoTest;
+    window.testCurrentRuleDraftWithLastInteraction = testCurrentRuleDraftWithLastInteraction;
+    window.runAdvancedRuleTest = runAdvancedRuleTest;
+    window.reprocessAdvancedRuleTest = reprocessAdvancedRuleTest;
+    window.switchIntelSubView = switchIntelSubView;
     window.addVisualSpamRule = addVisualSpamRule;
     window.applyCronPreset = applyCronPreset;
     window.applyCustomSpamPreset = applyCustomSpamPreset;
@@ -9359,6 +10060,9 @@ exit 0
                             <span id="spam-status-badge" class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2 font-monospace">
                                 <i class="bi bi-circle-fill me-1" style="font-size: 8px;"></i> SpamAssassin: Ativo
                             </span>
+                            <button type="button" class="btn btn-primary btn-sm px-3 shadow-sm fw-bold" onclick="openNewAntiSpamRuleSelectorModal()">
+                                <i class="bi bi-plus-circle-fill me-1"></i> + Nova Regra AntiSPAM
+                            </button>
                             <button type="button" class="btn btn-outline-secondary btn-sm" onclick="loadSpamRules()">
                                 <i class="bi bi-arrow-clockwise me-1"></i> Atualizar
                             </button>
@@ -9376,6 +10080,12 @@ exit 0
                             <button class="nav-link fw-bold small text-muted d-flex align-items-center gap-2" id="spam-intelligence-tab" data-bs-toggle="tab" data-bs-target="#spam-tab-intelligence" type="button" role="tab">
                                 <i class="bi bi-magic text-warning"></i> Inteligência SPAM (Regras Heurísticas & Regex)
                                 <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle rounded-pill font-monospace" id="badge-heuristic-all">10</span>
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link fw-bold small text-muted d-flex align-items-center gap-2" id="spam-advanced-tab" data-bs-toggle="tab" data-bs-target="#spam-tab-advanced" type="button" role="tab">
+                                <i class="bi bi-stars text-primary"></i> ⚡ Regras Avançadas (Compostas)
+                                <span class="badge bg-primary text-white rounded-pill font-monospace" id="badge-advanced-rules-count">3</span>
                             </button>
                         </li>
                         <li class="nav-item" role="presentation">
@@ -9581,6 +10291,53 @@ exit 0
                         <!-- TAB 2: INTELIGÊNCIA SPAM (Regras Heurísticas & Regex Avançadas)   -->
                         <!-- ============================================================== -->
                         <div class="tab-pane fade" id="spam-tab-intelligence" role="tabpanel">
+                            <!-- Header Unificado do Módulo AntiSPAM com o Botão + Nova Regra AntiSPAM -->
+                            <div class="card p-4 shadow-sm border-0 mb-4 bg-white border-start border-primary border-4">
+                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                                    <div>
+                                        <div class="d-flex align-items-center gap-2 mb-1">
+                                            <span class="badge bg-primary px-2.5 py-1 text-white font-monospace"><i class="bi bi-shield-check me-1"></i> MÓDULO INTELIGÊNCIA ANTISPAM</span>
+                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace"><i class="bi bi-stars me-1"></i> Regras Compostas & Heurísticas</span>
+                                        </div>
+                                        <h5 class="fw-bold text-dark mb-1">Construtor e Catálogo Unificado de Regras AntiSPAM</h5>
+                                        <p class="text-muted small mb-0">Crie regras multicondicionais (Origem Externa/Interna, Autenticação SMTP, Subdomínios, Regex e Lógica AND/OR) ou regras heurísticas simples com impacto direto no score.</p>
+                                    </div>
+                                    <div class="d-flex flex-wrap align-items-center gap-2">
+                                        <button type="button" class="btn btn-primary px-3.5 py-2 fw-bold shadow-sm d-flex align-items-center gap-2 fs-6" onclick="openNewAntiSpamRuleSelectorModal()" id="btn-header-new-antispam-rule">
+                                            <i class="bi bi-plus-circle-fill"></i> + Nova Regra AntiSPAM
+                                        </button>
+                                        <div class="btn-group">
+                                            <button type="button" class="btn btn-outline-primary btn-sm fw-semibold" onclick="openNewAdvancedSpamRuleModal()" title="Criar Nova Regra Composta">
+                                                <i class="bi bi-stars me-1"></i> + Regra Composta
+                                            </button>
+                                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="openNewCustomSpamRuleModal()" title="Criar Nova Regra Heurística Regex">
+                                                <i class="bi bi-magic me-1"></i> + Regra Regex
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Seletor de visualização interna rápida -->
+                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mt-3 pt-3 border-top">
+                                    <div class="nav nav-pills gap-2" id="intelSubNav" role="tablist">
+                                        <button class="nav-link active btn-sm px-3 fw-semibold d-flex align-items-center gap-2" id="sub-nav-all" onclick="switchIntelSubView('all')">
+                                            <i class="bi bi-collection"></i> Visão Completa (Todas as Regras)
+                                        </button>
+                                        <button class="nav-link btn-sm px-3 fw-semibold d-flex align-items-center gap-2" id="sub-nav-adv" onclick="switchIntelSubView('adv')">
+                                            <i class="bi bi-stars text-primary"></i> ⚡ Regras Avançadas (Compostas)
+                                            <span class="badge bg-primary text-white rounded-pill font-monospace" id="sub-badge-advanced-count">3</span>
+                                        </button>
+                                        <button class="nav-link btn-sm px-3 fw-semibold d-flex align-items-center gap-2" id="sub-nav-simple" onclick="switchIntelSubView('simple')">
+                                            <i class="bi bi-magic text-warning"></i> 🔍 Regras Heurísticas Simples (Regex)
+                                            <span class="badge bg-secondary-subtle text-dark rounded-pill font-monospace" id="sub-badge-simple-count">10</span>
+                                        </button>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="small text-muted font-monospace"><i class="bi bi-shield-lock-fill text-success me-1"></i> Motor Híbrido: Policy Engine + SpamAssassin</span>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- KPI Summary Cards -->
                             <div class="row g-3 mb-4">
                                 <div class="col-md-3">
@@ -9637,19 +10394,26 @@ exit 0
                                 </div>
                             </div>
 
-                            <!-- Presets Rápidos de Inteligência AntiSPAM (1-Clique) -->
-                            <div class="card p-4 shadow-sm border-0 mb-4 bg-light">
-                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
-                                    <div>
-                                        <h6 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
-                                            <i class="bi bi-lightning-charge-fill text-warning"></i> Presets Rápidos de Inteligência AntiSPAM ZRTI
-                                        </h6>
-                                        <p class="text-muted small mb-0">Modelos prontos de Regex para interceptação de phishing moderno, links encurtados, IP direto e caracteres estranhos.</p>
+                            <!-- Seção de Regras Heurísticas Simples (Regex SpamAssassin) -->
+                            <div id="section-heuristic-rules">
+                                <!-- Presets Rápidos de Inteligência AntiSPAM (1-Clique) -->
+                                <div class="card p-4 shadow-sm border-0 mb-4 bg-light">
+                                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+                                        <div>
+                                            <h6 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
+                                                <i class="bi bi-lightning-charge-fill text-warning"></i> Presets Rápidos de Heurística & Regex Simples
+                                            </h6>
+                                            <p class="text-muted small mb-0">Modelos prontos de Regex para interceptação de phishing moderno, links encurtados, IP direto e caracteres estranhos.</p>
+                                        </div>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <button type="button" class="btn btn-primary btn-sm px-3 shadow-sm fw-bold" onclick="openNewAntiSpamRuleSelectorModal()">
+                                                <i class="bi bi-plus-circle-fill me-1"></i> + Nova Regra AntiSPAM
+                                            </button>
+                                            <button type="button" class="btn btn-outline-secondary btn-sm px-3" onclick="openNewCustomSpamRuleModal()">
+                                                <i class="bi bi-plus-lg me-1"></i> Nova Regex
+                                            </button>
+                                        </div>
                                     </div>
-                                    <button type="button" class="btn btn-primary btn-sm px-3 shadow-sm" onclick="openNewCustomSpamRuleModal()">
-                                        <i class="bi bi-plus-circle-fill me-1"></i> Nova Regra Inteligente (Regex)
-                                    </button>
-                                </div>
                                 <div class="row g-2">
                                     <div class="col-md-3 col-sm-6">
                                         <button type="button" class="btn btn-white w-100 text-start border shadow-sm p-2.5 h-100 hover-shadow transition" onclick="applySpamHeuristicPreset('pedagio')">
@@ -9780,7 +10544,147 @@ exit 0
                                     </table>
                                 </div>
                             </div>
+                        </div> <!-- fim de #section-heuristic-rules -->
+
+                        <!-- Seção de Regras Avançadas & Compostas (Multicondicionais) -->
+                        <div id="section-advanced-rules" class="mt-2">
+                            <!-- Banner e Presets Rápidos de Regras Compostas -->
+                            <div class="card p-4 shadow-sm border-0 mb-4 bg-white border-start border-primary border-4">
+                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+                                    <div>
+                                        <div class="d-flex align-items-center gap-2 mb-1">
+                                            <span class="badge bg-primary text-white font-monospace"><i class="bi bi-stars me-1"></i> POLICY ENGINE</span>
+                                            <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle font-monospace">Múltiplas Condições (AND / OR)</span>
+                                        </div>
+                                        <h6 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
+                                            ⚡ Regras Avançadas & Compostas (Multicondicionais)
+                                        </h6>
+                                        <p class="text-muted small mb-0">Avalie origem de tráfego, autenticação SMTP, domínios, regex no assunto/corpo e aplique pontuações combinadas.</p>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <button type="button" class="btn btn-primary btn-sm px-3 shadow-sm fw-bold" onclick="openNewAdvancedSpamRuleModal()">
+                                            <i class="bi bi-plus-circle-fill me-1"></i> + Nova Regra Avançada (Composta)
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Presets Rápidos de Regras Compostas -->
+                                <div class="row g-2 pt-2 border-top">
+                                    <div class="col-md-4 col-sm-6">
+                                        <div class="border rounded p-2.5 bg-light h-100 d-flex flex-column justify-content-between">
+                                            <div>
+                                                <div class="d-flex align-items-center justify-content-between mb-1">
+                                                    <span class="badge bg-danger text-white font-monospace">+15.0</span>
+                                                    <span class="badge bg-dark-subtle text-dark small font-monospace">Origem Externa + Regex</span>
+                                                </div>
+                                                <div class="fw-bold small text-dark">Domínio Alfanumérico Suspeito</div>
+                                                <div class="text-muted" style="font-size: 0.75rem;">Dispara quando a conexão é externa e o remetente possui hash alfanumérico no domínio.</div>
+                                            </div>
+                                            <button type="button" class="btn btn-xs btn-outline-primary mt-2 text-start py-1 px-2" onclick="applyAdvancedRulePreset('hex_domain')">
+                                                <i class="bi bi-plus-circle me-1"></i> Carregar no Construtor
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4 col-sm-6">
+                                        <div class="border rounded p-2.5 bg-light h-100 d-flex flex-column justify-content-between">
+                                            <div>
+                                                <div class="d-flex align-items-center justify-content-between mb-1">
+                                                    <span class="badge bg-danger text-white font-monospace">+18.0</span>
+                                                    <span class="badge bg-dark-subtle text-dark small font-monospace">Origem Externa + Falha Auth</span>
+                                                </div>
+                                                <div class="fw-bold small text-dark">Phishing Bancário Forjado</div>
+                                                <div class="text-muted" style="font-size: 0.75rem;">Conexão externa sem autenticação com assunto simulando bancos e instituições financeiras.</div>
+                                            </div>
+                                            <button type="button" class="btn btn-xs btn-outline-primary mt-2 text-start py-1 px-2" onclick="applyAdvancedRulePreset('bank_impersonate')">
+                                                <i class="bi bi-plus-circle me-1"></i> Carregar no Construtor
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4 col-sm-6">
+                                        <div class="border rounded p-2.5 bg-light h-100 d-flex flex-column justify-content-between">
+                                            <div>
+                                                <div class="d-flex align-items-center justify-content-between mb-1">
+                                                    <span class="badge bg-danger text-white font-monospace">+12.0</span>
+                                                    <span class="badge bg-dark-subtle text-dark small font-monospace">Lógica OR</span>
+                                                </div>
+                                                <div class="fw-bold small text-dark">Subdomínio Dinâmico / Suspeito</div>
+                                                <div class="text-muted" style="font-size: 0.75rem;">Dispara em menção a domínios dinâmicos (.duckdns, .ngrok, .xyz) em conexões não-autenticadas.</div>
+                                            </div>
+                                            <button type="button" class="btn btn-xs btn-outline-primary mt-2 text-start py-1 px-2" onclick="applyAdvancedRulePreset('dynamic_domain')">
+                                                <i class="bi bi-plus-circle me-1"></i> Carregar no Construtor
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Tabela de Regras Avançadas -->
+                            <div class="card p-4 shadow-sm border-0 mb-4 bg-white">
+                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <button class="btn btn-sm btn-dark" id="btn-adv-filter-all" onclick="filterAdvancedRules('all')">
+                                            Todas as Compostas
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary" id="btn-adv-filter-active" onclick="filterAdvancedRules('active')">
+                                            <i class="bi bi-toggle-on text-success me-1"></i> Somente Ativas
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary" id="btn-adv-filter-and" onclick="filterAdvancedRules('and')">
+                                            <i class="bi bi-layers me-1"></i> Lógica AND (Todas)
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary" id="btn-adv-filter-or" onclick="filterAdvancedRules('or')">
+                                            <i class="bi bi-bezier2 me-1"></i> Lógica OR (Qualquer)
+                                        </button>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="input-group input-group-sm" style="max-width: 280px;">
+                                            <span class="input-group-text bg-light border-end-0"><i class="bi bi-search text-muted"></i></span>
+                                            <input type="text" class="form-control border-start-0" id="search-advanced-rules-input" placeholder="Buscar por código, nome, regex..." onkeyup="renderAdvancedSpamRulesTable()">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="table-responsive">
+                                    <table class="table table-hover align-middle mb-0">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th style="width: 200px;">Regra & Identificador</th>
+                                                <th style="width: 170px;">Nome Amigável</th>
+                                                <th style="width: 110px;">Lógica</th>
+                                                <th>Condições Avaliadas (Contexto)</th>
+                                                <th class="text-center" style="width: 90px;">Score</th>
+                                                <th class="text-center" style="width: 80px;">Status</th>
+                                                <th class="text-center" style="width: 140px;">Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="advanced-rules-table-body">
+                                            <tr><td colspan="7" class="text-center py-4 text-muted font-monospace small">Carregando catálogo de regras avançadas compostas...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div> <!-- fim de #section-advanced-rules -->
+                    </div>
+
+                    <!-- ============================================================== -->
+                    <!-- TAB DEDICADA: REGRAS AVANÇADAS & COMPOSTAS (Atalho Direto)     -->
+                    <!-- ============================================================== -->
+                    <div class="tab-pane fade" id="spam-tab-advanced" role="tabpanel">
+                        <div class="alert alert-primary d-flex align-items-center justify-content-between mb-4 shadow-sm">
+                            <div>
+                                <i class="bi bi-stars fs-5 me-2"></i>
+                                <strong>Módulo Inteligência AntiSPAM — Regras Avançadas (Compostas)</strong>
+                                <div class="small text-muted mt-1">Este painel exibe o catálogo e construtor de regras compostas multicondicionais com integração ao Policy Engine e Simulador Forense.</div>
+                            </div>
+                            <div class="d-flex align-items-center gap-2">
+                                <button type="button" class="btn btn-primary btn-sm px-3 fw-bold" onclick="openNewAntiSpamRuleSelectorModal()">
+                                    <i class="bi bi-plus-circle-fill me-1"></i> + Nova Regra AntiSPAM
+                                </button>
+                            </div>
                         </div>
+                        <div id="dedicated-advanced-rules-mirror">
+                            <!-- Espelho das regras avançadas renderizado dinamicamente -->
+                        </div>
+                    </div>
 
 <div class="tab-pane fade" id="spam-tab-lists" role="tabpanel">
                             <!-- KPI Cards for Visual Rules -->
@@ -9984,6 +10888,25 @@ exit 0
                                             <input type="number" step="0.1" class="form-control form-control-sm font-monospace" id="forensic-sa-score" value="2.5">
                                         </div>
 
+                                        <div class="col-md-4">
+                                            <label class="form-label small fw-semibold text-dark">Origem do Tráfego / Conexão</label>
+                                            <select class="form-select form-select-sm font-monospace" id="forensic-origin">
+                                                <option value="external" selected>Externa (Internet / MTA Remoto)</option>
+                                                <option value="internal">Interna (Rede Local / Submissão)</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label small fw-semibold text-dark">Autenticação SMTP (AUTH)</label>
+                                            <select class="form-select form-select-sm font-monospace" id="forensic-smtp-auth">
+                                                <option value="false" selected>Não (Conexão Anônima - Porta 25)</option>
+                                                <option value="true">Sim (Usuário Autenticado - SASL)</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label small fw-semibold text-dark">Assunto da Mensagem (Subject)</label>
+                                            <input type="text" class="form-control form-control-sm" id="forensic-subject" placeholder="Aviso Importante de Notificação" value="Aviso Urgente: Notificação de Bloqueio">
+                                        </div>
+
                                         <div class="col-12">
                                             <label class="form-label small fw-semibold text-dark">Cabeçalhos ou Mensagem EML Bruta (Opcional)</label>
                                             <textarea class="form-control form-control-sm font-monospace" id="forensic-raw-eml" rows="3" placeholder="Cole aqui os cabeçalhos completos de um e-mail para auditoria profunda..."></textarea>
@@ -9992,9 +10915,14 @@ exit 0
 
                                     <div class="d-flex align-items-center justify-content-between mt-3 pt-3 border-top">
                                         <button type="reset" class="btn btn-sm btn-outline-secondary px-3">Limpar Campos</button>
-                                        <button type="button" class="btn btn-sm btn-danger px-4 fw-semibold" onclick="runComprehensiveForensicAudit()">
-                                            <i class="bi bi-play-circle-fill me-1"></i> Executar Auditoria Forense & Análise de Risco
-                                        </button>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <button type="button" class="btn btn-sm btn-outline-primary px-3 fw-semibold" onclick="reprocessLastForensicAudit()" id="btn-reprocess-forensic">
+                                                <i class="bi bi-arrow-clockwise me-1"></i> Reprocessar Última Interação
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-danger px-4 fw-semibold shadow-sm" onclick="runComprehensiveForensicAudit()">
+                                                <i class="bi bi-play-circle-fill me-1"></i> Executar Auditoria Forense & Análise de Risco
+                                            </button>
+                                        </div>
                                     </div>
                                 </form>
 
@@ -10692,6 +11620,311 @@ exit 0
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================== -->
+<!-- MODAL A: Seletor de Tipo de Regra (+ Nova Regra AntiSPAM)     -->
+<!-- ============================================================== -->
+<div class="modal fade" id="ruleTypeSelectModal" tabindex="-1" aria-labelledby="ruleTypeSelectModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light border-bottom p-3">
+                <div>
+                    <h5 class="modal-title fw-bold text-dark fs-6" id="ruleTypeSelectModalLabel">
+                        <i class="bi bi-plus-circle-fill text-primary me-2"></i> Criar Nova Regra AntiSPAM
+                    </h5>
+                    <p class="text-muted small mb-0">Selecione o modelo arquitetural para a nova regra de segurança de e-mail.</p>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="row g-4">
+                    <!-- Opção 1: Regra Avançada Composta -->
+                    <div class="col-md-6">
+                        <div class="card h-100 border-2 border-primary-subtle shadow-sm p-3.5 hover-shadow transition text-start d-flex flex-column justify-content-between">
+                            <div>
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <div class="p-3 bg-primary-subtle text-primary rounded-3">
+                                        <i class="bi bi-stars fs-3"></i>
+                                    </div>
+                                    <span class="badge bg-primary text-white font-monospace">Recomendado</span>
+                                </div>
+                                <h5 class="fw-bold text-dark mb-1">Regra Avançada (Composta)</h5>
+                                <div class="text-muted small mb-3">
+                                    Permite combinar <strong>múltiplas condições</strong> em contexto:
+                                    <ul class="ps-3 mt-2 mb-0 small text-muted">
+                                        <li>Origem da conexão (Externa vs Interna)</li>
+                                        <li>Autenticação SMTP (SASL autenticado ou anônimo)</li>
+                                        <li>Subdomínios e domínios com hash alfanumérico</li>
+                                        <li>Lógica booleana <strong>AND</strong> (todas) ou <strong>OR</strong> (qualquer)</li>
+                                        <li>Simulador forense integrado</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-primary w-100 fw-bold py-2 shadow-sm" onclick="bootstrapNewAdvancedRuleFromSelector()">
+                                <i class="bi bi-stars me-1"></i> Criar Regra Composta
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Opção 2: Regra Heurística Simples -->
+                    <div class="col-md-6">
+                        <div class="card h-100 border shadow-sm p-3.5 hover-shadow transition text-start d-flex flex-column justify-content-between">
+                            <div>
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <div class="p-3 bg-warning-subtle text-warning rounded-3">
+                                        <i class="bi bi-magic fs-3"></i>
+                                    </div>
+                                    <span class="badge bg-secondary-subtle text-dark font-monospace">SpamAssassin Nativo</span>
+                                </div>
+                                <h5 class="fw-bold text-dark mb-1">Regra Heurística Simples (Regex)</h5>
+                                <div class="text-muted small mb-3">
+                                    Avaliação pontual e direta baseada em <strong>uma condição única</strong>:
+                                    <ul class="ps-3 mt-2 mb-0 small text-muted">
+                                        <li>Expressão Regular (PCRE) única</li>
+                                        <li>Verificação de cabeçalhos (Subject, From, Reply-To)</li>
+                                        <li>Detecção de palavras-chave no corpo (Body)</li>
+                                        <li>Injeção direta no <code>local.cf</code> do SpamAssassin</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-outline-secondary w-100 fw-bold py-2" onclick="bootstrapNewSimpleRegexRuleFromSelector()">
+                                <i class="bi bi-code-square me-1"></i> Criar Regra Heurística Regex
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================== -->
+<!-- MODAL B: Construtor e Editor de Regras Avançadas (Compostas)   -->
+<!-- ============================================================== -->
+<div class="modal fade" id="advancedRuleModal" tabindex="-1" aria-labelledby="advancedRuleModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light border-bottom p-3">
+                <div>
+                    <h5 class="modal-title fw-bold text-dark fs-6" id="advancedRuleModalLabel">
+                        <i class="bi bi-stars text-primary me-2"></i> <span id="adv-rule-modal-title">Construtor de Regra Avançada AntiSPAM</span>
+                    </h5>
+                    <p class="text-muted small mb-0">Defina critérios combinados, lógica de disparo e pontuação no mecanismo de decisão AntiSPAM.</p>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <form id="form-advanced-spam-rule" onsubmit="saveAdvancedSpamRule(event)">
+                <input type="hidden" id="adv-rule-id" value="">
+                <div class="modal-body p-4">
+                    <!-- Informações Básicas da Regra -->
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-4">
+                            <label class="form-label small fw-bold text-dark mb-1">Código Identificador Único</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" id="adv-rule-code" placeholder="LOCAL_ADV_EXT_DOMINIO_SUSPEITO" required>
+                            <div class="form-text" style="font-size: 11px;">Prefixo <code>LOCAL_ADV_</code> recomendado. Sem espaços.</div>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label small fw-bold text-dark mb-1">Nome Amigável da Regra</label>
+                            <input type="text" class="form-control form-control-sm" id="adv-rule-name" placeholder="Domínio Alfanumérico em Origem Externa" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold text-dark mb-1">Lógica Booleana entre Condições</label>
+                            <select class="form-select form-select-sm fw-bold" id="adv-rule-logic">
+                                <option value="AND" selected>Lógica AND (TODAS as condições devem bater)</option>
+                                <option value="OR">Lógica OR (QUALQUER condição dispara a regra)</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small fw-bold text-dark mb-1">Descrição e Diagnóstico Forense</label>
+                            <input type="text" class="form-control form-control-sm" id="adv-rule-description" placeholder="Intercepta campanhas maliciosas originadas fora da rede com domínios gerados dinamicamente." required>
+                        </div>
+                    </div>
+
+                    <!-- Bloco Construtor de Condições -->
+                    <div class="card p-3 bg-light border mb-4">
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <div>
+                                <h6 class="fw-bold text-dark mb-0 d-flex align-items-center gap-2">
+                                    <i class="bi bi-diagram-3-fill text-primary"></i> Condições da Regra
+                                </h6>
+                                <p class="text-muted small mb-0">Adicione as condições que compõem esta regra avançada.</p>
+                            </div>
+                            <button type="button" class="btn btn-outline-primary btn-sm fw-semibold" onclick="addAdvancedConditionRow()">
+                                <i class="bi bi-plus-circle me-1"></i> + Adicionar Condição
+                            </button>
+                        </div>
+
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle bg-white rounded border mb-0" id="table-adv-conditions">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 250px;">Campo Avaliado</th>
+                                        <th style="width: 200px;">Operador / Condição</th>
+                                        <th>Valor Esperado / Expressão Regular (Regex)</th>
+                                        <th class="text-center" style="width: 60px;">Ação</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="adv-conditions-container">
+                                    <!-- Linhas dinâmicas -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Configuração da Ação e Score -->
+                    <div class="card p-3 bg-white border">
+                        <h6 class="fw-bold text-dark mb-3 d-flex align-items-center gap-2">
+                            <i class="bi bi-lightning-fill text-warning"></i> Ação & Pontuação (Impacto AntiSPAM)
+                        </h6>
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-4">
+                                <label class="form-label small fw-bold text-dark mb-1">Tipo de Ação</label>
+                                <select class="form-select form-select-sm" id="adv-rule-action-type">
+                                    <option value="add_score" selected>Adicionar Pontuação de Spam (Penalidade)</option>
+                                    <option value="subtract_score">Subtrair Pontuação de Spam (Bonificação / Confiança)</option>
+                                    <option value="quarantine">Isolar em Quarentena</option>
+                                    <option value="reject">Rejeição Imediata (Bloqueio SMTP)</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small fw-bold text-dark mb-1">Valor do Score (Pontos)</label>
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text font-monospace fw-bold">+</span>
+                                    <input type="number" step="0.1" class="form-control font-monospace" id="adv-rule-score" value="15.0" required>
+                                </div>
+                                <div class="form-text" style="font-size: 11px;">Ex: +15.0 para bloqueio rigoroso imediato (Spam threshold padrão: 5.0).</div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small fw-bold text-dark mb-1">Status da Regra</label>
+                                <div class="form-check form-switch mt-1">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="adv-rule-enabled" checked>
+                                    <label class="form-check-label fw-semibold small text-dark" for="adv-rule-enabled">Regra Ativa no Mecanismo</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light p-3 d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-info btn-sm fw-semibold" onclick="testCurrentRuleDraftWithLastInteraction()">
+                        <i class="bi bi-play-circle me-1"></i> Simular / Testar com a Última Interação
+                    </button>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-secondary btn-sm px-3" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary btn-sm px-4 fw-bold shadow-sm">
+                            <i class="bi bi-check-circle me-1"></i> Salvar Regra Avançada
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================== -->
+<!-- MODAL C: Testador & Simulador de Regra Avançada (Reprocessável) -->
+<!-- ============================================================== -->
+<div class="modal fade" id="advancedRuleTestModal" tabindex="-1" aria-labelledby="advancedRuleTestModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light border-bottom p-3">
+                <div>
+                    <h5 class="modal-title fw-bold text-dark fs-6" id="advancedRuleTestModalLabel">
+                        <i class="bi bi-play-circle-fill text-primary me-2"></i> Testador Forense de Regra Avançada
+                    </h5>
+                    <p class="text-muted small mb-0">Simule um e-mail de teste contra a regra e verifique o resultado das condições em tempo real.</p>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body p-4">
+                <input type="hidden" id="test-rule-id">
+                <div class="alert alert-light border d-flex align-items-center justify-content-between py-2 mb-3">
+                    <div>
+                        <span class="small text-muted">Testando a regra:</span>
+                        <strong class="font-monospace text-primary ms-1" id="test-rule-code-label">LOCAL_ADV_...</strong>
+                    </div>
+                    <span class="badge bg-secondary font-monospace" id="test-rule-logic-label">Lógica: AND</span>
+                </div>
+
+                <!-- Formulário de Contexto do Teste -->
+                <div class="row g-2 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold text-dark mb-0">Remetente (From)</label>
+                        <input type="text" class="form-control form-control-sm font-monospace" id="test-param-sender-from" value="Notificação <contato@a8f7c9e1.com.br>">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold text-dark mb-0">Origem da Conexão</label>
+                        <select class="form-select form-select-sm font-monospace" id="test-param-origin">
+                            <option value="external" selected>Externa (Internet / Remoto)</option>
+                            <option value="internal">Interna (Rede Local / Submissão)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold text-dark mb-0">Autenticação SMTP (AUTH)</label>
+                        <select class="form-select form-select-sm font-monospace" id="test-param-smtp-auth">
+                            <option value="false" selected>Não (Conexão Anônima - Porta 25)</option>
+                            <option value="true">Sim (SASL Autenticado)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold text-dark mb-0">Assunto (Subject)</label>
+                        <input type="text" class="form-control form-control-sm" id="test-param-subject" value="Aviso urgente de bloqueio de conta">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-bold text-dark mb-0">Corpo da Mensagem (Body - opcional)</label>
+                        <textarea class="form-control form-control-sm font-monospace" id="test-param-body" rows="2" placeholder="Digite ou cole trecho do corpo do e-mail..."></textarea>
+                    </div>
+                </div>
+
+                <!-- Botões de Execução e Reprocessamento -->
+                <div class="d-flex align-items-center justify-content-between pt-2 border-top mb-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="clearAdvancedRuleTestInputs()">
+                            Limpar
+                        </button>
+                        <button type="button" class="btn btn-outline-info btn-sm fw-semibold" onclick="loadLastInteractionIntoTest(true)">
+                            <i class="bi bi-clock-history me-1"></i> Carregar Última Interação
+                        </button>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <button type="button" class="btn btn-outline-primary btn-sm fw-semibold" onclick="reprocessAdvancedRuleTest()" id="btn-reprocess-rule-test">
+                            <i class="bi bi-arrow-clockwise me-1"></i> Reprocessar Teste Novamente
+                        </button>
+                        <button type="button" class="btn btn-primary btn-sm px-3 fw-bold shadow-sm" onclick="runAdvancedRuleTest()">
+                            <i class="bi bi-play-circle-fill me-1"></i> Executar Simulação
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Painel de Resultados do Teste -->
+                <div id="adv-test-results-panel" class="p-3 bg-light rounded border d-none">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <h6 class="fw-bold text-dark mb-0">Diagnóstico da Execução</h6>
+                        <div id="adv-test-verdict-badge"></div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered bg-white mb-2" style="font-size: 0.8rem;">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Campo</th>
+                                    <th>Operador</th>
+                                    <th>Esperado</th>
+                                    <th>Valor Testado</th>
+                                    <th class="text-center" style="width: 80px;">Resultado</th>
+                                </tr>
+                            </thead>
+                            <tbody id="adv-test-conditions-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="small text-muted font-monospace" id="adv-test-summary-text"></div>
+                </div>
+            </div>
+            <div class="modal-footer bg-light p-3">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Fechar</button>
+            </div>
         </div>
     </div>
 </div>

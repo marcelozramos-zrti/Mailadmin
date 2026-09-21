@@ -31,7 +31,11 @@ import {
   AlertCircle,
   FileText
 } from 'lucide-react';
-import { LintResponse, VisualSpamRule, CustomRegexRule, RegexRuleTestResult } from '../types';
+import { LintResponse, VisualSpamRule, CustomRegexRule, RegexRuleTestResult, AdvancedAntispamRule } from '../types';
+import { RuleTypeSelectModal } from './RuleTypeSelectModal';
+import { AdvancedRuleModal } from './AdvancedRuleModal';
+import { AdvancedRuleTestModal } from './AdvancedRuleTestModal';
+import { AdvancedRulesList } from './AdvancedRulesList';
 
 interface SpamRulesTabProps {
   onShowAlert: (msg: string, type: 'success' | 'danger') => void;
@@ -268,6 +272,8 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
   const [inlineResult, setInlineResult] = useState<RegexRuleTestResult | null>(null);
 
   // Simulator state
+  const [simOrigin, setSimOrigin] = useState<string>('external');
+  const [simSmtpAuth, setSimSmtpAuth] = useState<boolean>(false);
   const [simSubject, setSimSubject] = useState<string>('PROCON: Notificação Urgente — Pendência Consumidor');
   const [simFrom, setSimFrom] = useState<string>('Julia Pereira <juliapereira@2f1ab419.apriori.net.br>');
   const [simReplyTo, setSimReplyTo] = useState<string>('notificacao@2f1ab419.apriori.net.br');
@@ -282,6 +288,91 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
   const [showAdvancedParams, setShowAdvancedParams] = useState<boolean>(true);
   const [simTesting, setSimTesting] = useState<boolean>(false);
   const [testResult, setTestResult] = useState<RegexRuleTestResult | null>(null);
+
+  // Advanced Rules state
+  const [subTab, setSubTab] = useState<'advanced' | 'simple'>('advanced');
+  const [advancedRules, setAdvancedRules] = useState<AdvancedAntispamRule[]>([]);
+  const [loadingAdvanced, setLoadingAdvanced] = useState<boolean>(true);
+  const [showRuleTypeModal, setShowRuleTypeModal] = useState<boolean>(false);
+  const [showAdvancedModal, setShowAdvancedModal] = useState<boolean>(false);
+  const [advancedRuleToEdit, setAdvancedRuleToEdit] = useState<AdvancedAntispamRule | null>(null);
+  const [showAdvancedTestModal, setShowAdvancedTestModal] = useState<boolean>(false);
+  const [advancedRuleToTest, setAdvancedRuleToTest] = useState<AdvancedAntispamRule | null>(null);
+
+  // Fetch advanced rules
+  const fetchAdvancedRules = async () => {
+    setLoadingAdvanced(true);
+    try {
+      const res = await fetch('/api/antispam/advanced-rules');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.rules)) {
+        setAdvancedRules(data.rules);
+      } else {
+        setAdvancedRules([]);
+      }
+    } catch (err: any) {
+      onShowAlert('Erro ao carregar regras avançadas: ' + err.message, 'danger');
+    } finally {
+      setLoadingAdvanced(false);
+    }
+  };
+
+  const handleSaveAdvancedRule = async (rule: AdvancedAntispamRule) => {
+    const res = await fetch('/api/antispam/advanced-rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(rule)
+    });
+    const data = await res.json();
+    if (data.success) {
+      onShowAlert(data.message, 'success');
+      fetchAdvancedRules();
+      if (onRefreshStatus) onRefreshStatus();
+    } else {
+      throw new Error(data.message || 'Erro ao salvar regra avançada.');
+    }
+  };
+
+  const handleToggleAdvancedActive = async (rule: AdvancedAntispamRule) => {
+    try {
+      const res = await fetch('/api/antispam/advanced-rules/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: rule.id, is_active: !rule.is_active })
+      });
+      const data = await res.json();
+      if (data.success) {
+        onShowAlert(data.message, 'success');
+        fetchAdvancedRules();
+      } else {
+        onShowAlert(data.message || 'Erro ao alternar status da regra.', 'danger');
+      }
+    } catch (err: any) {
+      onShowAlert('Erro de comunicação: ' + err.message, 'danger');
+    }
+  };
+
+  const handleDeleteAdvancedRule = async (rule: AdvancedAntispamRule) => {
+    if (!window.confirm(`Deseja realmente excluir permanentemente a regra '${rule.code}'?`)) {
+      return;
+    }
+    try {
+      const res = await fetch('/api/antispam/advanced-rules/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: rule.id })
+      });
+      const data = await res.json();
+      if (data.success) {
+        onShowAlert(data.message, 'success');
+        fetchAdvancedRules();
+      } else {
+        onShowAlert(data.message || 'Erro ao excluir regra.', 'danger');
+      }
+    } catch (err: any) {
+      onShowAlert('Erro de comunicação: ' + err.message, 'danger');
+    }
+  };
 
   // Raw editor state
   const [content, setContent] = useState<string>('');
@@ -348,6 +439,7 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
   const refreshAll = () => {
     fetchVisualRules();
     fetchCustomRules();
+    fetchAdvancedRules();
     fetchRawRules();
   };
 
@@ -359,6 +451,11 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
   const generatePatternFromKeywords = (words: string, matchType: string): string => {
     if (!words.trim()) return '/palavra/i';
     
+    // Se o usuário digitou uma expressão Regex pura, preservar integralmente
+    if (words.trim().startsWith('/') && words.trim().lastIndexOf('/') > 0) {
+      return words.trim();
+    }
+
     // Split comma separated or pipe separated phrases
     const parts = words.split(/[,|;]/).map(w => w.trim()).filter(Boolean);
     if (parts.length === 0) return '/palavra/i';
@@ -625,6 +722,8 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
           reply_to: simReplyTo,
           body: simBody,
           client_ip: simClientIp,
+          origin: simOrigin,
+          smtp_auth: simSmtpAuth,
           helo: simHelo,
           spf_status: simSpf,
           dkim_status: simDkim,
@@ -672,8 +771,18 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
   };
 
   // Load preset simulation scenarios
-  const loadScenario = (type: 'procon' | 'pedagio' | 'reclame_aqui' | 'ofuscado' | 'interrogacoes' | 'legitimo') => {
-    if (type === 'procon') {
+  const loadScenario = (type: 'procon' | 'pedagio' | 'reclame_aqui' | 'ofuscado' | 'interrogacoes' | 'legitimo' | 'atrushx') => {
+    if (type === 'atrushx') {
+      setSimSubject('Aviso de Notificação de Cobrança');
+      setSimFrom('registro-brione-rc@atrushx10.com');
+      setSimReplyTo('registro-brione-rc@atrushx10.com');
+      setSimBody('Notificação urgente sobre sua conta atrushx.');
+      setSimSpf('NONE');
+      setSimDkim('NONE');
+      setSimDmarc('NONE');
+      setSimHeaders('');
+      setSimSaBase(0.0);
+    } else if (type === 'procon') {
       setSimSubject('PROCON: Notificação Urgente — Pendência Consumidor');
       setSimFrom('Julia Pereira <juliapereira@2f1ab419.apriori.net.br>');
       setSimReplyTo('notificacao@2f1ab419.apriori.net.br');
@@ -924,30 +1033,105 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
       {activeView === 'heuristics' && (
         <div className="space-y-6">
           
-          {/* Info Banner Database Persistence */}
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="bg-amber-500 text-slate-950 p-2 rounded-lg font-bold">
-                <Database className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-amber-900">
-                  Regras Locais no Banco de Dados (Tabela <code>spam_custom_rules</code>)
-                </h3>
-                <p className="text-xs text-amber-800/90 mt-0.5">
-                  Identifique termos no Assunto (Subject), Corpo (Body), Remetente ou Reply-To. As regras são persistidas no banco e sincronizadas automaticamente com o SpamAssassin (/etc/spamassassin/local.cf).
-                </p>
-              </div>
+          {/* Sub-Navigation: Regras Avançadas vs Regras Simples */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between border-b border-slate-200 pb-3 gap-3">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSubTab('advanced')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  subTab === 'advanced'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Regras Avançadas (Compostas)</span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
+                  subTab === 'advanced' ? 'bg-indigo-700 text-white' : 'bg-slate-200 text-slate-800'
+                }`}>
+                  {advancedRules.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSubTab('simple')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  subTab === 'simple'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                <Sliders className="w-4 h-4" />
+                <span>Regras Simples (Heurísticas)</span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
+                  subTab === 'simple' ? 'bg-amber-700 text-white' : 'bg-slate-200 text-slate-800'
+                }`}>
+                  {customRules.length}
+                </span>
+              </button>
             </div>
 
             <button
-              onClick={() => openNewCustomModal()}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-colors shadow-xs shrink-0"
+              onClick={() => setShowRuleTypeModal(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer"
             >
               <PlusCircle className="w-4 h-4" />
-              <span>+ Criar Nova Regra Inteligente</span>
+              <span>+ Nova Regra AntiSPAM</span>
             </button>
           </div>
+
+          {/* VIEW: REGRAS AVANÇADAS */}
+          {subTab === 'advanced' && (
+            <AdvancedRulesList
+              rules={advancedRules}
+              loading={loadingAdvanced}
+              onRefresh={fetchAdvancedRules}
+              onCreateNew={() => {
+                setAdvancedRuleToEdit(null);
+                setShowAdvancedModal(true);
+              }}
+              onEdit={(rule) => {
+                setAdvancedRuleToEdit(rule);
+                setShowAdvancedModal(true);
+              }}
+              onDelete={handleDeleteAdvancedRule}
+              onToggleActive={handleToggleAdvancedActive}
+              onTestRule={(rule) => {
+                setAdvancedRuleToTest(rule);
+                setShowAdvancedTestModal(true);
+              }}
+            />
+          )}
+
+          {/* VIEW: REGRAS SIMPLES (PRESERVADAS 100%) */}
+          {subTab === 'simple' && (
+            <div className="space-y-6">
+              {/* Info Banner Database Persistence */}
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="bg-amber-500 text-slate-950 p-2 rounded-lg font-bold">
+                    <Database className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-amber-900">
+                      Regras Locais no Banco de Dados (Tabela <code>spam_custom_rules</code>)
+                    </h3>
+                    <p className="text-xs text-amber-800/90 mt-0.5">
+                      Identifique termos no Assunto (Subject), Corpo (Body), Remetente ou Reply-To. As regras são persistidas no banco e sincronizadas automaticamente com o SpamAssassin (/etc/spamassassin/local.cf).
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => openNewCustomModal()}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-colors shadow-xs shrink-0"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  <span>+ Criar Nova Regra Simples</span>
+                </button>
+              </div>
 
           {/* Quick Presets Bar */}
           <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-5 shadow-xs">
@@ -1313,6 +1497,9 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
             )}
           </div>
 
+            </div>
+          )}
+
         </div>
       )}
 
@@ -1558,6 +1745,15 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
+                  onClick={() => loadScenario('atrushx')}
+                  className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-rose-50 hover:bg-rose-100 hover:border-rose-400 text-rose-800 rounded-lg transition-colors border border-rose-300 font-bold shadow-xs"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Atrushx Regex (@atrushx*.com)</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => loadScenario('procon')}
                   className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-rose-50 hover:bg-rose-100 hover:border-rose-400 text-rose-800 rounded-lg transition-colors border border-rose-300 font-bold shadow-xs"
                 >
@@ -1698,7 +1894,31 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
               </button>
 
               {showAdvancedParams && (
-                <div className="p-4 border-t border-slate-200 bg-white grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 border-t border-slate-200 bg-white grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Origem do Tráfego:</label>
+                    <select
+                      value={simOrigin}
+                      onChange={(e) => setSimOrigin(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 font-bold focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="external">🌐 Externa (Internet)</option>
+                      <option value="internal">🏢 Interna (Rede Local / VPN)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Autenticação SMTP (AUTH):</label>
+                    <select
+                      value={simSmtpAuth ? 'yes' : 'no'}
+                      onChange={(e) => setSimSmtpAuth(e.target.value === 'yes')}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 font-bold focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="no">Não (Conexão Anônima)</option>
+                      <option value="yes">Sim (Usuário Autenticado)</option>
+                    </select>
+                  </div>
+
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Status SPF:</label>
                     <select
@@ -2471,6 +2691,51 @@ export const SpamRulesTab: React.FC<SpamRulesTabProps> = ({ onShowAlert, onRefre
           </div>
         </div>
       )}
+
+      {/* ========================================================= */}
+      {/* MODAL: SELEÇÃO DE TIPO DE REGRA */}
+      {/* ========================================================= */}
+      <RuleTypeSelectModal
+        isOpen={showRuleTypeModal}
+        onClose={() => setShowRuleTypeModal(false)}
+        onSelectType={(type) => {
+          if (type === 'simple') {
+            openNewCustomModal();
+          } else {
+            setAdvancedRuleToEdit(null);
+            setShowAdvancedModal(true);
+          }
+        }}
+      />
+
+      {/* ========================================================= */}
+      {/* MODAL: CONSTRUTOR / EDITOR DE REGRA AVANÇADA */}
+      {/* ========================================================= */}
+      <AdvancedRuleModal
+        isOpen={showAdvancedModal}
+        ruleToEdit={advancedRuleToEdit}
+        onClose={() => {
+          setShowAdvancedModal(false);
+          setAdvancedRuleToEdit(null);
+        }}
+        onSave={handleSaveAdvancedRule}
+        onTestRule={(rule) => {
+          setAdvancedRuleToTest(rule);
+          setShowAdvancedTestModal(true);
+        }}
+      />
+
+      {/* ========================================================= */}
+      {/* MODAL: TESTE E SIMULAÇÃO DE REGRA AVANÇADA */}
+      {/* ========================================================= */}
+      <AdvancedRuleTestModal
+        isOpen={showAdvancedTestModal}
+        rule={advancedRuleToTest}
+        onClose={() => {
+          setShowAdvancedTestModal(false);
+          setAdvancedRuleToTest(null);
+        }}
+      />
 
     </div>
   );
